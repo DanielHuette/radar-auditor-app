@@ -38,7 +38,7 @@ Four parts work together:
    ![Phone: tab Prüfen with the website address](bilder/pruefen-handy.png)
    ![Desktop: tab Prüfen](bilder/pruefen-desktop.png)
 
-2. **Choose the checks.** `config/pruefkatalog.yaml` holds 108 checks in 14 areas, a to n. Each area has one box for all its checks and opens on tap, showing one sentence per check. The choice stays on the device and is stored with the audit (`audits.disabled_checks`). Tap **Prüfung starten**. "Prüfungen gerade nicht möglich" means Claude Code on the server cannot analyse right now; the reason follows.
+2. **Choose the checks.** `config/pruefkatalog.yaml` holds 62 checks in 14 areas, a to n. Each area has one box for all its checks and opens on tap, showing one sentence per check. The choice stays on the device and is stored with the audit (`audits.disabled_checks`). Tap **Prüfung starten**. "Prüfungen gerade nicht möglich" means Claude Code on the server cannot analyse right now; the reason follows.
 
    ![Phone: choice of checks with one area open](bilder/pruefen-auswahl-handy.png)
    ![Desktop: choice of checks](bilder/pruefen-auswahl-desktop.png)

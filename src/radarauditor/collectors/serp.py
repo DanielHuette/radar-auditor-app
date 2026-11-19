@@ -27,7 +27,7 @@ from radarauditor.errors import SearchBlockedError, TransientCollectionError
 
 logger = logging.getLogger(__name__)
 
-GOOGLE_SEARCH_URL = "https://www.google.de/search?q={query}&hl=de&gl=de&num=20"
+GOOGLE_SEARCH_URL = "https://www.google.de/search?q={query}&hl=de&gl=de&num=30"
 GOOGLE_IMAGES_URL = "https://www.google.de/search?q={query}&hl=de&gl=de&tbm=isch"
 BING_SEARCH_URL = "https://www.bing.com/search?q={query}&setlang=de&cc=de"
 IMAGE_RESULT_LIMIT = 40

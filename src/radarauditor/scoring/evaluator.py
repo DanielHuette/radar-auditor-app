@@ -1,16 +1,3 @@
-"""Evaluate every applicable check and compute area and total scores.
-
-Context: Checks whose paid or access requirement is not met in the audit context are left out and
-their weight is redistributed within the area; a check that runs but finds no data counts as not
-measurable. Checks switched off in the app settings are stored as skipped with weight 0 and do not
-count. A check whose source reached its monthly cost cap is not measurable with reason
-"Monatslimit erreicht"; one whose source ran out of its daily cap with reason "Tageslimit
-erreicht"; for assistant checks only the capped assistants' answers are left out. Areas of weight 0
-(area m) are scored but do not move the total.
-Input: RawAudit, Catalogue.
-Output: CheckResults and scores.
-"""
-
 import importlib
 import logging
 from collections import defaultdict
@@ -21,11 +8,13 @@ from uuid import UUID, uuid5
 
 from radarauditor.collectors.assistants import provider_source
 from radarauditor.collectors.snapshot import RawAudit
+from radarauditor.collectors.validation import steps_of_check
 from radarauditor.db.app_settings import Source
 from radarauditor.db.models import CheckOutcome, CheckResult
 from radarauditor.errors import ScoringError
+from radarauditor.feedback.events import NOT_BUILT_REASON
 from radarauditor.scoring.catalog import Catalogue, CheckDefinition, checks_for_context
-from radarauditor.scoring.checks.common import CheckReturn
+from radarauditor.scoring.checks.common import PROFILE_NOT_PROVABLE, CheckReturn, not_measurable
 
 logger = logging.getLogger(__name__)
 
@@ -33,17 +22,14 @@ AREA_MODULES = {
     "a": "a_technik",
     "b": "b_struktur",
     "c": "c_inhalt",
-    "d": "d_firmendaten",
-    "e": "e_strukturierte_daten",
     "f": "f_google_profil",
     "g": "g_bewertungen",
     "h": "h_verzeichnisse",
     "i": "i_links",
     "j": "j_rankings",
     "k": "k_assistenten",
-    "l": "l_recht",
     "m": "m_wirkung",
-    "n": "n_werkzeuge",
+    "p": "p_werbung",
 }
 POINTS = {
     CheckOutcome.PASSED: Decimal(1),
@@ -57,15 +43,31 @@ ASSISTANT_SOURCE = "assistants"
 CATALOGUE_SOURCE_FEEDS: dict[str, frozenset[Source]] = {
     "places": frozenset({Source.PLACES, Source.GOOGLE_MAPS}),
     "serp": frozenset({Source.GOOGLE_SEARCH}),
-    ASSISTANT_SOURCE: frozenset({Source.CHATGPT, Source.CLAUDE, Source.GEMINI, Source.PERPLEXITY}),
+    ASSISTANT_SOURCE: frozenset({Source.CHATGPT, Source.CLAUDE, Source.GOOGLE_AI}),
     "paid": frozenset({Source.DATAFORSEO}),
+    "ads_google": frozenset({Source.DATAFORSEO}),
+    "ads_meta": frozenset({Source.APIFY}),
+}
+CHECK_SOURCE_FEEDS: dict[str, frozenset[Source]] = {
+    "k1": frozenset({Source.CHATGPT}),
+    "k2": frozenset({Source.CHATGPT}),
+    "k6": frozenset({Source.CLAUDE}),
+    "k7": frozenset({Source.CLAUDE}),
 }
 PAID_SOURCE = "paid"
+PLACES_SOURCE = "places"
+PROFILE_CHECK = "f1"
+HISTORY_CHECK = "j9"
+PROFILE_AREAS = frozenset({"f", "g"})
+PROFILE_CHECKS = frozenset({"j3"})
+NO_LOCATION_REASON = "no_location"
+MEASUREMENT_INVALID_REASON = "measurement_invalid"
+NO_ACCESS_REASON = "no_access"
+PAID_DISABLED_REASON = "paid_disabled"
 SERP_SOURCE = "serp"
 DATAFORSEO_ROUTE = "dataforseo"
-API_ROUTE = "api"
-DOMAIN_AGE_CHECK = "i5"
-# Serp checks that read Bing or the image search, which only run in the browser.
+APIFY_ROUTE = "apify"
+PAID_SERP_ROUTES = frozenset({DATAFORSEO_ROUTE, APIFY_ROUTE})
 NON_GOOGLE_WEB_SERP_CHECKS = frozenset({"j7", "j8"})
 WEIGHT_PLACES = Decimal("0.001")
 SCORE_PLACES = Decimal("0.01")
@@ -74,36 +76,30 @@ HUNDRED = Decimal(100)
 
 @cache
 def area_module(area_id: str) -> ModuleType:
-    """Import the check module of an area.
-
-    Raises:
-        ScoringError: If the area has no check module.
-    """
     name = AREA_MODULES.get(area_id)
     if name is None:
         raise ScoringError(f"Area {area_id} has no check module")
     return importlib.import_module(f"radarauditor.scoring.checks.{name}")
 
 
+def is_built(check_id: str) -> bool:
+    name = AREA_MODULES.get(check_id[0])
+    return name is not None and check_id in area_module(check_id[0]).CHECKS
+
+
 def run_check(check: CheckDefinition, raw: RawAudit) -> CheckReturn:
-    """Measure one check; access checks without collected access data are not measurable.
-
-    Paid checks run their function, which reports not measurable while the RawAudit holds no
-    paid data.
-
-    Args:
-        check: Catalogue definition.
-        raw: Collected audit data.
-
-    Returns:
-        Outcome and measured values.
-
-    Raises:
-        ScoringError: If no function exists for the check.
-    """
-    if check.source == "access" and raw.access is None:
+    if not is_built(check.id):
+        return CheckOutcome.NOT_MEASURABLE, {"reason": NOT_BUILT_REASON}
+    if check.measurement == "access" and raw.access is None:
         return CheckOutcome.NOT_MEASURABLE, {"reason": "no_access"}
-    module = area_module(check.area)
+    if check.measurement == PLACES_SOURCE and (
+        check.id[0] in PROFILE_AREAS or check.id in PROFILE_CHECKS
+    ):
+        if raw.has_location is False:
+            return CheckOutcome.NOT_APPLICABLE, {"reason": NO_LOCATION_REASON}
+        if raw.profile_missing and check.id != PROFILE_CHECK:
+            return not_measurable(PROFILE_NOT_PROVABLE, profile_found=False)
+    module = area_module(check.id[0])
     outcome, measured = module.run(check.id, raw, check.thresholds)
     if not isinstance(outcome, CheckOutcome) or not isinstance(measured, dict):
         raise ScoringError(f"Check {check.id} returned an invalid result")
@@ -118,30 +114,16 @@ def evaluate(
     with_access: bool = False,
     disabled_checks: frozenset[str] = frozenset(),
 ) -> list[CheckResult]:
-    """Run each check function by id and collect outcomes.
-
-    Args:
-        audit_id: Audit the results belong to; result ids derive from it, so reruns are idempotent.
-        raw: Collected audit data.
-        catalogue: Validated catalogue.
-        paid_enabled: Whether checks that need the paid provider count, i.e. whether the dataforseo
-            source is switched on in the app settings.
-        with_access: Whether checks that need customer access count.
-        disabled_checks: Ids of checks switched off for this audit.
-
-    Returns:
-        One result per check that counts in this context, in catalogue order; disabled checks are
-        skipped with weight 0.
-
-    Raises:
-        ScoringError: If a check has no function or returns an invalid result.
-    """
-    checks = checks_for_context(catalogue, paid_enabled, with_access)
-    weights = _check_weights(catalogue, [c for c in checks if c.id not in disabled_checks])
+    in_context = checks_for_context(catalogue, paid_enabled, with_access)
+    weights = _check_weights(
+        catalogue, [c for c in in_context if c.id not in disabled_checks and c.counts_in_score]
+    )
+    context_ids = {check.id for check in in_context}
     results: list[CheckResult] = []
-    for check in checks:
-        skipped: CheckReturn = (CheckOutcome.SKIPPED, {"reason": SKIPPED_REASON})
-        outcome, measured = skipped if check.id in disabled_checks else measure_check(check, raw)
+    for check in (check for area in catalogue.areas for check in area.checks):
+        outcome, measured = _outcome_of(
+            check, raw, check.id in context_ids, disabled_checks, with_access
+        )
         results.append(
             CheckResult(
                 id=uuid5(audit_id, check.id),
@@ -150,6 +132,7 @@ def evaluate(
                 area=check.area,
                 outcome=outcome,
                 measured=measured,
+                provider=check.provider,
                 weight=weights.get(check.id, Decimal(0)),
             )
         )
@@ -158,37 +141,59 @@ def evaluate(
     return results
 
 
+def _outcome_of(
+    check: CheckDefinition,
+    raw: RawAudit,
+    in_context: bool,
+    disabled_checks: frozenset[str],
+    with_access: bool,
+) -> CheckReturn:
+    if check.id in disabled_checks:
+        return CheckOutcome.SKIPPED, {"reason": SKIPPED_REASON}
+    if in_context:
+        return measure_check(check, raw)
+    reason = NO_ACCESS_REASON if check.requires_access and not with_access else PAID_DISABLED_REASON
+    return CheckOutcome.NOT_MEASURABLE, {"reason": reason}
+
+
 def _check_weights(catalogue: Catalogue, counted: list[CheckDefinition]) -> dict[str, Decimal]:
-    """Share the area weight equally among the counted checks of each area."""
     per_area: dict[str, int] = defaultdict(int)
     for check in counted:
         per_area[check.area] += 1
     area_weights = {area.id: area.weight for area in catalogue.areas}
     return {
-        check.id: (Decimal(area_weights[check.area]) / per_area[check.area]).quantize(
-            WEIGHT_PLACES, rounding=ROUND_HALF_UP
-        )
+        check.id: (
+            Decimal(area_weights[check.area]) / per_area[check.area]
+            if check.weight is None
+            else check.weight
+        ).quantize(WEIGHT_PLACES, rounding=ROUND_HALF_UP)
         for check in counted
     }
 
 
+def invalid_measurement(check: CheckDefinition, raw: RawAudit) -> CheckReturn | None:
+    if check.id == HISTORY_CHECK and raw.ranking_history is None:
+        return None
+    wanted = steps_of_check(check.id, check.measurement)
+    for record in raw.measurements:
+        if record.step in wanted and not record.valid:
+            return CheckOutcome.NOT_MEASURABLE, {
+                "reason": MEASUREMENT_INVALID_REASON,
+                "step": record.step,
+                "invalid_reason": record.reason,
+            }
+    return None
+
+
 def measure_check(check: CheckDefinition, raw: RawAudit) -> CheckReturn:
-    """Run a check unless a daily or monthly cost cap of its source ran out during collection.
-
-    Args:
-        check: Catalogue definition.
-        raw: Collected audit data.
-
-    Returns:
-        Outcome and measured values; not measurable with reason "Monatslimit erreicht" or
-        "Tageslimit erreicht" when the data is incomplete because of a cap.
-
-    Raises:
-        ScoringError: If no function exists for the check.
-    """
-    feeds = CATALOGUE_SOURCE_FEEDS.get(check.source, frozenset())
+    invalid = invalid_measurement(check, raw)
+    if invalid is not None:
+        return invalid
+    feeds = CHECK_SOURCE_FEEDS.get(check.id) or CATALOGUE_SOURCE_FEEDS.get(
+        check.measurement, frozenset()
+    )
     cost_capped = sorted(feeds.intersection(raw.cost_capped_sources))
-    if cost_capped:
+    if cost_capped and check.measurement != ASSISTANT_SOURCE:
         names = [source.value for source in cost_capped]
         return CheckOutcome.NOT_MEASURABLE, {"reason": MONTHLY_CAP_REASON, "sources": names}
     capped = sorted(feeds.intersection(raw.capped_sources))
@@ -197,7 +202,7 @@ def measure_check(check: CheckDefinition, raw: RawAudit) -> CheckReturn:
         return outcome, {**measured, **data_routes(check, raw, outcome)}
     capped_names = [source.value for source in capped]
     capped_measured: dict[str, object] = {"reason": DAILY_CAP_REASON, "sources": capped_names}
-    if check.source != ASSISTANT_SOURCE:
+    if check.measurement != ASSISTANT_SOURCE:
         return CheckOutcome.NOT_MEASURABLE, capped_measured
     outcome, measured = run_check(check, _without_answers_of(raw, frozenset(capped)))
     if outcome is CheckOutcome.NOT_MEASURABLE:
@@ -206,41 +211,23 @@ def measure_check(check: CheckDefinition, raw: RawAudit) -> CheckReturn:
 
 
 def data_routes(check: CheckDefinition, raw: RawAudit, outcome: CheckOutcome) -> dict[str, object]:
-    """Which route delivered the data of a measured check, for the route note in the app.
-
-    Checks of source paid read DataForSEO ("route"); i5 adds the Wayback Machine as a free API
-    ("routes" per source). Google web search checks list the route per searched phrase
-    ("routes") as soon as one phrase came through DataForSEO because Google blocked the browser;
-    with every phrase read in the browser nothing is added. Unmeasured checks get no route.
-
-    Args:
-        check: Catalogue definition.
-        raw: Collected audit data.
-        outcome: Outcome of the check.
-
-    Returns:
-        {"route": id}, {"routes": {key: id}} or {}.
-    """
     if outcome in (CheckOutcome.NOT_MEASURABLE, CheckOutcome.SKIPPED):
         return {}
-    if check.source == PAID_SOURCE:
-        if check.id == DOMAIN_AGE_CHECK and raw.domain_first_capture is not None:
-            return {"routes": {Source.DATAFORSEO.value: DATAFORSEO_ROUTE, "wayback": API_ROUTE}}
+    if check.measurement == PAID_SOURCE:
         return {"route": DATAFORSEO_ROUTE}
-    if check.source != SERP_SOURCE or check.id in NON_GOOGLE_WEB_SERP_CHECKS:
+    if check.measurement != SERP_SOURCE or check.id in NON_GOOGLE_WEB_SERP_CHECKS:
         return {}
     routes = {
         serp.phrase: serp.route
         for serp in raw.serps
         if serp.engine == "google" and serp.vertical == "web"
     }
-    if DATAFORSEO_ROUTE not in routes.values():
+    if PAID_SERP_ROUTES.isdisjoint(routes.values()):
         return {}
     return {"routes": routes}
 
 
 def _without_answers_of(raw: RawAudit, capped: frozenset[Source]) -> RawAudit:
-    """Drop the answers of capped assistants, whose question set is incomplete."""
     kept = [
         answer for answer in raw.assistant_answers if provider_source(answer.provider) not in capped
     ]
@@ -248,25 +235,34 @@ def _without_answers_of(raw: RawAudit, capped: frozenset[Source]) -> RawAudit:
 
 
 def _area_fractions(results: list[CheckResult]) -> dict[str, Decimal]:
-    """Unrounded share of points per area over its measurable results."""
-    points: dict[str, list[Decimal]] = defaultdict(list)
+    scored: dict[str, list[CheckResult]] = defaultdict(list)
     for result in results:
         if result.outcome in POINTS:
-            points[result.area].append(POINTS[result.outcome])
-    return {area: sum(values, Decimal(0)) / len(values) for area, values in points.items()}
+            scored[result.area].append(result)
+    return {area: _weighted_mean(members) for area, members in scored.items()}
+
+
+def _weighted_mean(results: list[CheckResult]) -> Decimal:
+    weight_sum = sum((result.weight for result in results), Decimal(0))
+    if weight_sum == 0:
+        return sum((POINTS[result.outcome] for result in results), Decimal(0)) / len(results)
+    weighted = sum((result.weight * POINTS[result.outcome] for result in results), Decimal(0))
+    return weighted / weight_sum
+
+
+def _scored_results(results: list[CheckResult], catalogue: Catalogue) -> list[CheckResult]:
+    info_ids = {
+        check.id for area in catalogue.areas for check in area.checks if not check.counts_in_score
+    }
+    return [
+        result
+        for result in results
+        if result.check_id not in info_ids and not result.control_failed
+    ]
 
 
 def area_scores(results: list[CheckResult], catalogue: Catalogue) -> dict[str, Decimal]:
-    """Score 0-100 per area from passed=1, partial=0.5, failed=0.
-
-    Args:
-        results: Check results of one audit.
-        catalogue: Validated catalogue, which fixes the order of the areas.
-
-    Returns:
-        Score with two decimal places for every area with at least one measurable result.
-    """
-    fractions = _area_fractions(results)
+    fractions = _area_fractions(_scored_results(results, catalogue))
     return {
         area.id: (fractions[area.id] * HUNDRED).quantize(SCORE_PLACES, rounding=ROUND_HALF_UP)
         for area in catalogue.areas
@@ -274,37 +270,34 @@ def area_scores(results: list[CheckResult], catalogue: Catalogue) -> dict[str, D
     }
 
 
-def total_score(results: list[CheckResult], catalogue: Catalogue) -> Decimal:
-    """Weighted total 0-100 over measurable areas.
+def provider_scores(results: list[CheckResult], catalogue: Catalogue) -> dict[str, Decimal]:
+    provider_of = {check.id: check.provider for area in catalogue.areas for check in area.checks}
+    scored: dict[str, list[CheckResult]] = defaultdict(list)
+    for result in _scored_results(results, catalogue):
+        if result.outcome in POINTS:
+            scored[provider_of[result.check_id]].append(result)
+    return {
+        provider: (_weighted_mean(members) * HUNDRED).quantize(SCORE_PLACES, rounding=ROUND_HALF_UP)
+        for provider, members in scored.items()
+    }
 
-    Args:
-        results: Check results of one audit.
-        catalogue: Validated catalogue with the area weights.
 
-    Returns:
-        Sum of area weight times area score divided by the summed weight of the scored areas,
-        two decimal places.
-
-    Raises:
-        ScoringError: If no weighted area has a measurable result.
-    """
+def total_score_or_none(results: list[CheckResult], catalogue: Catalogue) -> Decimal | None:
     fraction = total_fraction(results, catalogue)
     if fraction is None:
-        raise ScoringError("No weighted area has a measurable result")
+        return None
     return (fraction * HUNDRED).quantize(SCORE_PLACES, rounding=ROUND_HALF_UP)
 
 
+def total_score(results: list[CheckResult], catalogue: Catalogue) -> Decimal:
+    score = total_score_or_none(results, catalogue)
+    if score is None:
+        raise ScoringError("No weighted area has a measurable result")
+    return score
+
+
 def total_fraction(results: list[CheckResult], catalogue: Catalogue) -> Decimal | None:
-    """Unrounded weighted share of points 0-1 over measurable areas.
-
-    Args:
-        results: Check results of one audit.
-        catalogue: Validated catalogue with the area weights.
-
-    Returns:
-        The share behind total_score, or None when no weighted area has a measurable result.
-    """
-    fractions = _area_fractions(results)
+    fractions = _area_fractions(_scored_results(results, catalogue))
     weights = {area.id: Decimal(area.weight) for area in catalogue.areas if area.id in fractions}
     weight_sum = sum(weights.values(), Decimal(0))
     if weight_sum == 0:

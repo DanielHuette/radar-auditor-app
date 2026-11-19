@@ -1,0 +1,6 @@
+.hero__device .fineprint{margin-top:26px;text-align:center}
+.output__caption{margin:0;padding:12px 24px 18px}
+.fx .output__caption{padding-inline:20px}
+.output__shot:not(.output__shot--phone),.fx .output__shot:not(.output__shot--phone){height:auto}
+.output__shot img{display:block}
+.output__shot--phone,.fx .output__shot--phone{width:220px;align-self:center;margin-inline:auto;height:auto;border-radius:22px 22px 0 0}

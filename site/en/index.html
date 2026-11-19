@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>RepoCity RadarAuditor — Visibility audit for local businesses</title>
-<meta name="description" content="RadarAuditor measures how visible a local business is on Google, on the map, in directories and in AI assistants, and what is missing: a score with traffic lights, findings with a ready fix, a forecast as a range.">
+<meta name="description" content="RadarAuditor measures how visible the website of a business is on Google, Bing, Apple Maps, ChatGPT and Claude, and what is missing: 62 checks, each one controlled, with an evaluation and an action plan as PDF.">
 <link rel="canonical" href="https://radarauditor.speedofthespirit.dev/en/">
 <link rel="alternate" hreflang="de" href="https://radarauditor.speedofthespirit.dev/">
 <link rel="alternate" hreflang="en" href="https://radarauditor.speedofthespirit.dev/en/">
@@ -16,7 +16,7 @@
 <meta property="og:locale:alternate" content="de_DE">
 <meta property="og:site_name" content="RepoCity">
 <meta property="og:title" content="RepoCity RadarAuditor — Visibility audit for local businesses">
-<meta property="og:description" content="Measures how visible a local business is on Google, on the map, in directories and in AI assistants, and what is missing.">
+<meta property="og:description" content="Measures how visible the website of a business is on Google, Bing, Apple Maps, ChatGPT and Claude, and what is missing.">
 <meta property="og:url" content="https://radarauditor.speedofthespirit.dev/en/">
 <meta property="og:image" content="https://radarauditor.speedofthespirit.dev/bilder/vorschau.png">
 <meta property="og:image:width" content="1200">
@@ -26,6 +26,8 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preload" href="/fonts/archivo-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/gewichte.css">
+  <link rel="stylesheet" href="/beschriftung.css">
 <script src="/reiter.js"></script>
 <script src="/organigramm.js" defer></script>
 <script src="/praesentation.js" defer></script>
@@ -71,12 +73,12 @@
       "@id": "https://radarauditor.speedofthespirit.dev/#software",
       "name": "RepoCity RadarAuditor",
       "url": "https://radarauditor.speedofthespirit.dev/en/",
-      "description": "Measures how visible a local business is on Google, on the map, in directories and in AI assistants, scores it against 108 checks and delivers findings with a ready fix.",
+      "description": "Measures how visible the website of a business is on Google, Bing and Copilot, Apple Maps, ChatGPT and Claude, scores it with 62 checks, controls every check and delivers an evaluation and an action plan as PDF.",
       "applicationCategory": "BusinessApplication",
       "operatingSystem": "Web",
       "inLanguage": "de",
       "image": "https://radarauditor.speedofthespirit.dev/bilder/vorschau.png",
-      "screenshot": "https://radarauditor.speedofthespirit.dev/bilder/audit-handy.png",
+      "screenshot": "https://radarauditor.speedofthespirit.dev/bilder/audit-laeuft-handy.png",
       "author": {
         "@id": "https://speedofthespirit.dev/#person"
       },
@@ -118,8 +120,8 @@
     <div>
       <svg class="hero__mark" viewBox="0 0 100 100" aria-hidden="true" focusable="false"><use href="#mark"/></svg>
       <h1 id="title"><span class="visually-hidden">RepoCity </span>RadarAuditor</h1>
-      <p class="lead">RadarAuditor measures how visible a business is on Google, on the map, in directories and in AI assistants — and what is missing.</p>
-      <p class="hero__note">For roofers, dentists, kitchen studios and every business whose customers come from nearby. The first audit runs from the outside and needs no access to your accounts.</p>
+      <p class="lead">RadarAuditor measures how visible the website of a business is on Google, Bing, Apple Maps, ChatGPT and Claude, and what is missing.</p>
+      <p class="hero__note">For roofers, dentists, kitchen studios and every business whose customers come from nearby, and for agencies and consultants who offer audits to their own clients. The first audit runs from the outside and needs no access to your accounts.</p>
       <div class="actions">
         <a class="button button--primary" href="mailto:kontakt@speedofthespirit.dev?subject=Audit%20request%3A%20RadarAuditor">Request an audit</a>
         <a class="button button--quiet" href="#flow">How an audit runs</a>
@@ -128,68 +130,69 @@
     <div class="hero__device">
       <div class="device">
         <picture>
-          <source srcset="/bilder/audit-handy.webp" type="image/webp">
-          <img src="/bilder/audit-handy.png" width="480" height="1039" fetchpriority="high" alt="The app on a phone: audit of the sample business Dachdeckerei Muster GmbH with 63 out of 100 points and the first areas in traffic-light colours. The app is in German.">
+          <source srcset="/bilder/audit-laeuft-handy.webp" type="image/webp">
+          <img src="/bilder/audit-laeuft-handy.png" width="480" height="1039" fetchpriority="high" alt="The app on a phone during an audit: checks with a progress bar; finished checks show three boxes with ticks, one check shows a cross.">
         </picture>
       </div>
+      <p class="fineprint">The app during an audit, here for a sample business.</p>
     </div>
   </section>
 
   <section class="section" aria-labelledby="outcome">
     <div class="wrap">
-      <h2 id="outcome">What the customer gets</h2>
+      <h2 id="outcome">What an audit delivers</h2>
       <p class="section__intro">Three things, all from measurements of the business itself and of up to three competitors nearby.</p>
       <div class="outputs">
         <article class="panel output">
           <div class="output__text">
-            <h3>A score from 0 to 100, with a traffic light per area</h3>
-            <p>Green from 75, amber from 50, red below. At a glance it is clear whether the Google profile, the website or the reviews hold the business back.</p>
+            <h3>A score from 0 to 100, with a traffic light per provider</h3>
+            <p>Green from 70, amber from 40, red below. Next to the overall score comes the score per provider, each stating how many scoreable checks it is based on. At a glance it is clear which provider holds the business back.</p>
           </div>
           <div class="output__shot">
             <picture>
-              <source srcset="/bilder/bereiche-desktop.webp" type="image/webp">
-              <img src="/bilder/bereiche-desktop.png" width="672" height="614" loading="lazy" alt="Area list in the app: one bar per area with points in green, amber or red, for example directories and data consistency at 43 points in red. The app is in German.">
+              <source srcset="/bilder/anbieter-desktop.webp" type="image/webp">
+              <img src="/bilder/anbieter-desktop.png" width="672" height="475" loading="lazy" alt="The app on a computer: overall score 67 of 100 in the ring and the score per provider for Google, Bing, Apple, ChatGPT and Claude, each with the number of scored checks.">
             </picture>
           </div>
+          <p class="fineprint output__caption">Overall score and score per provider, here for a sample business.</p>
         </article>
         <article class="panel output">
           <div class="output__text">
-            <h3>Findings in plain language, with a ready fix</h3>
-            <p>Each finding says what was measured, what it costs and what to do. When the fix is a text or a piece of code, it comes ready to copy.</p>
+            <h3>Evaluation and action plan as PDF</h3>
+            <p>The evaluation shows the result of every check and, where there is one, the provider's source. The action plan names for each measure what was measured and what to do, sorted by impact in three priorities.</p>
           </div>
           <div class="output__shot output__shot--phone">
             <picture>
-              <source srcset="/bilder/befund-handy.webp" type="image/webp">
-              <img src="/bilder/befund-handy.png" width="480" height="880" loading="lazy" alt="A finding in the app: Google and AI assistants find no machine-readable company data on the home page, followed by the ready code and a copy button. The app is in German.">
+              <source srcset="/bilder/befund-app-handy.webp" type="image/webp">
+              <img src="/bilder/befund-app-handy.png" width="480" height="948" loading="lazy" alt="One check in the app: the ChatGPT search may not read the website, with measured values, the recommendation including a copy button and the three boxes of the control.">
             </picture>
           </div>
+          <p class="fineprint output__caption">One check with result, measured value, control and recommendation, here for a sample business.</p>
         </article>
         <article class="panel output">
           <div class="output__text">
-            <h3>A forecast as a range, explicitly an estimate</h3>
-            <p>How many more enquiries are possible is shown as a range from low to high, with every assumption listed underneath. It is not a promise.</p>
+            <h3>Every check controlled, with evidence</h3>
+            <p>Every check carries three ticks: data collected correctly, data correct, evaluation correct, each with a reference from the unchanged responses. What could not be measured appears in the report with the reason and does not count towards the points.</p>
           </div>
-          <div class="estimate" role="img" aria-label="Sketch of a forecast: a band between a low and a high estimate instead of a single number.">
-            <div class="estimate__band"><span class="estimate__range"></span></div>
-            <div class="estimate__ends"><span>low estimate</span><span>high estimate</span></div>
-            <ul>
-              <li><strong>Clicks on position 1:</strong> 25 to 35 of 100 searchers, German average</li>
-              <li><strong>Enquiries in the building trades:</strong> 5 to 10 of 100 visitors</li>
-            </ul>
+          <div class="output__shot output__shot--phone">
+            <picture>
+              <source srcset="/bilder/kontrolle-handy.webp" type="image/webp">
+              <img src="/bilder/kontrolle-handy.png" width="480" height="523" loading="lazy" alt="One check in the app with the three verdicts of the control: two ticks and a cross, below them the reason for the cross and the reference.">
+            </picture>
           </div>
+          <p class="fineprint output__caption">The three verdicts of the control, the rejected one with its reason and evidence, here for a sample business.</p>
         </article>
       </div>
-      <p class="fineprint">The images show an earlier version of the app with sample data.</p>
     </div>
   </section>
 
   <section class="section" id="flow" aria-labelledby="flow-title">
     <div class="wrap">
       <h2 id="flow-title">How an audit runs</h2>
-      <p class="section__intro">A job goes round once. Scoring follows fixed rules; writing happens only at the end. Depending on the size of the website it takes a few minutes to half an hour.</p>
+      <p class="section__intro">You enter the website address and start the audit. An artificial intelligence runs it from start to finish: it calls every measurement service, looks at every response, scores every check and writes the evaluation and the action plan. Programs only do handiwork that needs no judgement, such as printing the PDF and sending the phone notification.</p>
       <div class="panel flow-stage">
 <svg class="flow flow--wide" viewBox="0 0 1100 452" role="img" aria-labelledby="fden-t fden-d">
-<title id="fden-t">How an audit runs</title><desc id="fden-d">The app on the phone puts a job into the Supabase queue. The collector container on the RepoCity server fetches data from the website, load time, Google profile, search, directories and AI assistants. Scoring checks it against 108 checks. Claude Code writes findings and texts on the Claude subscription. The result is a PDF report that goes back into the app.</desc>
+<title id="fden-t">How an audit runs</title><desc id="fden-d">The app on the phone starts an audit. It calculates the cost estimate and measures Google, Bing and Copilot, Apple Maps, ChatGPT, Claude and paid visibility. The 62 checks are scored and every check is controlled. The result is an evaluation and an action plan as PDF that go back into the app.</desc>
 <defs>
 <filter id="fden-blur" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="4"/></filter>
 <filter id="fden-halo" x="-20%" y="-40%" width="140%" height="180%"><feGaussianBlur stdDeviation="7"/></filter>
@@ -213,19 +216,19 @@
 <g class="signal"><circle r="9" fill="#f0d492" opacity="0.75" filter="url(#fden-blur)"/><circle r="3.5" fill="#fbe7b5"/><animateMotion dur="14.6s" repeatCount="indefinite" begin="-14.6s" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.2712;0.3329;1"><mpath href="#fden-s3"/></animateMotion></g>
 <g class="signal"><circle r="9" fill="#f0d492" opacity="0.75" filter="url(#fden-blur)"/><circle r="3.5" fill="#fbe7b5"/><animateMotion dur="14.6s" repeatCount="indefinite" begin="-14.6s" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.2863;0.3479;1"><mpath href="#fden-s4"/></animateMotion></g>
 <g class="signal"><circle r="9" fill="#f0d492" opacity="0.75" filter="url(#fden-blur)"/><circle r="3.5" fill="#fbe7b5"/><animateMotion dur="14.6s" repeatCount="indefinite" begin="-14.6s" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.3014;0.363;1"><mpath href="#fden-s5"/></animateMotion></g>
-<g class="pill"><rect x="942" y="18" width="146" height="32" rx="16" fill="#0b1222" stroke="rgba(243,241,234,0.16)"/><text x="958" y="39" class="d-pill" font-size="14">Website</text></g>
-<g class="pill"><rect x="942" y="60" width="146" height="32" rx="16" fill="#0b1222" stroke="rgba(243,241,234,0.16)"/><text x="958" y="81" class="d-pill" font-size="14">Load time</text></g>
-<g class="pill"><rect x="942" y="102" width="146" height="32" rx="16" fill="#0b1222" stroke="rgba(243,241,234,0.16)"/><text x="958" y="123" class="d-pill" font-size="14">Google profile</text></g>
-<g class="pill"><rect x="942" y="144" width="146" height="32" rx="16" fill="#0b1222" stroke="rgba(243,241,234,0.16)"/><text x="958" y="165" class="d-pill" font-size="14">Search</text></g>
-<g class="pill"><rect x="942" y="186" width="146" height="32" rx="16" fill="#0b1222" stroke="rgba(243,241,234,0.16)"/><text x="958" y="207" class="d-pill" font-size="14">Directories</text></g>
-<g class="pill"><rect x="942" y="228" width="146" height="32" rx="16" fill="#0b1222" stroke="rgba(243,241,234,0.16)"/><text x="958" y="249" class="d-pill" font-size="14">AI assistants</text></g>
+<g class="pill"><rect x="942" y="18" width="146" height="32" rx="16" fill="#0b1222" stroke="rgba(243,241,234,0.16)"/><text x="958" y="39" class="d-pill" font-size="14">Google</text></g>
+<g class="pill"><rect x="942" y="60" width="146" height="32" rx="16" fill="#0b1222" stroke="rgba(243,241,234,0.16)"/><text x="958" y="81" class="d-pill" font-size="14">Bing and Copilot</text></g>
+<g class="pill"><rect x="942" y="102" width="146" height="32" rx="16" fill="#0b1222" stroke="rgba(243,241,234,0.16)"/><text x="958" y="123" class="d-pill" font-size="14">Apple Maps</text></g>
+<g class="pill"><rect x="942" y="144" width="146" height="32" rx="16" fill="#0b1222" stroke="rgba(243,241,234,0.16)"/><text x="958" y="165" class="d-pill" font-size="14">ChatGPT</text></g>
+<g class="pill"><rect x="942" y="186" width="146" height="32" rx="16" fill="#0b1222" stroke="rgba(243,241,234,0.16)"/><text x="958" y="207" class="d-pill" font-size="14">Claude</text></g>
+<g class="pill"><rect x="942" y="228" width="146" height="32" rx="16" fill="#0b1222" stroke="rgba(243,241,234,0.16)"/><text x="958" y="249" class="d-pill" font-size="14">Ads</text></g>
 <g class="node">
 <rect x="28" y="56" width="236" height="104" rx="14" fill="#dcb25c" opacity="0" filter="url(#fden-halo)"><animate attributeName="opacity" dur="14.6s" repeatCount="indefinite" values="1;1;0;0;1" keyTimes="0;0.0685;0.0993;0.9877;1"/></rect>
 <rect x="28" y="56" width="236" height="104" rx="14" fill="url(#fden-panel)" stroke="rgba(220,178,92,0.32)" stroke-width="1"/>
 <rect x="28" y="56" width="236" height="104" rx="14" fill="none" stroke="#dcb25c" stroke-width="1.5" opacity="0"><animate attributeName="opacity" dur="14.6s" repeatCount="indefinite" values="1;1;0;0;1" keyTimes="0;0.0685;0.0993;0.9877;1"/></rect>
 <text x="50" y="86" class="d-num" font-size="14">1</text>
 <text x="70" y="86" class="d-title" font-size="18">App on the phone</text>
-<text x="70" y="109" class="d-sub" font-size="14">start a remote audit</text>
+<text x="70" y="109" class="d-sub" font-size="14">start the audit</text>
 
 </g>
 <g class="node">
@@ -233,8 +236,8 @@
 <rect x="328" y="56" width="236" height="104" rx="14" fill="url(#fden-panel)" stroke="rgba(220,178,92,0.32)" stroke-width="1"/>
 <rect x="328" y="56" width="236" height="104" rx="14" fill="none" stroke="#dcb25c" stroke-width="1.5" opacity="0"><animate attributeName="opacity" dur="14.6s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.1247;0.137;0.1986;0.2295;1"/></rect>
 <text x="350" y="86" class="d-num" font-size="14">2</text>
-<text x="370" y="86" class="d-title" font-size="18">Supabase</text>
-<text x="370" y="109" class="d-sub" font-size="14">queue and file storage</text>
+<text x="370" y="86" class="d-title" font-size="18">Cost estimate</text>
+<text x="370" y="109" class="d-sub" font-size="14">before the first measurement</text>
 
 </g>
 <g class="node">
@@ -242,8 +245,8 @@
 <rect x="628" y="56" width="236" height="104" rx="14" fill="url(#fden-panel)" stroke="rgba(220,178,92,0.32)" stroke-width="1"/>
 <rect x="628" y="56" width="236" height="104" rx="14" fill="none" stroke="#dcb25c" stroke-width="1.5" opacity="0"><animate attributeName="opacity" dur="14.6s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.2548;0.2671;0.4452;0.476;1"/></rect>
 <text x="650" y="86" class="d-num" font-size="14">3</text>
-<text x="670" y="86" class="d-title" font-size="18">Collector container</text>
-<text x="670" y="109" class="d-sub" font-size="14">fetches data from the web</text>
+<text x="670" y="86" class="d-title" font-size="18">Measurement</text>
+<text x="670" y="109" class="d-sub" font-size="14">provider by provider</text>
 
 </g>
 <g class="node">
@@ -252,7 +255,7 @@
 <rect x="628" y="320" width="236" height="104" rx="14" fill="none" stroke="#dcb25c" stroke-width="1.5" opacity="0"><animate attributeName="opacity" dur="14.6s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.5014;0.5137;0.6027;0.6336;1"/></rect>
 <text x="650" y="350" class="d-num" font-size="14">4</text>
 <text x="670" y="350" class="d-title" font-size="18">Scoring</text>
-<text x="670" y="373" class="d-sub" font-size="14">108 checks, fixed rules</text>
+<text x="670" y="373" class="d-sub" font-size="14">62 checks by catalogue</text>
 
 </g>
 <g class="node">
@@ -260,8 +263,8 @@
 <rect x="328" y="320" width="236" height="104" rx="14" fill="url(#fden-panel)" stroke="rgba(220,178,92,0.32)" stroke-width="1"/>
 <rect x="328" y="320" width="236" height="104" rx="14" fill="none" stroke="#dcb25c" stroke-width="1.5" opacity="0"><animate attributeName="opacity" dur="14.6s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.6589;0.6712;0.7877;0.8185;1"/></rect>
 <text x="350" y="350" class="d-num" font-size="14">5</text>
-<text x="370" y="350" class="d-title" font-size="18">Claude Code</text>
-<text x="370" y="373" class="d-sub" font-size="14">writes findings and texts</text>
+<text x="370" y="350" class="d-title" font-size="18">Control</text>
+<text x="370" y="373" class="d-sub" font-size="14">three verdicts per check</text>
 
 </g>
 <g class="node">
@@ -270,12 +273,12 @@
 <rect x="28" y="320" width="236" height="104" rx="14" fill="none" stroke="#dcb25c" stroke-width="1.5" opacity="0"><animate attributeName="opacity" dur="14.6s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.8438;0.8562;0.9315;0.9623;1"/></rect>
 <text x="50" y="350" class="d-num" font-size="14">6</text>
 <text x="70" y="350" class="d-title" font-size="18">Report as PDF</text>
-<text x="70" y="373" class="d-sub" font-size="14">print-ready file</text>
+<text x="70" y="373" class="d-sub" font-size="14">evaluation, action plan</text>
 
 </g>
 </svg>
 <svg class="flow flow--narrow" viewBox="0 0 360 774" role="img" aria-labelledby="fpen-t fpen-d">
-<title id="fpen-t">How an audit runs</title><desc id="fpen-d">The app on the phone puts a job into the Supabase queue. The collector container on the RepoCity server fetches data from the website, load time, Google profile, search, directories and AI assistants. Scoring checks it against 108 checks. Claude Code writes findings and texts on the Claude subscription. The result is a PDF report that goes back into the app.</desc>
+<title id="fpen-t">How an audit runs</title><desc id="fpen-d">The app on the phone starts an audit. It calculates the cost estimate and measures Google, Bing and Copilot, Apple Maps, ChatGPT, Claude and paid visibility. The 62 checks are scored and every check is controlled. The result is an evaluation and an action plan as PDF that go back into the app.</desc>
 <defs>
 <filter id="fpen-blur" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="4"/></filter>
 <filter id="fpen-halo" x="-20%" y="-40%" width="140%" height="180%"><feGaussianBlur stdDeviation="7"/></filter>
@@ -293,7 +296,7 @@
 <rect x="40" y="12" width="312" height="76" rx="14" fill="none" stroke="#dcb25c" stroke-width="1.5" opacity="0"><animate attributeName="opacity" dur="14.6s" repeatCount="indefinite" values="1;1;0;0;1" keyTimes="0;0.0685;0.0993;0.9877;1"/></rect>
 <text x="62" y="42" class="d-num" font-size="13">1</text>
 <text x="82" y="42" class="d-title" font-size="16">App on the phone</text>
-<text x="82" y="64" class="d-sub" font-size="13">start a remote audit</text>
+<text x="82" y="64" class="d-sub" font-size="13">start the audit</text>
 
 </g>
 <g class="node">
@@ -301,8 +304,8 @@
 <rect x="40" y="126" width="312" height="76" rx="14" fill="url(#fpen-panel)" stroke="rgba(220,178,92,0.32)" stroke-width="1"/>
 <rect x="40" y="126" width="312" height="76" rx="14" fill="none" stroke="#dcb25c" stroke-width="1.5" opacity="0"><animate attributeName="opacity" dur="14.6s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.1247;0.137;0.1986;0.2295;1"/></rect>
 <text x="62" y="156" class="d-num" font-size="13">2</text>
-<text x="82" y="156" class="d-title" font-size="16">Supabase</text>
-<text x="82" y="178" class="d-sub" font-size="13">queue and file storage</text>
+<text x="82" y="156" class="d-title" font-size="16">Cost estimate</text>
+<text x="82" y="178" class="d-sub" font-size="13">before the first measurement</text>
 
 </g>
 <g class="node">
@@ -310,14 +313,14 @@
 <rect x="40" y="240" width="312" height="178" rx="14" fill="url(#fpen-panel)" stroke="rgba(220,178,92,0.32)" stroke-width="1"/>
 <rect x="40" y="240" width="312" height="178" rx="14" fill="none" stroke="#dcb25c" stroke-width="1.5" opacity="0"><animate attributeName="opacity" dur="14.6s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.2548;0.2671;0.4452;0.476;1"/></rect>
 <text x="62" y="270" class="d-num" font-size="13">3</text>
-<text x="82" y="270" class="d-title" font-size="16">Collector container</text>
-<text x="82" y="292" class="d-sub" font-size="13">fetches data from the web</text>
-<rect x="52" y="304" width="140" height="28" rx="14" fill="#060a14" stroke="rgba(243,241,234,0.14)"/><text x="64" y="323" class="d-pill" font-size="13">Website</text>
-<rect x="200" y="304" width="140" height="28" rx="14" fill="#060a14" stroke="rgba(243,241,234,0.14)"/><text x="212" y="323" class="d-pill" font-size="13">Load time</text>
-<rect x="52" y="338" width="140" height="28" rx="14" fill="#060a14" stroke="rgba(243,241,234,0.14)"/><text x="64" y="357" class="d-pill" font-size="13">Google profile</text>
-<rect x="200" y="338" width="140" height="28" rx="14" fill="#060a14" stroke="rgba(243,241,234,0.14)"/><text x="212" y="357" class="d-pill" font-size="13">Search</text>
-<rect x="52" y="372" width="140" height="28" rx="14" fill="#060a14" stroke="rgba(243,241,234,0.14)"/><text x="64" y="391" class="d-pill" font-size="13">Directories</text>
-<rect x="200" y="372" width="140" height="28" rx="14" fill="#060a14" stroke="rgba(243,241,234,0.14)"/><text x="212" y="391" class="d-pill" font-size="13">AI assistants</text>
+<text x="82" y="270" class="d-title" font-size="16">Measurement</text>
+<text x="82" y="292" class="d-sub" font-size="13">provider by provider</text>
+<rect x="52" y="304" width="140" height="28" rx="14" fill="#060a14" stroke="rgba(243,241,234,0.14)"/><text x="64" y="323" class="d-pill" font-size="13">Google</text>
+<rect x="200" y="304" width="140" height="28" rx="14" fill="#060a14" stroke="rgba(243,241,234,0.14)"/><text x="212" y="323" class="d-pill" font-size="13">Bing and Copilot</text>
+<rect x="52" y="338" width="140" height="28" rx="14" fill="#060a14" stroke="rgba(243,241,234,0.14)"/><text x="64" y="357" class="d-pill" font-size="13">Apple Maps</text>
+<rect x="200" y="338" width="140" height="28" rx="14" fill="#060a14" stroke="rgba(243,241,234,0.14)"/><text x="212" y="357" class="d-pill" font-size="13">ChatGPT</text>
+<rect x="52" y="372" width="140" height="28" rx="14" fill="#060a14" stroke="rgba(243,241,234,0.14)"/><text x="64" y="391" class="d-pill" font-size="13">Claude</text>
+<rect x="200" y="372" width="140" height="28" rx="14" fill="#060a14" stroke="rgba(243,241,234,0.14)"/><text x="212" y="391" class="d-pill" font-size="13">Ads</text>
 </g>
 <g class="node">
 <rect x="40" y="456" width="312" height="76" rx="14" fill="#dcb25c" opacity="0" filter="url(#fpen-halo)"><animate attributeName="opacity" dur="14.6s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.5014;0.5137;0.6027;0.6336;1"/></rect>
@@ -325,7 +328,7 @@
 <rect x="40" y="456" width="312" height="76" rx="14" fill="none" stroke="#dcb25c" stroke-width="1.5" opacity="0"><animate attributeName="opacity" dur="14.6s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.5014;0.5137;0.6027;0.6336;1"/></rect>
 <text x="62" y="486" class="d-num" font-size="13">4</text>
 <text x="82" y="486" class="d-title" font-size="16">Scoring</text>
-<text x="82" y="508" class="d-sub" font-size="13">108 checks, fixed rules</text>
+<text x="82" y="508" class="d-sub" font-size="13">62 checks by catalogue</text>
 
 </g>
 <g class="node">
@@ -333,8 +336,8 @@
 <rect x="40" y="570" width="312" height="76" rx="14" fill="url(#fpen-panel)" stroke="rgba(220,178,92,0.32)" stroke-width="1"/>
 <rect x="40" y="570" width="312" height="76" rx="14" fill="none" stroke="#dcb25c" stroke-width="1.5" opacity="0"><animate attributeName="opacity" dur="14.6s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.6589;0.6712;0.7877;0.8185;1"/></rect>
 <text x="62" y="600" class="d-num" font-size="13">5</text>
-<text x="82" y="600" class="d-title" font-size="16">Claude Code</text>
-<text x="82" y="622" class="d-sub" font-size="13">writes findings and texts</text>
+<text x="82" y="600" class="d-title" font-size="16">Control</text>
+<text x="82" y="622" class="d-sub" font-size="13">three verdicts per check</text>
 
 </g>
 <g class="node">
@@ -343,7 +346,7 @@
 <rect x="40" y="684" width="312" height="76" rx="14" fill="none" stroke="#dcb25c" stroke-width="1.5" opacity="0"><animate attributeName="opacity" dur="14.6s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.8438;0.8562;0.9315;0.9623;1"/></rect>
 <text x="62" y="714" class="d-num" font-size="13">6</text>
 <text x="82" y="714" class="d-title" font-size="16">Report as PDF</text>
-<text x="82" y="736" class="d-sub" font-size="13">print-ready file</text>
+<text x="82" y="736" class="d-sub" font-size="13">evaluation, action plan</text>
 
 </g>
 <path id="fpen-s0" d="M122,318 L122,296" fill="none" stroke="none"/>
@@ -361,20 +364,20 @@
 </svg>
       </div>
       <ol class="steps">
-        <li><strong>App on the phone</strong>The operator enters only the website address, picks the checks and starts the remote audit. The server works out the business, town, industry and search terms itself.</li>
-        <li><strong>Supabase</strong>The job lands in the database queue. If a step fails, the server tries it again.</li>
-        <li><strong>Collector container</strong>Runs on the RepoCity server. First identifies the business, town, industry and search terms from the website and the Google profile, finds up to three competitors on the map, then fetches the website, load time, Google profile, positions in Google and Bing search, directories and the answers of ChatGPT, Claude, Gemini and Perplexity.</li>
-        <li><strong>Scoring</strong>Each of the 108 checks is passed, partly passed, failed or not measurable; deselected checks do not count. Code computes the points, not a language model.</li>
-        <li><strong>Claude Code</strong>Runs in the collector container, signed in with the Claude subscription. Reads the raw data and check results and writes one finding with a fix per open point, plus the report texts and a talking script for the customer. Before anything is uploaded, the collector validates the result against a fixed data format.</li>
-        <li><strong>Report as PDF</strong>The collector assembles the report as a print-ready file. It appears in the app and can be walked through with the customer on a tablet.</li>
-      </ol>
+<li><strong>App on the phone</strong>You enter the website address, pick the checks and start the audit. The app reads business, address and phone number from the legal notice of the website. Progress appears live in the app.</li>
+<li><strong>Cost estimate</strong>The app reads the website, up to 60 pages, calculates the cost estimate and makes one trial request to every paid data service; if the balance with the data services does not cover it, the audit does not start and a message names the missing amount.</li>
+<li><strong>Measurement</strong>Then all measurements run, at the same time wherever they do not wait for each other, ordered by provider: Google (with AI Overviews, AI Mode and Gemini), Bing and Copilot, Apple Maps, ChatGPT, Claude and paid visibility (Google Ads, Meta Ads). Every measurement uses the provider's official interface first, otherwise a paid data service, the browser last; every fallback route is logged with its reason in the measurement log. If a route fails, the check reads “not measured” with the reason, and the audit goes on.</li>
+<li><strong>Scoring</strong>Each of the 62 checks is passed, partly passed, failed or not measured. Passed counts 1, partly passed 0.5, failed 0; checks that were not measured or were deselected do not count. Checks without a proven threshold, such as the share of AI mentions and the map grid, show the measured value and the comparison with the competitors instead of a verdict.</li>
+<li><strong>Control</strong>A separate control step gives every check three verdicts with evidence from the unchanged responses: data collected correctly, data correct, evaluation correct. A tick without evidence counts as a cross; a cross takes the check out of the overall score and the provider scores. In the app every check shows a progress bar and behind it three boxes, with the reason in plain language for a cross.</li>
+<li><strong>Evaluation and action plan as PDF</strong>From the stored, controlled measurements two PDF files are built: the evaluation and the action plan, one measure for every check with three ticks, sorted by impact. The cost statement of the audit and a phone notification with a link to the evaluation come with them. In the app everything can be walked through with the customer.</li>
+</ol>
     </div>
   </section>
 
   <section class="section" aria-labelledby="areas">
     <div class="wrap">
-      <h2 id="areas">Thirteen areas, one number</h2>
-      <p class="section__intro">The score is a weighted average of thirteen areas. Weights, checks and thresholds live in a single check catalogue; the weights add up to 100. A fourteenth area shows calls, clicks and enquiries when the customer grants access and does not count towards the score.</p>
+      <h2 id="areas">Five providers, one number</h2>
+      <p class="section__intro">The score is a weighted average of five providers; the weights add up to 100. Checks, weights and thresholds live in a single check catalogue with 62 checks, 38 of them criteria with the provider's source. 11 checks only state a fact and do not count towards the score, among them all six of paid visibility with Google Ads and Meta Ads.</p>
       <div class="ring" data-ring hidden>
         <div class="ring__stage">
           <div class="ring__labels" aria-hidden="true"></div>
@@ -386,20 +389,13 @@
         </div>
       </div>
       <ul class="panel areas">
-        <li class="areas__legend" aria-hidden="true"><span>Area</span><span>Weight</span></li>
-        <li class="area"><span class="area__name">Website technology</span><span class="area__bar" aria-hidden="true"><span class="w9"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>9</span></li>
-        <li class="area"><span class="area__name">Page structure</span><span class="area__bar" aria-hidden="true"><span class="w10"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>10</span></li>
-        <li class="area"><span class="area__name">Content and service pages</span><span class="area__bar" aria-hidden="true"><span class="w12"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>12</span></li>
-        <li class="area"><span class="area__name">Company details on the website</span><span class="area__bar" aria-hidden="true"><span class="w6"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>6</span></li>
-        <li class="area"><span class="area__name">Hidden data for Google and AI</span><span class="area__bar" aria-hidden="true"><span class="w7"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>7</span></li>
-        <li class="area"><span class="area__name">Google Business Profile</span><span class="area__bar" aria-hidden="true"><span class="w14"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>14</span><p class="area__question">“Do you have your Google profile in your own hands?”</p></li>
-        <li class="area"><span class="area__name">Reviews</span><span class="area__bar" aria-hidden="true"><span class="w8"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>8</span></li>
-        <li class="area"><span class="area__name">Directories and listings</span><span class="area__bar" aria-hidden="true"><span class="w7"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>7</span><p class="area__question">“Can people find you on the iPhone in Apple Maps?”</p></li>
-        <li class="area"><span class="area__name">Recommendations through links</span><span class="area__bar" aria-hidden="true"><span class="w6"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>6</span></li>
-        <li class="area"><span class="area__name">Ranking on Google and Bing</span><span class="area__bar" aria-hidden="true"><span class="w10"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>10</span></li>
-        <li class="area"><span class="area__name">Visibility in AI assistants</span><span class="area__bar" aria-hidden="true"><span class="w5"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>5</span><p class="area__question">“Does ChatGPT name you when someone asks for a business like yours?”</p></li>
-        <li class="area"><span class="area__name">Law and trust</span><span class="area__bar" aria-hidden="true"><span class="w4"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>4</span></li>
-        <li class="area"><span class="area__name">Tools on the website</span><span class="area__bar" aria-hidden="true"><span class="w2"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>2</span></li>
+        <li class="areas__legend" aria-hidden="true"><span>Provider</span><span>Weight</span></li>
+        <li class="area"><span class="area__name">Google · 29 checks</span><span class="area__bar" aria-hidden="true"><span class="gw100"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>56.2</span><p class="area__question">“Does the business have its Google profile in its own hands?”</p></li>
+        <li class="area"><span class="area__name">Bing and Copilot · 18 checks</span><span class="area__bar" aria-hidden="true"><span class="gw52"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>29.2</span></li>
+        <li class="area"><span class="area__name">ChatGPT · 4 checks</span><span class="area__bar" aria-hidden="true"><span class="gw12"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>6.5</span><p class="area__question">“Does ChatGPT name the business when customers ask for a recommendation?”</p></li>
+        <li class="area"><span class="area__name">Claude · 4 checks</span><span class="area__bar" aria-hidden="true"><span class="gw12"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>6.5</span><p class="area__question">“Does Claude name the business when customers ask for a recommendation?”</p></li>
+        <li class="area"><span class="area__name">Apple Maps · 1 check</span><span class="area__bar" aria-hidden="true"><span class="gw3"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>1.6</span><p class="area__question">“Can people find the business on the iPhone in Apple Maps?”</p></li>
+        <li class="area"><span class="area__name">Paid visibility · 6 checks</span><span class="area__bar" aria-hidden="true"><span class="gw0"></span></span><span class="area__weight"><span class="visually-hidden">Weight </span>0</span><p class="area__question">“Does the business run ads on Google, Facebook and Instagram?”</p></li>
       </ul>
     </div>
   </section>
@@ -407,30 +403,29 @@
   <section class="section" aria-labelledby="limits">
     <div class="wrap">
       <h2 id="limits">What is measured, and what is not</h2>
-      <p class="section__intro">A lot can be measured from the outside, but not everything. What is missing appears in the report as “not measurable” and does not count towards the points, instead of being guessed.</p>
+      <p class="section__intro">A lot can be measured from the outside, but not everything. What could not be measured appears in the report as “not measured” with the reason and does not count towards the points, instead of being guessed.</p>
       <div class="limits">
         <div class="panel limits__yes">
           <h3>Measurable from the outside, no access needed</h3>
           <ul>
-            <li>Encryption, load time on phone and PC, layout on the phone</li>
-            <li>Page titles, headings, texts, broken links</li>
-            <li>Name, address and phone on the website compared with Google, Apple Maps, Bing and business directories</li>
-            <li>Machine-readable company data for Google and AI assistants</li>
-            <li>Google profile: categories, opening hours, photos, number and average of reviews</li>
-            <li>Positions in Google and Bing search and on the map, including a grid around the location, compared with the competitors</li>
-            <li>Whether ChatGPT, Claude, Gemini and Perplexity name the business, and whether what they say is correct</li>
-            <li>Legal notice and privacy policy</li>
+            <li>Whether Google, Bing, the ChatGPT search and Claude may read the website: blocks in robots.txt, error pages, blocking notes in the page code and firewalls</li>
+            <li>Page titles, headings, image descriptions, readable links, the sitemap and whether every page is reachable under one address only</li>
+            <li>Load time on the phone</li>
+            <li>Whether Google and Bing see the same page as visitors</li>
+            <li>Google profile: main category, description, services, opening hours, photos, attributes, number and average of reviews compared with the businesses on the map</li>
+            <li>Positions in Google and Bing search, on the map and in image search; listing in Apple Maps and on Bing</li>
+            <li>Whether Google's AI answer, ChatGPT and Claude name the business, and the map grid around the location: as a measured value compared with the competitors, without a verdict, because there is no proven threshold for it</li>
           </ul>
         </div>
         <div class="panel limits__no">
           <h3>Only with customer access or paid data</h3>
           <ul>
-            <li><strong>Calls, route requests, clicks:</strong> figures from the Google profile, Search Console and Analytics are only available with access.</li>
-            <li><strong>Replies to reviews:</strong> the server reads them from Google Maps in the browser; if Maps blocks the browser they are missing, and an audit with access reads them from the profile.</li>
-            <li><strong>New reviews per month:</strong> Google Maps gives the date of a review only roughly, such as “2 weeks ago”; if Maps blocks the browser, Google only returns the five newest publicly. So the figure is an estimate.</li>
-            <li><strong>Description, services, products, posts, questions and answers, service areas and attributes of the Google profile:</strong> only visible in Google Maps in the browser; if Maps blocks the browser they are missing for that audit.</li>
-            <li><strong>Links from other sites, search volume, competitors’ search terms, visibility trend:</strong> only with a paid data service with a monthly limit; once it is reached these checks are “not measurable”.</li>
-            <li><strong>Positions in Google search:</strong> searching in the browser can hit a block page; then the server fetches the missing positions later, or at once with the paid data service.</li>
+            <li><strong>Customer access:</strong> calls, routes and views from the Google profile, search words with real clicks and the figures from the Google Ads and Meta ad accounts are only available with access to the business's accounts.</li>
+            <li><strong>Links from other sites, search volume, competitors’ search terms, ads on Google, Facebook and Instagram:</strong> only with a paid data service; once the set limit is reached, these checks read “not measured”.</li>
+            <li><strong>Profile verified, the notification service IndexNow, how current the pages are:</strong> not always certain from the outside; then the check reads “not measured” with the reason, never a guess.</li>
+            <li><strong>Development over time:</strong> needs a second run and is not measured in the first audit.</li>
+            <li><strong>A measurement route fails:</strong> the affected checks appear with the reason in the result, and the audit goes on.</li>
+            <li><strong>Two queries of the same search</strong> can turn out differently; the report therefore names the time of every query.</li>
           </ul>
         </div>
       </div>
@@ -438,176 +433,203 @@
   </section>
 
   <section class="section" id="kunden" aria-labelledby="kunden-titel">
-    <div class="wrap">
-      <h2 id="kunden-titel">Before and after the audit</h2>
-      <p class="section__intro">The app finds businesses that would benefit from an audit, gives undecided customers real reply drafts to take away and prepares the work for every month of a subscription. What is promised is this work, never a particular position on Google.</p>
-      <ol class="steps">
-        <li><strong>Finding customers</strong>In the “Kunden” (customers) tab the operator enters a trade and a town, for example roofers in Münster. The server reads up to 60 businesses from Google Maps and sorts them by gaps in their Google profile, each with one sentence saying why: no website, no opening hours, no phone number, few photos or clearly fewer reviews than half of the list.</li>
-        <li><strong>Add or audit right away</strong>“Ins CRM als Interessent” (add to the CRM as a prospect) creates the business in the customer relationship management system (CRM) with an open case. Only what the operator copies from the public Google profile is stored. “Audit starten” (start audit) checks the business's website just like the “Prüfen” (audit) tab.</li>
-        <li><strong>Only permitted ways of contact</strong>Each business shows the ways that section 7 of the German Act against Unfair Competition allows: letter and personal visit, a phone call only with a concrete reason, an advertising email without consent never. That is why there is neither an email nor a dial button. Anyone who has objected to advertising is on a block list and appears without any way of contact.</li>
-        <li><strong>Costs and storage time capped</strong>The customer search has its own daily limit and a monthly limit in euros, so the audits never run short. After 24 hours the database deletes the list by itself, even when the server is off.</li>
-        <li><strong>Reply drafts as a PDF</strong>When a customer says “let me think about it”, the server writes up to five replies to their real reviews that have no reply yet and presents them as a PDF. Nothing is published on Google.</li>
-        <li><strong>Monthly service</strong>Once the first optimisation is finished, drafts are prepared after every monthly audit of a subscription: replies to new reviews and suggestions for looking after the profile, such as opening hours, photos, posts and description, never a change to the website. The operator approves each draft on its own.</li>
-      </ol>
-    </div>
-  </section>
+<div class="wrap">
+<h2 id="kunden-titel">Finding and looking after customers</h2>
+<p class="section__intro">For providers who sell audits with the app: the app finds businesses that would benefit from an audit, gives undecided customers real reply drafts to take away and prepares the work for every month of a subscription. What is promised is this work, never a particular position on Google.</p>
+<ol class="steps">
+<li><strong>Finding customers</strong>In the “Kunden” (customers) tab you enter a trade and a town, for example roofers in Münster. The app reads up to 60 businesses from Google Maps and sorts them by gaps in their Google profile, each with one sentence saying why: no website, no opening hours, no phone number, few photos or clearly fewer reviews than half of the list.</li>
+<li><strong>Add or audit right away</strong>“Ins CRM als Interessent” (add to the CRM as a prospect) creates the business in the customer relationship management system (CRM) with an open case. Only what you copy from the public Google profile is stored. “Audit starten” (start audit) checks the business's website just like the “Prüfen” (audit) tab.</li>
+<li><strong>Only permitted ways of contact</strong>Each business shows the ways that section 7 of the German Act against Unfair Competition allows: letter and personal visit, a phone call only with a concrete reason, an advertising email without consent never. That is why there is neither an email nor a dial button. Anyone who has objected to advertising is on a block list and appears without any way of contact.</li>
+<li><strong>Costs and storage time capped</strong>The customer search has its own daily limit and a monthly limit in euros, so the audits never run short. After 24 hours the list is deleted automatically.</li>
+<li><strong>Reply drafts as a PDF</strong>When a customer says “let me think about it”, the app writes up to five replies to their real reviews that have no reply yet and presents them as a PDF. Nothing is published on Google.</li>
+<li><strong>Monthly service</strong>Once the first optimisation is finished, drafts are prepared after every monthly audit of a subscription: replies to new reviews and suggestions for looking after the profile, such as opening hours, photos, posts and description, never a change to the website. You approve each draft on its own.</li>
+</ol>
+</div>
+</section>
 
   <section class="section" aria-labelledby="built">
-    <div class="wrap">
-      <h2 id="built">Built as a product, not as a demo</h2>
-      <div class="panel facts">
-        <table>
-          <caption class="visually-hidden">Technical facts about RadarAuditor</caption>
-          <tbody>
-            <tr><th scope="row">Python tests</th><td><b>1913</b> passing</td></tr>
-            <tr><th scope="row">App tests</th><td><b>399</b> passing</td></tr>
-            <tr><th scope="row">Check catalogue</th><td><b>108</b> checks in 14 areas in one file, the single source for weights and thresholds</td></tr>
-            <tr><th scope="row">App</th><td>Installable web app for phone, tablet and PC</td></tr>
-            <tr><th scope="row">Collector</th><td>Docker container on the RepoCity server</td></tr>
-            <tr><th scope="row">Analysis</th><td>Claude Code in the collector container, signed in with the Claude subscription, no cost per call</td></tr>
-            <tr><th scope="row">Data</th><td>Supabase: database, sign-in, file storage and queue, hosted in Frankfurt</td></tr>
-            <tr><th scope="row">Delivery</th><td>Cloudflare Pages</td></tr>
-            <tr><th scope="row">Quotes</th><td>On site in the app: positions from the open points of the audit with products and prices from the CRM; audit report and quote as one PDF, sent through the CRM</td></tr>
-            <tr><th scope="row">Orders</th><td>After acceptance Claude Code prepares the changes to website and Google profile as drafts, and the collector applies the approved ones; the CRM handles the order, the invoice and the monthly audit of the subscription</td></tr>
-            <tr><th scope="row">Mail</th><td>On the server, Claude Code sorts replies to quotes and enquiries from unknown senders, without any tools</td></tr>
-            <tr><th scope="row">Customer search</th><td>Trade and town, up to <b>60</b> businesses from Google Maps sorted by gaps in their Google profile; own daily limit and monthly limit in euros, list deleted after 24 hours</td></tr>
-            <tr><th scope="row">Ways of contact</th><td>Letter and visit; phone call only with a concrete reason, advertising email without consent never (section 7 of the German Act against Unfair Competition); block list for objections to advertising</td></tr>
-            <tr><th scope="row">Reply drafts</th><td>Up to five replies to real, unanswered reviews as a PDF; nothing is published on Google</td></tr>
-            <tr><th scope="row">Monthly service</th><td>Drafts of replies to new reviews and of profile care, each approved on its own; what is promised is work, never a position on Google</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </section>
+<div class="wrap">
+<h2 id="built">At a glance</h2>
+<div class="panel facts">
+<table>
+<caption class="visually-hidden">What RadarAuditor offers at a glance</caption>
+<tbody>
+<tr><th scope="row">Check catalogue</th><td><b>62</b> checks from six providers in one catalogue that sets the checks, weights and thresholds; the 38 criteria each name the provider's source</td></tr>
+<tr><th scope="row">App</th><td>Installable web app for phone, tablet and PC</td></tr>
+<tr><th scope="row">Display per check</th><td>Progress bar and three boxes: data collected correctly, data correct, evaluation correct; for a cross the reason is given in plain language</td></tr>
+<tr><th scope="row">Measurement routes</th><td>The provider's official interface first, otherwise a paid data service, the browser last; website data straight from the website; every fallback route is logged with its reason in the measurement log</td></tr>
+<tr><th scope="row">Control</th><td>A separate control step gives every check three verdicts with a duty to give evidence; a tick without evidence counts as a cross</td></tr>
+<tr><th scope="row">Costs</th><td>Cost estimate before the measurements, cost statement after them; if the balance does not cover the estimate, the audit does not start</td></tr>
+<tr><th scope="row">Reports</th><td>Evaluation and action plan as two PDF files</td></tr>
+<tr><th scope="row">Quotes</th><td>On site in the app: positions from the open points of the audit with products and prices from the customer management system (CRM); audit report and quote as one PDF, sent through the CRM</td></tr>
+<tr><th scope="row">Orders</th><td>After acceptance the changes to website and Google profile are prepared as drafts and applied once approved; the CRM handles the order, the invoice and the monthly audit of the subscription</td></tr>
+<tr><th scope="row">Customer search</th><td>Trade and town, up to <b>60</b> businesses from Google Maps sorted by gaps in their Google profile; own daily limit and monthly limit in euros, list deleted after 24 hours</td></tr>
+<tr><th scope="row">Ways of contact</th><td>Letter and visit; phone call only with a concrete reason, advertising email without consent never (section 7 of the German Act against Unfair Competition); block list for objections to advertising</td></tr>
+<tr><th scope="row">Reply drafts</th><td>Up to five replies to real, unanswered reviews as a PDF; nothing is published on Google</td></tr>
+<tr><th scope="row">Monthly service</th><td>Drafts of replies to new reviews and of profile care, each approved on its own; what is promised is work, never a position on Google</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+
+<section class="section" id="datenschutz" aria-labelledby="datenschutz-titel">
+<div class="wrap">
+<h2 id="datenschutz-titel">Operation and data protection</h2>
+<p class="section__intro">RadarAuditor runs on its own secured server at Hostinger in the European Union. Your data is protected. The service complies with the General Data Protection Regulation and with the artificial intelligence regulation of the European Union (EU AI Act).</p>
+<div class="limits">
+<div class="panel limits__yes">
+<h3>Server and protection of data</h3>
+<ul>
+<li><strong>Own secured server:</strong> The app and its data are held on a server of its own at Hostinger in the European Union.</li>
+<li><strong>Data protected:</strong> Access rules apply to every table of the database.</li>
+<li><strong>No passwords:</strong> The remote audit needs no access to your accounts. For ongoing care you invite us to your Google profile; your password is not needed for that, and you can withdraw the access at any time.</li>
+<li><strong>Only what the audit needs:</strong> What is stored is the details of the business, the search terms, the measured values with the unchanged responses of the providers, and the reports.</li>
+<li><strong>Time-limited lists:</strong> The list from the customer search is deleted automatically after 24 hours.</li>
+</ul>
+</div>
+<div class="panel limits__yes">
+<h3>General Data Protection Regulation and AI regulation</h3>
+<ul>
+<li><strong>General Data Protection Regulation:</strong> The service complies with the General Data Protection Regulation. Anyone who has objected to advertising is on a block list and is not approached again; the app offers neither advertising emails without consent nor phone calls without a reason.</li>
+<li><strong>Artificial intelligence regulation of the European Union (EU AI Act):</strong> The service complies with the regulation. The texts of the evaluation and the action plan are produced with artificial intelligence and are labelled as such.</li>
+<li><strong>Control with evidence:</strong> A separate control step checks every measurement against the unchanged responses; a tick without evidence counts as a cross.</li>
+<li><strong>Approval by a person:</strong> Every change to the website or the Google profile arrives as a draft and is only carried out after your approval.</li>
+</ul>
+</div>
+</div>
+<p class="fineprint">Questions about operation and data protection: <a href="mailto:kontakt@speedofthespirit.dev">kontakt@speedofthespirit.dev</a></p>
+</div>
+</section>
 
   <section class="section" aria-labelledby="audience">
-    <div class="wrap">
-      <h2 id="audience">Who it is for</h2>
-      <div class="audience">
-        <div>
-          <h3>Businesses</h3>
-          <p>The remote audit needs nothing from you: no access, no password, no appointment. For ongoing care you grant access to your Google profile once and, if you use it, to Search Console. Following the guide this takes about five minutes, and your password stays with you. After that a report arrives every month showing what has changed, together with drafts of replies to new reviews and of care for your profile, which are only carried out once approved. What is promised is this work, not a particular position on Google.</p>
-          <div class="links"><a href="mailto:kontakt@speedofthespirit.dev?subject=Audit%20request%3A%20RadarAuditor">Request an audit: kontakt@speedofthespirit.dev</a></div>
-        </div>
-        <div>
-          <h3>Companies</h3>
-          <p>One check catalogue is the single source for checks, weights and thresholds; code, app and texts derive from it. Code computes the points by fixed rules; the language model only writes the texts and takes every number from the measured data. What Claude Code returns is validated against the data model, and invalid results stay behind.</p>
-          <div class="links">
-            <a href="https://www.linkedin.com/in/danielhuette" rel="me">LinkedIn</a>
-            <a href="https://github.com/DanielHuette" rel="me">GitHub</a>
-            <a href="mailto:kontakt@speedofthespirit.dev">kontakt@speedofthespirit.dev</a>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
+<div class="wrap">
+<h2 id="audience">Who it is for</h2>
+<div class="audience">
+<div>
+<h3>Businesses</h3>
+<p>The remote audit needs nothing from you: no access, no password, no appointment. The audit with an action plan costs 350 euros net. For ongoing care you grant access to your Google profile once and, if you use it, to Search Console. Following the guide this takes about five minutes, and your password stays with you. After that a report arrives every month showing what has changed, together with drafts of replies to new reviews and of care for your profile, which are only carried out once approved. What is promised is this work, not a particular position on Google.</p>
+<div class="links"><a href="mailto:kontakt@speedofthespirit.dev?subject=Audit%20request%3A%20RadarAuditor">Request an audit: kontakt@speedofthespirit.dev</a></div>
+</div>
+<div>
+<h3>Agencies and consultants</h3>
+<p>You offer audits to your own clients? The app runs on phone, tablet and PC: you enter the website address, see the cost estimate before the start and receive the evaluation and the action plan as two PDF files, plus customer search, quote on site and monthly service. A separate control step controls every check against the unchanged responses: without evidence there is no tick, and what carries no tick counts neither towards the points nor towards the action plan. Nothing is guessed; what could not be measured appears in the report with the reason.</p>
+<div class="links">
+<a href="https://www.linkedin.com/in/danielhuette" rel="me">LinkedIn</a>
+<a href="https://github.com/DanielHuette" rel="me">GitHub</a>
+<a href="mailto:kontakt@speedofthespirit.dev">kontakt@speedofthespirit.dev</a>
+</div>
+</div>
+</div>
+</div>
+</section>
   </div>
   <div class="reiter-tafel" id="organigramm" data-reiter-tafel role="tabpanel" aria-labelledby="reiter-organigramm">
     <section class="section section--tafel" aria-labelledby="org-titel">
-      <div class="wrap">
-        <h2 id="org-titel">An order in RadarAuditor, from the app to the invoice</h2>
-        <p class="section__intro">From the website address typed on a phone to the invoice in the CRM: eight stations that hand work to each other. Each station lists the skills at work there.</p>
-        <div class="org" data-org>
-          <svg class="org__spur" aria-hidden="true" focusable="false"></svg>
-          <ol class="org__stationen">
-            <li class="station" data-station="1">
-              <h3 class="station__titel">App on phone, tablet and PC</h3>
-              <p class="station__tut">The operator enters only the website address, picks the checks and starts the remote audit. Open audit requests from the CRM are listed below the “Prüfen” (audit) button; a request with a website fills in the address field. In the “Kunden” (customers) tab the operator finds the businesses of one trade in one town.</p>
-              <p class="station__ort">Cloudflare Pages</p>
-              <ul class="station__skills" aria-label="Skills">
-                <li>Installable web app (Progressive Web App)</li>
-                <li>Preact and TypeScript</li>
-                <li>Charts with Chart.js</li>
-                <li>Open requests: crm.open_audit_requests</li>
-              </ul>
-            </li>
-            <li class="station" data-station="2">
-              <h3 class="station__titel">Queue in Supabase</h3>
-              <p class="station__tut">The order waits as a job in the database. When a step fails, the server retries it up to three times.</p>
-              <p class="station__ort">Supabase, hosted in Frankfurt</p>
-              <ul class="station__skills" aria-label="Skills">
-                <li>PostgreSQL with migrations</li>
-                <li>Row level security</li>
-                <li>File storage for raw data and reports</li>
-              </ul>
-            </li>
-            <li class="station" data-station="3">
-              <h3 class="station__titel">Collector on the server</h3>
-              <p class="station__tut">Identifies business, city and industry by itself and fetches the website, load time, Google profile, search positions, directories and answers from AI assistants.</p>
-              <p class="station__ort">Docker container on the RepoCity server</p>
-              <ul class="station__skills" aria-label="Skills">
-                <li>Python</li>
-                <li>Browser automation with Playwright</li>
-                <li>httpx and BeautifulSoup</li>
-              </ul>
-            </li>
-            <li class="station" data-station="4">
-              <h3 class="station__titel">Scoring by fixed rules</h3>
-              <p class="station__tut">108 checks from a single check catalogue. Code computes the points, not a language model.</p>
-              <p class="station__ort">in the collector container</p>
-              <ul class="station__skills" aria-label="Skills">
-                <li>Check catalogue as a YAML file</li>
-                <li>Data models with Pydantic</li>
-                <li>Tests with pytest</li>
-              </ul>
-            </li>
-            <li class="station" data-station="5">
-              <h3 class="station__titel">Evaluation with Claude Code</h3>
-              <p class="station__tut">Writes a finding with a fix for every open point, plus the report texts. It may only read and write two files; the result is validated against a fixed data format.</p>
-              <p class="station__ort">in the collector container, on the Claude subscription</p>
-              <ul class="station__skills" aria-label="Skills">
-                <li>Headless Claude Code with the skill /auswerten</li>
-                <li>Permissions cut to the minimum</li>
-                <li>Output validated against a schema</li>
-              </ul>
-            </li>
-            <li class="station" data-station="6">
-              <h3 class="station__titel">Report as PDF</h3>
-              <p class="station__tut">Print-ready report with charts and a forecast as a range; for the monthly audit a before-after report. On request also up to five reply drafts to real reviews.</p>
-              <p class="station__ort">in the collector container</p>
-              <ul class="station__skills" aria-label="Skills">
-                <li>PDF with WeasyPrint</li>
-                <li>Templates with Jinja2</li>
-                <li>Charts with Matplotlib</li>
-              </ul>
-            </li>
-            <li class="station" data-station="7">
-              <h3 class="station__titel">Quote on site</h3>
-              <p class="station__tut">Positions from the open points of the audit, products and prices from the CRM. Audit report and quote leave as one PDF through the CRM.</p>
-              <p class="station__ort">App, CRM database</p>
-              <ul class="station__skills" aria-label="Skills">
-                <li>CRM database functions instead of a separate interface</li>
-                <li>Quote and sending: crm.create_quote, crm.send_quote</li>
-              </ul>
-            </li>
-            <li class="station" data-station="8">
-              <h3 class="station__titel">CRM and Cockpit</h3>
-              <p class="station__tut">Acceptance creates the order. Claude Code drafts changes to website and Google profile, the collector applies the approved ones. Then the CRM completes the order and sends the invoice.</p>
-              <p class="station__ort">RepoCity CRM and Cockpit</p>
-              <ul class="station__skills" aria-label="Skills">
-                <li>Claude Code with the skill /optimieren</li>
-                <li>Database trigger reports “order finished”</li>
-                <li>Claude Code reads reply mails without any tools</li>
-              </ul>
-            </li>
-          </ol>
-          <p class="org__schleife"><strong>Customer search</strong> Trade and town in the “Kunden” (customers) tab: the server reads up to 60 businesses from Google Maps, sorts them by gaps in their Google profile and names the permitted ways of contact for each, letter and visit. “Ins CRM als Interessent” (add to the CRM as a prospect) creates the business in the CRM, “Audit starten” (start audit) puts the remote audit of its website into the queue. Businesses on the block list for objections to advertising appear without any way of contact and without a button.</p>
-          <p class="org__schleife"><strong>Audit request</strong> An audit request in the CRM names the business, the meeting type (on site, phone or video) and a free hour from Daniel's calendar. In the Cockpit it arrives with “Bestätigen” (confirm), “Anderen Termin vorschlagen” (propose another time) and “Prüfen” (audit); “Prüfen” puts the remote audit of its website into the queue.</p>
-          <p class="org__schleife" data-schleife><strong>Monthly audit</strong> Once a month the CRM marks a subscription due. One tap in the Cockpit puts the order back into the queue, and the report then shows before and after. Then the collector prepares the monthly service: drafts of replies to new reviews and of profile care, which the operator approves one by one.</p>
-        </div>
-        <p class="org__band">Every change to the code runs through the same checks with GitHub Actions: formatting and style with ruff, types with mypy, tests with pytest, plus check, tests and build of the app.</p>
-      </div>
-    </section>
+<div class="wrap">
+<h2 id="org-titel">An order, from the request to the invoice</h2>
+<p class="section__intro">From the website address to the invoice: eight stations that hand work to each other. Each station says who works there and what comes out.</p>
+<div class="org" data-org>
+<svg class="org__spur" aria-hidden="true" focusable="false"></svg>
+<ol class="org__stationen">
+<li class="station" data-station="1">
+<h3 class="station__titel">App on phone, tablet and PC</h3>
+<p class="station__tut">You enter the website address, pick the checks and start the remote audit. The cost estimate comes before the measurements and the cost statement after them; while the audit runs, every check shows a progress bar with three boxes. Open audit requests are listed below the “Prüfen” (audit) button; a request with a website fills in the address field. In the “Kunden” (customers) tab you find the businesses of one trade in one town.</p>
+<p class="station__ort">You, in the app</p>
+<ul class="station__skills" aria-label="Results">
+<li>Installable on phone, tablet and PC</li>
+<li>Cost estimate before the start</li>
+<li>Live progress per check</li>
+<li>Open audit requests at a glance</li>
+</ul>
+</li>
+<li class="station" data-station="2">
+<h3 class="station__titel">Order stored</h3>
+<p class="station__tut">The audit waits as an order in the database. Every partial result is stored as soon as it is ready; a finished step is never repeated and never paid for again.</p>
+<p class="station__ort">Secured server in the European Union</p>
+<ul class="station__skills" aria-label="Results">
+<li>Access rules on every table</li>
+<li>Raw responses and reports are filed</li>
+<li>Progress appears live in the app</li>
+</ul>
+</li>
+<li class="station" data-station="3">
+<h3 class="station__titel">Measurement</h3>
+<p class="station__tut">The measurement reads the website, identifies the business from its legal notice, calculates the cost estimate and makes one trial request to every paid data service. Then it measures each provider: Google, Bing and Copilot, Apple Maps, ChatGPT, Claude and paid visibility. Every measurement writes a measurement log and every raw response stays unchanged. If a step fails, only that step restarts: first the same route, then another route.</p>
+<p class="station__ort">Automatic, without access to your accounts</p>
+<ul class="station__skills" aria-label="Results">
+<li>The provider's official interface first</li>
+<li>Otherwise a paid data service, the browser last</li>
+<li>Website data straight from the website</li>
+</ul>
+</li>
+<li class="station" data-station="4">
+<h3 class="station__titel">Scoring by the check catalogue</h3>
+<p class="station__tut">62 checks from a single check catalogue. Passed counts 1, partly passed 0.5, failed 0; checks that were not measured appear with the reason in the result and do not count.</p>
+<p class="station__ort">Automatic, by fixed rules</p>
+<ul class="station__skills" aria-label="Results">
+<li>62 checks in one catalogue</li>
+<li>Weights and thresholds fixed</li>
+<li>Checks not measured do not count</li>
+</ul>
+</li>
+<li class="station" data-station="5">
+<h3 class="station__titel">Control of every check</h3>
+<p class="station__tut">A separate control step gives every check three verdicts with evidence from the unchanged responses: data collected correctly, data correct, evaluation correct. A tick without evidence counts as a cross, and a cross takes the check out of the points.</p>
+<p class="station__ort">runs independently of the audit</p>
+<ul class="station__skills" aria-label="Results">
+<li>Three verdicts per check with a reference</li>
+<li>The control only reads and changes nothing</li>
+<li>After a failure it retries after 10, 30 and 60 seconds, then every 5 minutes</li>
+</ul>
+</li>
+<li class="station" data-station="6">
+<h3 class="station__titel">Evaluation and action plan</h3>
+<p class="station__tut">From the controlled measurements two PDF files are built: the evaluation and the action plan, one measure for every check with three ticks. The cost statement and a phone notification with a link to the evaluation come with them. On request also up to five reply drafts to real reviews.</p>
+<p class="station__ort">Automatic, no manual work</p>
+<ul class="station__skills" aria-label="Results">
+<li>Evaluation with the provider's source where there is one</li>
+<li>Action plan sorted by impact</li>
+<li>Cost statement of the audit</li>
+</ul>
+</li>
+<li class="station" data-station="7">
+<h3 class="station__titel">Quote on site</h3>
+<p class="station__tut">Positions from the open points of the audit, products and prices from the customer management system (CRM). Audit report and quote leave as one PDF through the CRM.</p>
+<p class="station__ort">In the app</p>
+<ul class="station__skills" aria-label="Results">
+<li>Products and prices from the CRM</li>
+<li>Audit report and quote as one PDF</li>
+</ul>
+</li>
+<li class="station" data-station="8">
+<h3 class="station__titel">Order and invoice</h3>
+<p class="station__tut">Acceptance creates the order. Changes to website and Google profile are prepared as drafts, the approved ones are applied. Then the CRM completes the order and sends the invoice.</p>
+<p class="station__ort">Customer management system (CRM)</p>
+<ul class="station__skills" aria-label="Results">
+<li>Changes only after approval</li>
+<li>The completion of the order is reported automatically</li>
+<li>Monthly audit of the subscription</li>
+</ul>
+</li>
+</ol>
+<p class="org__schleife"><strong>Customer search</strong> Trade and town in the “Kunden” (customers) tab: the app reads up to 60 businesses from Google Maps, sorts them by gaps in their Google profile and names the permitted ways of contact for each, letter and visit. “Ins CRM als Interessent” (add to the CRM as a prospect) creates the business in the CRM, “Audit starten” (start audit) starts the remote audit of its website. Businesses on the block list for objections to advertising appear without any way of contact and without a button.</p>
+<p class="org__schleife"><strong>Audit request</strong> An audit request names the business, the meeting type (on site, phone or video) and a free hour from the provider's calendar. The provider can confirm it, propose another time or start the remote audit of its website.</p>
+<p class="org__schleife" data-schleife><strong>Monthly audit</strong> Once a month a subscription falls due. The order then runs through the measurement again, and the report shows before and after. Then drafts of replies to new reviews and of profile care are prepared, which the provider approves one by one.</p>
+</div>
+<p class="org__band">What could not be measured appears in the report with the reason; nothing is guessed.</p>
+</div>
+</section>
   </div>
   <div class="reiter-tafel" id="benchmarks" data-reiter-tafel role="tabpanel" aria-labelledby="reiter-benchmarks">
     <section class="section section--tafel" aria-labelledby="mess-titel">
       <div class="wrap">
         <h2 id="mess-titel">What is measured on RadarAuditor</h2>
-        <p class="section__intro">There has been no run against a real customer yet. What is measured is therefore what the check catalogue and the code contain: how much can be checked without access, how the score is weighted, where the data comes from and whether every test passes.</p>
+        <p class="section__intro">What is measured is what the check catalogue contains: how much can be checked without access, how the score is weighted and where the data comes from.</p>
 
         <figure class="panel messung messung--einheiten">
-          <figcaption><h3>97 of 108 checks run without a password and without a paid data service</h3></figcaption>
-          <div class="einheiten" role="img" aria-label="108 checks as squares: 97 measurable from the outside, 7 only with a paid data service, 4 only with customer access.">
+          <figcaption><h3>58 of 62 checks need no access to the business’s accounts</h3></figcaption>
+          <div class="einheiten" role="img" aria-label="62 checks as squares: 53 measurable from the outside, 5 only with a paid data service, 4 only with customer access.">
             <span class="einheit einheit--aussen"></span>
             <span class="einheit einheit--aussen"></span>
             <span class="einheit einheit--aussen"></span>
@@ -661,52 +683,6 @@
             <span class="einheit einheit--aussen"></span>
             <span class="einheit einheit--aussen"></span>
             <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--aussen"></span>
-            <span class="einheit einheit--bezahlt"></span>
-            <span class="einheit einheit--bezahlt"></span>
             <span class="einheit einheit--bezahlt"></span>
             <span class="einheit einheit--bezahlt"></span>
             <span class="einheit einheit--bezahlt"></span>
@@ -718,112 +694,74 @@
             <span class="einheit einheit--zugang"></span>
           </div>
           <ul class="legende">
-            <li><span class="einheit einheit--aussen" aria-hidden="true"></span>97 from the outside, no access</li>
-            <li><span class="einheit einheit--bezahlt" aria-hidden="true"></span>7 only with a paid data service</li>
+            <li><span class="einheit einheit--aussen" aria-hidden="true"></span>53 from the outside, no access needed</li>
+            <li><span class="einheit einheit--bezahlt" aria-hidden="true"></span>5 only with a paid data service</li>
             <li><span class="einheit einheit--zugang" aria-hidden="true"></span>4 only with customer access</li>
           </ul>
-          <p class="messung__satz">The first audit needs nothing from the business. What cannot be measured without access reads “not measurable” in the report and does not count towards the score.</p>
+          <p class="messung__satz">The audit needs nothing from the business except the website address. What cannot be measured without access reads “not measured” with the reason in the report and does not count towards the score.</p>
         </figure>
 
         <div class="messung-paar">
           <figure class="panel messung">
             <figcaption><h3>How the score is made up</h3></figcaption>
-            <p class="messung__satz">The Google Business Profile weighs most: 14 of 100 points. The five areas of the business’s own website add up to 44.</p>
-            <ol class="balken-liste" aria-label="Weight of the thirteen areas in the score">
-            <li class="balken"><span class="balken__name">Google Business Profile</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="100.00" height="10"/></svg><span class="balken__wert">14<span class="visually-hidden"> of 100</span></span></li>
-            <li class="balken"><span class="balken__name">Content and service pages</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="85.71" height="10"/></svg><span class="balken__wert">12<span class="visually-hidden"> of 100</span></span></li>
-            <li class="balken"><span class="balken__name">Page structure</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="71.43" height="10"/></svg><span class="balken__wert">10<span class="visually-hidden"> of 100</span></span></li>
-            <li class="balken"><span class="balken__name">Ranking on Google and Bing</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="71.43" height="10"/></svg><span class="balken__wert">10<span class="visually-hidden"> of 100</span></span></li>
-            <li class="balken"><span class="balken__name">Website technology</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="64.29" height="10"/></svg><span class="balken__wert">9<span class="visually-hidden"> of 100</span></span></li>
-            <li class="balken"><span class="balken__name">Reviews</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="57.14" height="10"/></svg><span class="balken__wert">8<span class="visually-hidden"> of 100</span></span></li>
-            <li class="balken"><span class="balken__name">Hidden data for Google and AI</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="50.00" height="10"/></svg><span class="balken__wert">7<span class="visually-hidden"> of 100</span></span></li>
-            <li class="balken"><span class="balken__name">Directories and listings</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="50.00" height="10"/></svg><span class="balken__wert">7<span class="visually-hidden"> of 100</span></span></li>
-            <li class="balken"><span class="balken__name">Company data on the website</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="42.86" height="10"/></svg><span class="balken__wert">6<span class="visually-hidden"> of 100</span></span></li>
-            <li class="balken"><span class="balken__name">Recommendations through links</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="42.86" height="10"/></svg><span class="balken__wert">6<span class="visually-hidden"> of 100</span></span></li>
-            <li class="balken"><span class="balken__name">Visibility in AI assistants</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="35.71" height="10"/></svg><span class="balken__wert">5<span class="visually-hidden"> of 100</span></span></li>
-            <li class="balken"><span class="balken__name">Legal and trust</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="28.57" height="10"/></svg><span class="balken__wert">4<span class="visually-hidden"> of 100</span></span></li>
-            <li class="balken"><span class="balken__name">Tools on the website</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="14.29" height="10"/></svg><span class="balken__wert">2<span class="visually-hidden"> of 100</span></span></li>
+            <p class="messung__satz">Google weighs most: 56.2 of 100 points. Bing and Copilot come to 29.2, ChatGPT and Claude to 6.5 each, Apple Maps to 1.6.</p>
+            <ol class="balken-liste" aria-label="Weight of the five scored providers in the score">
+            <li class="balken"><span class="balken__name">Google</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="100.00" height="10"/></svg><span class="balken__wert">56.2<span class="visually-hidden"> of 100</span></span></li>
+            <li class="balken"><span class="balken__name">Bing and Copilot</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="52.00" height="10"/></svg><span class="balken__wert">29.2<span class="visually-hidden"> of 100</span></span></li>
+            <li class="balken"><span class="balken__name">ChatGPT</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="11.56" height="10"/></svg><span class="balken__wert">6.5<span class="visually-hidden"> of 100</span></span></li>
+            <li class="balken"><span class="balken__name">Claude</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="11.56" height="10"/></svg><span class="balken__wert">6.5<span class="visually-hidden"> of 100</span></span></li>
+            <li class="balken"><span class="balken__name">Apple Maps</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="2.89" height="10"/></svg><span class="balken__wert">1.6<span class="visually-hidden"> of 100</span></span></li>
             </ol>
             <details class="tabelle">
               <summary>Show as table</summary>
               <table>
-                <thead><tr><th scope="col">Area</th><th scope="col">Weight of 100</th></tr></thead>
+                <thead><tr><th scope="col">Provider</th><th scope="col">Weight of 100</th></tr></thead>
                 <tbody>
-                <tr><th scope="row">Google Business Profile</th><td>14</td></tr>
-                <tr><th scope="row">Content and service pages</th><td>12</td></tr>
-                <tr><th scope="row">Page structure</th><td>10</td></tr>
-                <tr><th scope="row">Ranking on Google and Bing</th><td>10</td></tr>
-                <tr><th scope="row">Website technology</th><td>9</td></tr>
-                <tr><th scope="row">Reviews</th><td>8</td></tr>
-                <tr><th scope="row">Hidden data for Google and AI</th><td>7</td></tr>
-                <tr><th scope="row">Directories and listings</th><td>7</td></tr>
-                <tr><th scope="row">Company data on the website</th><td>6</td></tr>
-                <tr><th scope="row">Recommendations through links</th><td>6</td></tr>
-                <tr><th scope="row">Visibility in AI assistants</th><td>5</td></tr>
-                <tr><th scope="row">Legal and trust</th><td>4</td></tr>
-                <tr><th scope="row">Tools on the website</th><td>2</td></tr>
+                <tr><th scope="row">Google</th><td>56.2</td></tr>
+                <tr><th scope="row">Bing and Copilot</th><td>29.2</td></tr>
+                <tr><th scope="row">ChatGPT</th><td>6.5</td></tr>
+                <tr><th scope="row">Claude</th><td>6.5</td></tr>
+                <tr><th scope="row">Apple Maps</th><td>1.6</td></tr>
                 </tbody>
               </table>
             </details>
           </figure>
           <figure class="panel messung">
             <figcaption><h3>Where the data for the checks comes from</h3></figcaption>
-            <p class="messung__satz">Almost half of the checks read the website itself: 48 of 108.</p>
+            <p class="messung__satz">Most often a check reads the website itself: 27 of 62.</p>
             <ol class="balken-liste" aria-label="Number of checks per data source">
-            <li class="balken"><span class="balken__name">Website</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="100.00" height="10"/></svg><span class="balken__wert">48<span class="visually-hidden"> checks</span></span></li>
-            <li class="balken"><span class="balken__name">Google profile and map</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="50.00" height="10"/></svg><span class="balken__wert">24<span class="visually-hidden"> checks</span></span></li>
-            <li class="balken"><span class="balken__name">Google and Bing search</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="20.83" height="10"/></svg><span class="balken__wert">10<span class="visually-hidden"> checks</span></span></li>
-            <li class="balken"><span class="balken__name">Directories</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="16.67" height="10"/></svg><span class="balken__wert">8<span class="visually-hidden"> checks</span></span></li>
-            <li class="balken"><span class="balken__name">Paid data service</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="14.58" height="10"/></svg><span class="balken__wert">7<span class="visually-hidden"> checks</span></span></li>
-            <li class="balken"><span class="balken__name">AI assistants</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="8.33" height="10"/></svg><span class="balken__wert">4<span class="visually-hidden"> checks</span></span></li>
-            <li class="balken"><span class="balken__name">Customer access</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="8.33" height="10"/></svg><span class="balken__wert">4<span class="visually-hidden"> checks</span></span></li>
-            <li class="balken"><span class="balken__name">Load-time test (PageSpeed Insights)</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="6.25" height="10"/></svg><span class="balken__wert">3<span class="visually-hidden"> checks</span></span></li>
+            <li class="balken"><span class="balken__name">Website</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="100.00" height="10"/></svg><span class="balken__wert">27<span class="visually-hidden"> checks</span></span></li>
+            <li class="balken"><span class="balken__name">Google profile and map</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="37.04" height="10"/></svg><span class="balken__wert">10<span class="visually-hidden"> checks</span></span></li>
+            <li class="balken"><span class="balken__name">Search results on Google and Bing</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="33.33" height="10"/></svg><span class="balken__wert">9<span class="visually-hidden"> checks</span></span></li>
+            <li class="balken"><span class="balken__name">AI answers</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="14.81" height="10"/></svg><span class="balken__wert">4<span class="visually-hidden"> checks</span></span></li>
+            <li class="balken"><span class="balken__name">Customer access</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="14.81" height="10"/></svg><span class="balken__wert">4<span class="visually-hidden"> checks</span></span></li>
+            <li class="balken"><span class="balken__name">Link and comparison data (paid)</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="11.11" height="10"/></svg><span class="balken__wert">3<span class="visually-hidden"> checks</span></span></li>
+            <li class="balken"><span class="balken__name">Map listings (Apple, Bing)</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="7.41" height="10"/></svg><span class="balken__wert">2<span class="visually-hidden"> checks</span></span></li>
+            <li class="balken"><span class="balken__name">Load time on the phone</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="3.70" height="10"/></svg><span class="balken__wert">1<span class="visually-hidden"> checks</span></span></li>
+            <li class="balken"><span class="balken__name">Ads on Google</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="3.70" height="10"/></svg><span class="balken__wert">1<span class="visually-hidden"> checks</span></span></li>
+            <li class="balken"><span class="balken__name">Ads on Facebook and Instagram</span><svg class="balken__spur" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="balken__grund" width="100" height="10"/><rect class="balken__fuellung" width="3.70" height="10"/></svg><span class="balken__wert">1<span class="visually-hidden"> checks</span></span></li>
             </ol>
             <details class="tabelle">
               <summary>Show as table</summary>
               <table>
                 <thead><tr><th scope="col">Source</th><th scope="col">Checks</th></tr></thead>
                 <tbody>
-                <tr><th scope="row">Website</th><td>48</td></tr>
-                <tr><th scope="row">Google profile and map</th><td>24</td></tr>
-                <tr><th scope="row">Google and Bing search</th><td>10</td></tr>
-                <tr><th scope="row">Directories</th><td>8</td></tr>
-                <tr><th scope="row">Paid data service</th><td>7</td></tr>
-                <tr><th scope="row">AI assistants</th><td>4</td></tr>
+                <tr><th scope="row">Website</th><td>27</td></tr>
+                <tr><th scope="row">Google profile and map</th><td>10</td></tr>
+                <tr><th scope="row">Search results on Google and Bing</th><td>9</td></tr>
+                <tr><th scope="row">AI answers</th><td>4</td></tr>
                 <tr><th scope="row">Customer access</th><td>4</td></tr>
-                <tr><th scope="row">Load-time test (PageSpeed Insights)</th><td>3</td></tr>
+                <tr><th scope="row">Link and comparison data (paid)</th><td>3</td></tr>
+                <tr><th scope="row">Map listings (Apple, Bing)</th><td>2</td></tr>
+                <tr><th scope="row">Load time on the phone</th><td>1</td></tr>
+                <tr><th scope="row">Ads on Google</th><td>1</td></tr>
+                <tr><th scope="row">Ads on Facebook and Instagram</th><td>1</td></tr>
                 </tbody>
               </table>
             </details>
           </figure>
         </div>
-        <p class="quelle">Source: <code>config/pruefkatalog.yaml</code>, fields <code>weight</code>, <code>source</code>, <code>requires_paid</code> and <code>requires_access</code>.</p>
-
-        <h3 class="messung__zwischen">Check runs on 31 October 2026</h3>
-        <p class="messung__satz messung__satz--frei">The same checks run automatically on every push. On 31 October 2026 all of them passed.</p>
-        <div class="kacheln">
-          <div class="kachel">
-            <p class="kachel__zahl">1913</p>
-            <p class="kachel__was"><span class="kachel__ok" aria-hidden="true"></span>Python tests passed</p>
-            <p class="kachel__wie">with PostgreSQL for the database migrations</p>
-          </div>
-          <div class="kachel">
-            <p class="kachel__zahl">399</p>
-            <p class="kachel__was"><span class="kachel__ok" aria-hidden="true"></span>app tests passed</p>
-            <p class="kachel__wie">in 47 test files</p>
-          </div>
-          <div class="kachel">
-            <p class="kachel__zahl">89</p>
-            <p class="kachel__was"><span class="kachel__ok" aria-hidden="true"></span>source files without type errors</p>
-            <p class="kachel__wie">mypy in strict mode</p>
-          </div>
-          <div class="kachel">
-            <p class="kachel__zahl">0</p>
-            <p class="kachel__was"><span class="kachel__ok" aria-hidden="true"></span>style and format findings</p>
-            <p class="kachel__wie">ruff check and ruff format</p>
-          </div>
-        </div>
-        <p class="quelle">Source: runs of <code>pytest</code>, <code>npm test</code>, <code>mypy src</code> and <code>ruff</code> on 31 October 2026; test counts also in <code>Dokumentation/BUILD_REPORT.md</code>.</p>
+        <p class="quelle">Source: the check catalogue of the app. Counted are its weight, its type of measurement and whether a check needs paid data or customer access.</p>
       </div>
     </section>
   </div>
@@ -857,24 +795,24 @@
                   <p class="handy__kopf">Check</p>
                   <p class="handy__feld"><span class="handy__tippen">dachdeckerei-muster.de</span></p>
                   <p class="handy__knopf">Start audit</p>
-                  <ul class="handy__schritte"><li>Waiting</li><li>Collecting</li><li>Scoring</li><li>Evaluating</li><li>Done</li></ul>
+                  <ul class="handy__schritte"><li>Waiting</li><li>Measuring</li><li>Scoring</li><li>Controlling</li><li>Done</li></ul>
                 </div>
               </div>
-              <p class="szene__text">A website address is enough. The server works out business, city and industry by itself.</p>
+              <p class="szene__text">A website address is enough. The app reads business and address from the legal notice of the website.</p>
             </section>
-            <section class="szene szene--sammeln" aria-roledescription="scene" aria-label="4 of 9: Collecting">
+            <section class="szene szene--sammeln" aria-roledescription="scene" aria-label="4 of 9: Measuring">
               <div class="szene__motiv" aria-hidden="true">
                 <div class="nabe">
-                  <p class="nabe__mitte">Collector</p>
-                  <span class="nabe__quelle">Website</span>
-                  <span class="nabe__quelle">Load time</span>
-                  <span class="nabe__quelle">Google profile</span>
-                  <span class="nabe__quelle">Search</span>
-                  <span class="nabe__quelle">Directories</span>
-                  <span class="nabe__quelle">AI assistants</span>
+                  <p class="nabe__mitte">Audit</p>
+                  <span class="nabe__quelle">Google</span>
+                  <span class="nabe__quelle">Bing and Copilot</span>
+                  <span class="nabe__quelle">Apple Maps</span>
+                  <span class="nabe__quelle">ChatGPT</span>
+                  <span class="nabe__quelle">Claude</span>
+                  <span class="nabe__quelle">Ads</span>
                 </div>
               </div>
-              <p class="szene__text">The collector fetches the data from the web the way a customer sees it.</p>
+              <p class="szene__text">The audit measures each provider the way a customer sees it.</p>
             </section>
             <section class="szene szene--bewerten" aria-roledescription="scene" aria-label="5 of 9: Scoring">
               <div class="szene__motiv" aria-hidden="true">
@@ -883,20 +821,20 @@
                 </div>
                 <ul class="ampeln"><li class="ampel ampel--gut"></li><li class="ampel ampel--mittel"></li><li class="ampel ampel--schlecht"></li><li class="ampel ampel--gut"></li></ul>
               </div>
-              <p class="szene__text">Fixed rules award the points. No language model does the maths.</p>
+              <p class="szene__text">Every check is scored by the rules of the check catalogue; then a separate control step verifies every verdict with evidence.</p>
             </section>
-            <section class="szene szene--schreiben" aria-roledescription="scene" aria-label="6 of 9: Writing">
+            <section class="szene szene--schreiben" aria-roledescription="scene" aria-label="6 of 9: Recommending">
               <div class="szene__motiv" aria-hidden="true">
                 <div class="befund">
-                  <p class="befund__titel">Google finds no company data on the home page</p>
+                  <p class="befund__titel">The robots.txt blocks the ChatGPT search</p>
                   <span class="befund__zeile"></span>
                   <span class="befund__zeile"></span>
                   <span class="befund__zeile"></span>
-                  <p class="befund__code">&lt;script type="application/ld+json"&gt;</p>
-                  <p class="befund__kopieren">Copy</p>
+                  <p class="befund__code">User-agent: OAI-SearchBot</p>
+                  <p class="befund__kopieren">Priority 1</p>
                 </div>
               </div>
-              <p class="szene__text">Claude Code writes every finding in plain language, with a ready fix to copy.</p>
+              <p class="szene__text">Every check with three ticks becomes a measure in plain language: what was measured and what to do.</p>
             </section>
             <section class="szene szene--bericht" aria-roledescription="scene" aria-label="7 of 9: Report">
               <div class="szene__motiv" aria-hidden="true">
@@ -906,7 +844,7 @@
                   <span class="blatt blatt--vorn"><span class="blatt__kopf"></span><span class="blatt__saeulen"><i></i><i></i><i></i><i></i></span><span class="blatt__zeile"></span><span class="blatt__zeile blatt__zeile--kurz"></span></span>
                 </div>
               </div>
-              <p class="szene__text">Report and quote come to the meeting as one PDF, with reply drafts to real reviews for thinking it over.</p>
+              <p class="szene__text">Evaluation and action plan come to the meeting as PDFs, the quote follows from the open points, and reply drafts to real reviews are there for thinking it over.</p>
             </section>
             <section class="szene szene--crm" aria-roledescription="scene" aria-label="8 of 9: Hand-over">
               <div class="szene__motiv" aria-hidden="true">
@@ -917,27 +855,27 @@
                   <li>Monthly audit</li>
                 </ul>
               </div>
-              <p class="szene__text">The CRM takes over order and invoice. Every month a fresh audit follows, with drafts to approve.</p>
+              <p class="szene__text">The customer management system (CRM) takes over order and invoice. Every month a fresh audit follows, with drafts to approve.</p>
             </section>
-            <section class="szene szene--werkzeuge" aria-roledescription="scene" aria-label="9 of 9: Built with">
-              <div class="szene__motiv">
-                <ul class="werkzeuge" aria-label="Skills">
-                  <li>Python</li>
-                  <li>Browser automation with Playwright</li>
-                  <li>Docker</li>
-                  <li>Supabase and PostgreSQL</li>
-                  <li>Row level security</li>
-                  <li>Claude Code with its own skills</li>
-                  <li>Output validated against a schema</li>
-                  <li>Preact and TypeScript</li>
-                  <li>Installable web app</li>
-                  <li>PDF with WeasyPrint</li>
-                  <li>Tests with pytest</li>
-                  <li>GitHub Actions</li>
-                </ul>
-              </div>
-              <p class="szene__text">Built as a product: a server, an app and Claude Code, joined by one database.</p>
-            </section>
+            <section class="szene szene--werkzeuge" aria-roledescription="scene" aria-label="9 of 9: Overview">
+<div class="szene__motiv">
+<ul class="werkzeuge" aria-label="Features">
+<li>62 checks</li>
+<li>Five providers</li>
+<li>Traffic light per provider</li>
+<li>Three verdicts per check</li>
+<li>Evidence from unchanged responses</li>
+<li>Cost estimate up front</li>
+<li>Evaluation as PDF</li>
+<li>Action plan as PDF</li>
+<li>Phone, tablet and PC</li>
+<li>Quote on site</li>
+<li>Reply drafts for reviews</li>
+<li>Monthly audit</li>
+</ul>
+</div>
+<p class="szene__text">Everything an audit delivers, in one app.</p>
+</section>
           </div>
           <div class="film__steuerung">
             <button type="button" class="film__knopf" aria-pressed="false" data-abspielen="Play" data-anhalten="Pause"><span class="film__knopf-zeichen" aria-hidden="true"></span><span class="film__knopf-text">Play</span></button>
@@ -945,12 +883,12 @@
               <li><button type="button" data-kapitel><span class="kapitel__name">The question</span><span class="kapitel__balken" aria-hidden="true"></span></button></li>
               <li><button type="button" data-kapitel><span class="kapitel__name">Finding customers</span><span class="kapitel__balken" aria-hidden="true"></span></button></li>
               <li><button type="button" data-kapitel><span class="kapitel__name">Input</span><span class="kapitel__balken" aria-hidden="true"></span></button></li>
-              <li><button type="button" data-kapitel><span class="kapitel__name">Collecting</span><span class="kapitel__balken" aria-hidden="true"></span></button></li>
+              <li><button type="button" data-kapitel><span class="kapitel__name">Measuring</span><span class="kapitel__balken" aria-hidden="true"></span></button></li>
               <li><button type="button" data-kapitel><span class="kapitel__name">Scoring</span><span class="kapitel__balken" aria-hidden="true"></span></button></li>
-              <li><button type="button" data-kapitel><span class="kapitel__name">Writing</span><span class="kapitel__balken" aria-hidden="true"></span></button></li>
+              <li><button type="button" data-kapitel><span class="kapitel__name">Recommending</span><span class="kapitel__balken" aria-hidden="true"></span></button></li>
               <li><button type="button" data-kapitel><span class="kapitel__name">Report</span><span class="kapitel__balken" aria-hidden="true"></span></button></li>
               <li><button type="button" data-kapitel><span class="kapitel__name">Hand-over</span><span class="kapitel__balken" aria-hidden="true"></span></button></li>
-              <li><button type="button" data-kapitel><span class="kapitel__name">Built with</span><span class="kapitel__balken" aria-hidden="true"></span></button></li>
+              <li><button type="button" data-kapitel><span class="kapitel__name">Overview</span><span class="kapitel__balken" aria-hidden="true"></span></button></li>
             </ol>
           </div>
         </div>
@@ -983,8 +921,8 @@
 <nav class="dock" aria-label="Views of the project page">
   <div class="dock__leiste" role="tablist" aria-label="Views of the project page">
     <a class="dock__reiter" role="tab" id="reiter-projekt" href="#projekt" data-reiter="projekt" aria-controls="projekt" aria-selected="true"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5"/><path d="M12 12 18 6"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg><span>Project</span></a>
-    <a class="dock__reiter" role="tab" id="reiter-organigramm" href="#organigramm" data-reiter="organigramm" aria-controls="organigramm" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="3.5" width="7" height="5" rx="1.5"/><rect x="14" y="15.5" width="7" height="5" rx="1.5"/><path d="M6.5 8.5v5.5a2 2 0 0 0 2 2H14"/><path d="M17.5 15.5V10a2 2 0 0 0-2-2H10"/></svg><span>Org chart</span></a>
-    <a class="dock__reiter" role="tab" id="reiter-benchmarks" href="#benchmarks" data-reiter="benchmarks" aria-controls="benchmarks" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16"/><path d="M7 16v-5"/><path d="M12 16V5"/><path d="M17 16v-8"/></svg><span>Benchmarks</span></a>
+    <a class="dock__reiter" role="tab" id="reiter-organigramm" href="#organigramm" data-reiter="organigramm" aria-controls="organigramm" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="3.5" width="7" height="5" rx="1.5"/><rect x="14" y="15.5" width="7" height="5" rx="1.5"/><path d="M6.5 8.5v5.5a2 2 0 0 0 2 2H14"/><path d="M17.5 15.5V10a2 2 0 0 0-2-2H10"/></svg><span>Order</span></a>
+    <a class="dock__reiter" role="tab" id="reiter-benchmarks" href="#benchmarks" data-reiter="benchmarks" aria-controls="benchmarks" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16"/><path d="M7 16v-5"/><path d="M12 16V5"/><path d="M17 16v-8"/></svg><span>Figures</span></a>
     <a class="dock__reiter" role="tab" id="reiter-praesentation" href="#praesentation" data-reiter="praesentation" aria-controls="praesentation" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="2.5" y="4.5" width="19" height="13" rx="2.5"/><path d="m10 8.5 5 2.5-5 2.5z" fill="currentColor"/><path d="M8 21h8"/></svg><span>Presentation</span></a>
   </div>
 </nav>

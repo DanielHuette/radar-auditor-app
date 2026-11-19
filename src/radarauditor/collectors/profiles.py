@@ -1,28 +1,23 @@
-"""Choose the route for Google profile data: Google Maps in the browser first, Places API second.
-
-Context: Source order of the spec. Every profile, competitor search, map position and grid point
-is read in the shared browser while Google Maps lets it; once Maps shows a bot check, or the
-google_maps switch or cap stops the browser, the same data comes from the Places API (New) at
-once, within the places cap. A page the browser cannot read falls back for that one value.
-Input: The shared BrowserService, the job's SourceGate and the Google API key.
-Output: PlaceSnapshots, competitor snapshots, MapRankings, the MapResultList of a phrase and
-GridPoints, each marked with the route that delivered it.
-"""
-
 import enum
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Literal
 
 from playwright.async_api import Error as PlaywrightError
 from pydantic import SecretStr
 
-from radarauditor.collectors import maps, places
+from radarauditor.collectors import dataforseo_maps, maps, places
 from radarauditor.collectors.browser import BrowserService, Geolocation
-from radarauditor.collectors.maps_pages import MapListing, listing_position, same_business
-from radarauditor.collectors.paid_rankings import grid_key, grid_points
+from radarauditor.collectors.dataforseo_maps import MapsQuery
+from radarauditor.collectors.identity import (
+    Identity,
+    identity,
+    place_identity,
+    same_business,
+)
+from radarauditor.collectors.maps_pages import MapListing, listing_identity, listing_position
+from radarauditor.collectors.paid_rankings import DataForSeoClient, grid_key, grid_points
 from radarauditor.collectors.quota import SourceGate
 from radarauditor.collectors.snapshot import (
     DataRoute,
@@ -33,7 +28,14 @@ from radarauditor.collectors.snapshot import (
     PlaceSnapshot,
 )
 from radarauditor.db.app_settings import Source
-from radarauditor.errors import CollectionError, ProfileNotFoundError, SearchBlockedError
+from radarauditor.errors import (
+    CollectionError,
+    DailyCapReachedError,
+    ProfileNotFoundError,
+    SearchBlockedError,
+    SourceDisabledError,
+    SourceUnavailableError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,8 @@ RANKING_RADIUS_METERS = 10000.0
 GRID_RADIUS_METERS = 1000.0
 PLACES_ID_PREFIX = "ChIJ"
 SEARCH_SPARE = 2
+PROFILE_WAYS: tuple[DataRoute, ...] = ("places_api", "dataforseo", "browser")
+NOT_READ_BY_BROWSER = "no profile data from the browser"
 
 
 class _Fallback(enum.Enum):
@@ -49,70 +53,240 @@ class _Fallback(enum.Enum):
 
 USE_PLACES = _Fallback.USE_PLACES
 
+type _Point = tuple[str, float, float]
+
 
 @dataclass(frozen=True)
 class Business:
-    """The customer as the routes recognise it in result lists.
-
-    address is the full address for a Places lookup, city the place competitors are looked up in.
-    """
-
     name: str
     address: str
     city: str
     place_ids: frozenset[str] = frozenset()
 
 
-class ProfileRoute:
-    """Reads Google profile data for one job, browser first, Places API on a block."""
+@dataclass
+class _WayRead:
+    snapshot: PlaceSnapshot | None = None
+    none: bool = False
+    failure: str | None = None
+    unavailable: SourceUnavailableError | None = None
 
+
+@dataclass
+class _Reading:
+    snapshot: PlaceSnapshot | None = None
+    none: bool = False
+    failures: list[str] = field(default_factory=list)
+    unavailable: SourceUnavailableError | None = None
+
+    def take(self, read: _WayRead) -> None:
+        if read.snapshot is not None:
+            self.snapshot = (
+                read.snapshot if self.snapshot is None else supplement(self.snapshot, read.snapshot)
+            )
+        elif self.snapshot is not None:
+            return
+        elif read.none:
+            self.none = True
+        elif read.failure is not None:
+            self.failures.append(read.failure)
+        elif read.unavailable is not None and self.unavailable is None:
+            self.unavailable = read.unavailable
+
+    def verdict(self, target: maps.ProfileTarget) -> PlaceSnapshot | None:
+        if self.snapshot is not None:
+            return self.snapshot
+        if self.failures:
+            raise CollectionError(
+                f"profile of {target.name} could not be read: {'; '.join(self.failures)}"
+            )
+        if self.none:
+            return None
+        raise self.unavailable or CollectionError(
+            f"no route is available to read the profile of {target.name}"
+        )
+
+
+def wants_all_fields(target: maps.ProfileTarget) -> bool:
+    return target.with_photos
+
+
+class ProfileRoute:
     def __init__(
         self,
         browser: BrowserService,
         gate: SourceGate,
         api_key: SecretStr,
         eur_per_usd: Decimal = Decimal(1),
+        dataforseo: DataForSeoClient | None = None,
+        ways: tuple[DataRoute, ...] = PROFILE_WAYS,
     ) -> None:
-        """Bind the route to the job's browser, gate and Places key.
-
-        Args:
-            browser: Shared browser of the job.
-            gate: Source switches and caps of the job.
-            api_key: Google Cloud key for the Places API (New).
-            eur_per_usd: Euros per US dollar, to book the price of each Places request.
-        """
         self.browser = browser
         self.gate = gate
         self.api_key = api_key
+        self.dataforseo = dataforseo
+        self.ways = ways
         self._eur_per_usd = eur_per_usd
         self._blocked: str | None = None
         self._browser_used = False
-        self._listings: dict[tuple[str, float, float], list[MapListing]] = {}
+        self._listings: dict[_Point, tuple[list[MapListing], DataRoute]] = {}
         self._places_ids: dict[str, str | None] = {}
 
+    async def prefetch(
+        self,
+        phrases: list[str],
+        centre: tuple[float, float],
+        grid: tuple[str, int] | None,
+        notes: list[str],
+    ) -> None:
+        if self.dataforseo is None:
+            return
+        points: list[_Point] = [(phrase, *centre) for phrase in dict.fromkeys(phrases)]
+        if grid is not None:
+            phrase, size = grid
+            points.extend((phrase, *point) for point in grid_points(*centre, size))
+        wanted = list(dict.fromkeys(point for point in points if point not in self._listings))
+        if not wanted:
+            return
+        batch = await dataforseo_maps.search_maps(
+            self.dataforseo, [MapsQuery(*point) for point in wanted]
+        )
+        for index, listings in batch.listings.items():
+            self._listings[wanted[index]] = (listings, "dataforseo")
+        if batch.failed:
+            first = batch.failed[min(batch.failed)]
+            notes.append(
+                f"DataForSEO Maps answered {len(batch.listings)} of {len(wanted)} searches, "
+                f"the browser takes the rest: {first}"
+            )
+
     async def profile(self, target: maps.ProfileTarget, notes: list[str]) -> PlaceSnapshot | None:
-        """Read one business profile.
+        return (await self._readings([target], notes))[0].verdict(target)
 
-        Args:
-            target: Business to read.
-            notes: Receives a line when the browser had to give way to the Places API.
+    async def profiles(
+        self, targets: list[maps.ProfileTarget], notes: list[str]
+    ) -> list[PlaceSnapshot | None]:
+        found: list[PlaceSnapshot | None] = []
+        for target, reading in zip(targets, await self._readings(targets, notes), strict=True):
+            try:
+                found.append(reading.verdict(target))
+            except SourceUnavailableError:
+                raise
+            except CollectionError as error:
+                notes.append(str(error))
+                found.append(None)
+        return found
 
-        Returns:
-            The profile, or None when neither route finds one.
+    async def _readings(
+        self, targets: list[maps.ProfileTarget], notes: list[str]
+    ) -> list[_Reading]:
+        readings = [_Reading() for _ in targets]
+        for way in self.ways:
+            wanted = [
+                index
+                for index, target in enumerate(targets)
+                if readings[index].snapshot is None or wants_all_fields(target)
+            ]
+            if not wanted:
+                continue
+            known = [readings[index].snapshot for index in wanted]
+            reads = await self._read_way(way, [targets[index] for index in wanted], known, notes)
+            for index, read in zip(wanted, reads, strict=True):
+                readings[index].take(read)
+        return readings
 
-        Raises:
-            SourceUnavailableError: If the Places API is needed and switched off or capped.
-            CollectionError: If the Places API fails.
-        """
+    async def _read_way(
+        self,
+        way: DataRoute,
+        targets: list[maps.ProfileTarget],
+        known: list[PlaceSnapshot | None],
+        notes: list[str],
+    ) -> list[_WayRead]:
+        if way == "places_api":
+            return [await self._read_places(target, notes) for target in targets]
+        if way == "dataforseo":
+            return await self._read_dataforseo(targets, notes)
+        return [
+            await self._read_browser(target, snapshot, notes)
+            for target, snapshot in zip(targets, known, strict=True)
+        ]
+
+    async def _read_places(self, target: maps.ProfileTarget, notes: list[str]) -> _WayRead:
         try:
-            snapshot = await self._in_browser(
-                lambda: maps.read_profile(self.browser, target), notes, target.name
+            place_id = await self._places_id(target.name, target.address, target.place_id)
+            if place_id is None:
+                return _WayRead(none=True)
+            self.gate.acquire(Source.PLACES)
+            snapshot = await places.place_details(place_id, self.api_key)
+            self._charge(places.PLACE_DETAILS_SKU)
+        except SourceUnavailableError as error:
+            return _WayRead(unavailable=error)
+        except CollectionError as error:
+            notes.append(f"{target.name}: Places API profile failed ({error})")
+            return _WayRead(failure=f"Places API: {error}")
+        return _WayRead(snapshot=snapshot)
+
+    async def _read_dataforseo(
+        self, targets: list[maps.ProfileTarget], notes: list[str]
+    ) -> list[_WayRead]:
+        if self.dataforseo is None:
+            return [_WayRead() for _ in targets]
+        keywords = [
+            dataforseo_maps.profile_keyword(target.name, target.address, target.place_id)
+            for target in targets
+        ]
+        try:
+            reads = await dataforseo_maps.read_profiles(self.dataforseo, keywords)
+        except SourceUnavailableError as error:
+            return [_WayRead(unavailable=error) for _ in targets]
+        except CollectionError as error:
+            notes.append(f"DataForSEO profile read failed ({error})")
+            return [_WayRead(failure=f"DataForSEO: {error}") for _ in targets]
+        results: list[_WayRead] = []
+        for target, read in zip(targets, reads, strict=True):
+            notes.extend(f"{target.name}: {note}" for note in read.notes)
+            if read.failure is not None:
+                notes.append(f"{target.name}: DataForSEO profile failed ({read.failure})")
+                results.append(_WayRead(failure=f"DataForSEO: {read.failure}"))
+            else:
+                results.append(_WayRead(snapshot=read.snapshot, none=read.snapshot is None))
+        return results
+
+    async def _read_browser(
+        self, target: maps.ProfileTarget, known: PlaceSnapshot | None, notes: list[str]
+    ) -> _WayRead:
+        if self._blocked is not None:
+            return _WayRead(failure=f"Google Maps: {self._blocked}")
+        place_id = (
+            known.place_id
+            if known is not None and known.place_id.startswith(PLACES_ID_PREFIX)
+            else target.place_id
+        )
+        browser_target = maps.ProfileTarget(
+            target.name, target.address, place_id, target.url, target.with_photos
+        )
+        try:
+            read = await self._in_browser(
+                lambda: maps.read_profile(self.browser, browser_target),
+                notes,
+                target.name,
+                fallback=NOT_READ_BY_BROWSER,
             )
         except ProfileNotFoundError:
-            return None
-        if snapshot is not USE_PLACES:
-            return snapshot
-        return await self._places_profile(target)
+            return _WayRead(none=True)
+        if read is USE_PLACES:
+            return self._browser_gap()
+        return _WayRead(snapshot=read)
+
+    def _browser_gap(self) -> _WayRead:
+        source = Source.GOOGLE_MAPS
+        if not self.gate.is_enabled(source):
+            return _WayRead(
+                unavailable=SourceDisabledError(source.value, "switched off in the app settings")
+            )
+        if source in self.gate.exhausted or source in self.gate.cost_capped:
+            return _WayRead(unavailable=DailyCapReachedError(source.value, "cap reached"))
+        return _WayRead(failure="Google Maps: profile not readable")
 
     async def competitors(
         self,
@@ -123,33 +297,17 @@ class ProfileRoute:
         count: int,
         notes: list[str],
     ) -> list[PlaceSnapshot]:
-        """Return the strongest businesses for a phrase near a point, skipping known ones.
-
-        Args:
-            phrase: Main keyword with the city.
-            centre: Latitude and longitude of the business.
-            exclude: Profiles already compared.
-            own: The customer, which is never its own competitor.
-            count: Number of competitors wanted.
-            notes: Receives route changes and profiles that could not be read.
-
-        Returns:
-            Up to count profiles in Google's order.
-
-        Raises:
-            SourceUnavailableError: If the Places API is needed and switched off or capped.
-            CollectionError: If the Places API fails.
-        """
-        listings = await self._search(phrase, centre, notes)
-        if listings is USE_PLACES:
+        searched = await self._search(phrase, centre, notes)
+        if searched is USE_PLACES:
             return await self._places_competitors(phrase, centre, exclude, own, count)
+        listings, _ = searched
         chosen = [item for item in listings if not _is_known(item, exclude, own)][:count]
+        targets = [
+            maps.ProfileTarget(listing.name, own.city, place_id=listing.place_id, url=listing.url)
+            for listing in chosen
+        ]
         found: list[PlaceSnapshot] = []
-        for listing in chosen:
-            target = maps.ProfileTarget(
-                listing.name, own.city, place_id=listing.place_id, url=listing.url
-            )
-            snapshot = await self.profile(target, notes)
+        for listing, snapshot in zip(chosen, await self.profiles(targets, notes), strict=True):
             if snapshot is None:
                 notes.append(f"{listing.name}: profile not readable")
                 continue
@@ -159,19 +317,14 @@ class ProfileRoute:
     async def map_ranking(
         self, phrase: str, centre: tuple[float, float], own: Business, notes: list[str]
     ) -> MapRanking:
-        """Return the customer's position in the Google Maps results for one phrase.
-
-        Raises:
-            SourceUnavailableError: If the Places API is needed and switched off or capped.
-            CollectionError: If the Places API fails or does not know the customer.
-        """
-        listings = await self._search(phrase, centre, notes)
-        if listings is not USE_PLACES:
+        searched = await self._search(phrase, centre, notes)
+        if searched is not USE_PLACES:
+            listings, route = searched
             return MapRanking(
                 phrase=phrase,
-                position=listing_position(listings, own.name, own.place_ids),
+                position=listing_position(listings, _identity_of(own)),
                 listed=[listing.name for listing in listings],
-                route="browser",
+                route=route,
             )
         position = await self._places_position(phrase, centre, own, RANKING_RADIUS_METERS)
         return MapRanking(phrase=phrase, position=position, route="places_api")
@@ -179,27 +332,10 @@ class ProfileRoute:
     async def result_list(
         self, phrase: str, centre: tuple[float, float], own: Business, notes: list[str]
     ) -> MapResultList:
-        """Return every business Google Maps lists for a phrase, with its review count.
-
-        The browser search is the one the competitors and the map position already ran, so no
-        further page is opened; when Maps blocks, the Places text search lists the businesses.
-
-        Args:
-            phrase: Main keyword with the city.
-            centre: Latitude and longitude of the business.
-            own: The customer, marked in the list where it appears.
-            notes: Receives route changes.
-
-        Returns:
-            The listed businesses in Google's order.
-
-        Raises:
-            SourceUnavailableError: If the Places API is needed and switched off or capped.
-            CollectionError: If the Places API fails.
-        """
-        listings = await self._search(phrase, centre, notes)
-        if listings is not USE_PLACES:
-            return _result_list(phrase, listings, own, route="browser")
+        searched = await self._search(phrase, centre, notes)
+        if searched is not USE_PLACES:
+            listings, route = searched
+            return _result_list(phrase, listings, own, route)
         self.gate.acquire(Source.PLACES)
         found = await places.listed_businesses(phrase, *centre, self.api_key, RANKING_RADIUS_METERS)
         self._charge(places.LISTED_BUSINESSES_SKU)
@@ -207,29 +343,21 @@ class ProfileRoute:
             MapListing(item.name, "", item.place_id, item.rating, item.review_count)
             for item in found
         ]
-        return _result_list(phrase, listed, own, route="places_api")
+        return _result_list(phrase, listed, own, "places_api")
 
     async def grid(
         self, phrase: str, centre: tuple[float, float], own: Business, size: int, notes: list[str]
     ) -> list[GridPoint]:
-        """Measure the customer's map position at size x size points one kilometre apart.
-
-        Each point is searched with the map centred there and the device location set to it.
-
-        Returns:
-            Points ordered row by row from the north-west, keyed "r{row}c{column}".
-
-        Raises:
-            SourceUnavailableError: If the Places API is needed and switched off or capped.
-            CollectionError: If the Places API fails or does not know the customer.
-        """
         points: list[GridPoint] = []
         for index, (latitude, longitude) in enumerate(grid_points(*centre, size)):
             position, route = await self._point(phrase, latitude, longitude, own, notes)
-            key = grid_key(index, size)
             points.append(
                 GridPoint(
-                    key=key, latitude=latitude, longitude=longitude, position=position, route=route
+                    key=grid_key(index, size),
+                    latitude=latitude,
+                    longitude=longitude,
+                    position=position,
+                    route=route,
                 )
             )
         return sorted(points, key=lambda point: _row_and_column(point.key))
@@ -237,33 +365,41 @@ class ProfileRoute:
     async def _point(
         self, phrase: str, latitude: float, longitude: float, own: Business, notes: list[str]
     ) -> tuple[int | None, DataRoute]:
+        known = self._listings.get((phrase, latitude, longitude))
+        if known is not None:
+            listings, route = known
+            return listing_position(listings, _identity_of(own)), route
         position = Geolocation(latitude, longitude)
-        listings = await self._in_browser(
+        read = await self._in_browser(
             lambda: maps.search_listings(self.browser, phrase, position), notes, phrase
         )
-        if listings is not USE_PLACES:
-            return listing_position(listings, own.name, own.place_ids), "browser"
+        if read is not USE_PLACES:
+            return listing_position(read, _identity_of(own)), "browser"
         found = await self._places_position(phrase, (latitude, longitude), own, GRID_RADIUS_METERS)
         return found, "places_api"
 
     async def _search(
         self, phrase: str, centre: tuple[float, float], notes: list[str]
-    ) -> list[MapListing] | _Fallback:
-        """Result list at the business, searched once per phrase in the job."""
+    ) -> tuple[list[MapListing], DataRoute] | _Fallback:
         key = (phrase, *centre)
         if key in self._listings:
             return self._listings[key]
-        listings = await self._in_browser(
+        read = await self._in_browser(
             lambda: maps.search_listings(self.browser, phrase, Geolocation(*centre)), notes, phrase
         )
-        if listings is not USE_PLACES:
-            self._listings[key] = listings
-        return listings
+        if read is USE_PLACES:
+            return USE_PLACES
+        self._listings[key] = (read, "browser")
+        return self._listings[key]
 
     async def _in_browser[T](
-        self, action: Callable[[], Awaitable[T]], notes: list[str], subject: str
+        self,
+        action: Callable[[], Awaitable[T]],
+        notes: list[str],
+        subject: str,
+        *,
+        fallback: str = "Places API used",
     ) -> T | _Fallback:
-        """Run a browser read, or say that the Places API has to answer instead."""
         if self._blocked is not None or not self.gate.try_acquire(Source.GOOGLE_MAPS):
             return USE_PLACES
         if self._browser_used:
@@ -274,23 +410,14 @@ class ProfileRoute:
         except SearchBlockedError as error:
             self._blocked = str(error)
             logger.warning("Google Maps blocked the browser: %s", error)
-            notes.append(f"Google Maps blocked the browser ({error}), Places API used")
+            notes.append(f"Google Maps blocked the browser ({error}), {fallback}")
             return USE_PLACES
         except ProfileNotFoundError:
             raise
         except (CollectionError, PlaywrightError) as error:
             reason = error.message if isinstance(error, PlaywrightError) else str(error)
-            notes.append(f"Google Maps not readable for {subject} ({reason}), Places API used")
+            notes.append(f"Google Maps not readable for {subject} ({reason}), {fallback}")
             return USE_PLACES
-
-    async def _places_profile(self, target: maps.ProfileTarget) -> PlaceSnapshot | None:
-        place_id = await self._places_id(target.name, target.address, target.place_id)
-        if place_id is None:
-            return None
-        self.gate.acquire(Source.PLACES)
-        snapshot = await places.place_details(place_id, self.api_key)
-        self._charge(places.PLACE_DETAILS_SKU)
-        return snapshot
 
     async def _places_competitors(
         self,
@@ -319,7 +446,6 @@ class ProfileRoute:
         return ranked.index(own_id) + 1 if own_id in ranked else None
 
     async def _places_id(self, name: str, address: str, *known: str | None) -> str | None:
-        """A ChIJ place id: a known one, else one looked up once per business."""
         found = next((item for item in known if item and item.startswith(PLACES_ID_PREFIX)), None)
         if found is not None:
             return found
@@ -331,22 +457,37 @@ class ProfileRoute:
         return self._places_ids[key]
 
     def _charge(self, sku: places.PlacesSku) -> None:
-        """Book the price of one answered Places request against the monthly euro cap."""
-        self.gate.record_cost(Source.PLACES, places.request_cost_eur(sku, self._eur_per_usd))
+        self.gate.record_cost(
+            Source.PLACES, places.request_cost_eur(sku, self._eur_per_usd), service=sku.value
+        )
+
+
+def supplement(paid: PlaceSnapshot, read: PlaceSnapshot) -> PlaceSnapshot:
+    values = paid.model_dump()
+    routes = dict(paid.value_routes)
+    for name, route in read.value_routes.items():
+        if name not in routes:
+            values[name] = getattr(read, name)
+            routes[name] = route
+    values["value_routes"] = routes
+    return PlaceSnapshot.model_validate(values)
+
+
+def _identity_of(own: Business) -> Identity:
+    return identity(name=own.name, place_ids=own.place_ids, address=own.address)
+
+
+def _is_known_candidate(candidate: Identity, exclude: list[PlaceSnapshot], own: Business) -> bool:
+    known = [_identity_of(own), *(place_identity(place) for place in exclude)]
+    return any(same_business(item, candidate) for item in known)
 
 
 def _is_known(listing: MapListing, exclude: list[PlaceSnapshot], own: Business) -> bool:
-    if listing.place_id is not None and (
-        listing.place_id in own.place_ids or any(p.place_id == listing.place_id for p in exclude)
-    ):
-        return True
-    names = [own.name, *(place.name for place in exclude)]
-    return any(same_business(listing.name, name) for name in names)
+    return _is_known_candidate(listing_identity(listing), exclude, own)
 
 
 def _is_known_place(place: PlaceSnapshot, exclude: list[PlaceSnapshot], own: Business) -> bool:
-    listing = MapListing(place.name, "", place.place_id, place.rating, place.review_count)
-    return _is_known(listing, exclude, own)
+    return _is_known_candidate(place_identity(place), exclude, own)
 
 
 def _row_and_column(key: str) -> tuple[int, int]:
@@ -355,10 +496,7 @@ def _row_and_column(key: str) -> tuple[int, int]:
 
 
 def _result_list(
-    phrase: str,
-    listings: list[MapListing],
-    own: Business,
-    route: Literal["browser", "places_api"],
+    phrase: str, listings: list[MapListing], own: Business, route: DataRoute
 ) -> MapResultList:
     businesses = [
         ListedBusiness(

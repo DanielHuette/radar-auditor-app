@@ -1,10 +1,10 @@
-// Prüfen: enter an address, choose the checks, start the audit and follow it live. Open requests
-// from the website form sit closed below the button and only fill the address field.
 import { useLocation } from "preact-iso";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
-import { startFieldAudit } from "../api/queries";
+import { startCustomerAudit, startFieldAudit } from "../api/queries";
+import type { Customer } from "../api/types";
 import { AuditProgress } from "../components/AuditProgress";
 import { CheckSelection } from "../components/CheckSelection";
+import { CustomerPicker } from "../components/CustomerPicker";
 import { Icon } from "../components/Icon";
 import { OpenRequests } from "../components/OpenRequests";
 import { RadarBackdrop } from "../components/RadarBackdrop";
@@ -14,6 +14,22 @@ import { CATALOGUE_AREAS } from "../lib/catalogue";
 import { deviceStorage, loadSelection, saveSelection } from "../lib/checkSelection";
 import { quickAuditRequest, validateWebsite } from "../lib/fieldAudit";
 import { hostOf } from "../lib/format";
+
+interface Target {
+  label: string;
+  start: (disabledChecks: readonly string[]) => Promise<string>;
+}
+
+function websiteTarget(website: string): Target {
+  return {
+    label: hostOf(website).replace(/^www\./, ""),
+    start: (disabledChecks) => startFieldAudit(quickAuditRequest(website, disabledChecks)),
+  };
+}
+
+function customerTarget(customer: Customer): Target {
+  return { label: customer.name, start: (disabledChecks) => startCustomerAudit(customer.id, disabledChecks) };
+}
 
 interface UrlInputProps {
   value: string;
@@ -82,7 +98,6 @@ function AddressStep({ initial, focusGo, onNext }: AddressStepProps) {
   );
 }
 
-/** The selection of the last audit on this device, saved again on every change. */
 function useStoredSelection(): [string[], (next: string[]) => void] {
   const [disabled, setDisabled] = useState<string[]>(() => loadSelection(deviceStorage()));
   const change = (next: string[]) => {
@@ -109,22 +124,27 @@ function StartNotes({ blockedReason, error }: { blockedReason: string | null; er
   );
 }
 
-function SelectStep({ website, onBack, onStarted }: { website: string; onBack: () => void; onStarted: (auditId: string) => void }) {
+interface SelectStepProps {
+  target: Target;
+  onBack: () => void;
+  onStarted: (auditId: string) => void;
+}
+
+function SelectStep({ target, onBack, onStarted }: SelectStepProps) {
   const [disabled, setDisabled] = useStoredSelection();
   const action = useAction();
   const blockedReason = useServerStatus()?.blockedReason ?? null;
-  const host = hostOf(website).replace(/^www\./, "");
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
     if (blockedReason !== null) return;
     void action.run(async () => {
-      onStarted(await startFieldAudit(quickAuditRequest(website, disabled)));
+      onStarted(await target.start(disabled));
     });
   };
   return (
     <form class="choose" noValidate onSubmit={submit}>
-      <button type="button" class="address-label" aria-label={`Adresse ${host} ändern`} onClick={onBack}>
-        {host}
+      <button type="button" class="address-label" aria-label={`${target.label} ändern`} onClick={onBack}>
+        {target.label}
       </button>
       <CheckSelection areas={CATALOGUE_AREAS} disabled={disabled} onChange={setDisabled} />
       <StartNotes blockedReason={blockedReason} error={action.error} />
@@ -145,7 +165,6 @@ function ProgressStep({ auditId, onNew }: { auditId: string; onNew: () => void }
   );
 }
 
-/** The typed address; picking an open request replaces it and starts the address step afresh. */
 function useTypedAddress() {
   const [typed, setTyped] = useState("");
   const [picked, setPicked] = useState(0);
@@ -159,45 +178,81 @@ function useTypedAddress() {
 interface StartStepProps {
   address: ReturnType<typeof useTypedAddress>;
   onNext: (website: string, typed: string) => void;
+  onCustomer: (customer: Customer) => void;
 }
 
-function StartStep({ address, onNext }: StartStepProps) {
+function StartStep({ address, onNext, onCustomer }: StartStepProps) {
   return (
     <>
       <AddressStep key={address.picked} initial={address.typed} focusGo={address.picked > 0} onNext={onNext} />
       <div class="requests-layer">
         <OpenRequests onPick={address.pick} />
       </div>
+      <CustomerPicker onPick={onCustomer} />
     </>
   );
 }
 
-/** One radar for all steps, so it keeps sweeping from the address to the running audit. */
+interface StepProps {
+  auditId: string | null;
+  target: Target | null;
+  address: ReturnType<typeof useTypedAddress>;
+  setTarget: (target: Target | null) => void;
+  showAudit: (id: string | null) => void;
+}
+
+function PreparingStep({ target, address, setTarget, showAudit }: Omit<StepProps, "auditId">) {
+  if (target !== null) {
+    return (
+      <SelectStep
+        target={target}
+        onBack={() => {
+          setTarget(null);
+        }}
+        onStarted={showAudit}
+      />
+    );
+  }
+  const enterAddress = (website: string, text: string) => {
+    address.setTyped(text);
+    setTarget(websiteTarget(website));
+  };
+  return (
+    <StartStep
+      address={address}
+      onNext={enterAddress}
+      onCustomer={(customer) => {
+        setTarget(customerTarget(customer));
+      }}
+    />
+  );
+}
+
+function CurrentStep({ auditId, ...rest }: StepProps) {
+  if (auditId === null) return <PreparingStep {...rest} />;
+  return (
+    <ProgressStep
+      auditId={auditId}
+      onNew={() => {
+        rest.showAudit(null);
+      }}
+    />
+  );
+}
+
 export function Pruefen() {
   const { query, route } = useLocation();
   const auditId = query.pruefung ?? null;
   const address = useTypedAddress();
-  const [website, setWebsite] = useState<string | null>(null);
+  const [target, setTarget] = useState<Target | null>(null);
   const showAudit = (id: string | null) => {
-    setWebsite(null);
+    setTarget(null);
     route(id === null ? "/" : `/?pruefung=${id}`);
   };
-  const enterAddress = (next: string, text: string) => {
-    address.setTyped(text);
-    setWebsite(next);
-  };
-  const backToAddress = () => {
-    setWebsite(null);
-  };
-
-  let step;
-  if (auditId !== null) step = <ProgressStep auditId={auditId} onNew={() => { showAudit(null); }} />;
-  else if (website === null) step = <StartStep address={address} onNext={enterAddress} />;
-  else step = <SelectStep website={website} onBack={backToAddress} onStarted={showAudit} />;
   return (
     <>
-      <RadarBackdrop faint={auditId === null && website !== null} />
-      {step}
+      <RadarBackdrop faint={auditId === null && target !== null} />
+      <CurrentStep auditId={auditId} target={target} address={address} setTarget={setTarget} showAudit={showAudit} />
     </>
   );
 }

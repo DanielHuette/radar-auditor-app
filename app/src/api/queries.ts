@@ -1,8 +1,3 @@
-// Typed read and write calls used by the pages; one function per use case, no SQL in components.
-//
-// Settings the worker reads at the start of every job (table `settings`, written by the app):
-// - `sources`: {<source id>: {enabled, daily_cap?, monthly_cost_cap_eur?}}, see lib/sources.ts.
-// The checks switched off for an audit travel with it (start_field_audit, p_disabled_checks).
 import type { PostgrestError } from "@supabase/supabase-js";
 import { QueryError } from "../lib/errors";
 import type { FieldAuditRequest } from "../lib/fieldAudit";
@@ -13,6 +8,9 @@ import { isMissingObject, parseAuditTexts, type AuditTexts } from "../lib/texts"
 import { supabase } from "./supabase";
 import type {
   Audit,
+  AuditCost,
+  AuditEstimate,
+  AuditEvent,
   AuditWithCustomer,
   CheckResult,
   Customer,
@@ -69,22 +67,56 @@ export async function listRecentAudits(): Promise<AuditWithCustomer[]> {
   return unwrap(result, "Letzte Prüfungen laden") as AuditWithCustomer[];
 }
 
-/** Creates or reuses the customer by its website, then queues audit and collect job with the chosen checks. */
 export async function startFieldAudit(request: FieldAuditRequest): Promise<string> {
   const id = unwrap(await supabase.rpc("start_field_audit", request), "Prüfung starten");
   if (typeof id !== "string") throw new QueryError("Prüfung starten", "keine Prüfungsnummer erhalten", null);
   return id;
 }
 
-export async function getAuditProgress(auditId: string): Promise<{ audit: AuditWithCustomer | null; jobs: ProgressJob[] }> {
-  const [audit, jobs] = await Promise.all([
+export async function getAuditProgress(auditId: string): Promise<{
+  audit: AuditWithCustomer | null;
+  jobs: ProgressJob[];
+  events: AuditEvent[];
+  estimates: AuditEstimate[];
+  checks: CheckResult[];
+}> {
+  const [audit, jobs, events, estimates, checks] = await Promise.all([
     supabase.from("audits").select("*, customers(name)").eq("id", auditId).maybeSingle(),
     supabase.from("jobs").select("kind, status, error, created_at, run_after").eq("audit_id", auditId).order("created_at"),
+    listAuditEvents(auditId),
+    listAuditEstimates(auditId),
+    auditChecks(auditId),
   ]);
   return {
     audit: unwrap(audit, "Prüfung laden") as AuditWithCustomer | null,
     jobs: unwrap(jobs, "Aufträge laden") as ProgressJob[],
+    events,
+    estimates,
+    checks,
   };
+}
+
+export async function listAuditEvents(auditId: string): Promise<AuditEvent[]> {
+  const result = await supabase
+    .from("audit_events")
+    .select("occurred_at, kind, result, label, reason, stage, route, check_id, protocol")
+    .eq("audit_id", auditId)
+    .order("occurred_at");
+  return unwrap(result, "Meldungen der Messungen laden") as AuditEvent[];
+}
+
+export async function listCustomers(): Promise<Customer[]> {
+  const result = await supabase.from("customers").select("*").order("name");
+  return unwrap(result, "Kunden laden") as Customer[];
+}
+
+export async function startCustomerAudit(customerId: string, disabledChecks: readonly string[]): Promise<string> {
+  const id = unwrap(
+    await supabase.rpc("queue_field_audit", { p_customer_id: customerId, p_disabled_checks: [...disabledChecks] }),
+    "Prüfung starten",
+  );
+  if (typeof id !== "string") throw new QueryError("Prüfung starten", "keine Prüfungsnummer erhalten", null);
+  return id;
 }
 
 export async function getHeartbeat(): Promise<Heartbeat | null> {
@@ -109,10 +141,19 @@ export async function auditResults(auditId: string): Promise<{ checks: CheckResu
   };
 }
 
-/** Check results alone, for the previous audit drawn as the second outline of the radar. */
 export async function auditChecks(auditId: string): Promise<CheckResult[]> {
   const result = await supabase.from("check_results").select("*").eq("audit_id", auditId).order("check_id");
-  return unwrap(result, "Vorherige Prüfergebnisse laden") as CheckResult[];
+  return unwrap(result, "Prüfergebnisse laden") as CheckResult[];
+}
+
+export async function listAuditCosts(auditId: string): Promise<AuditCost[]> {
+  const result = await supabase.from("audit_costs").select("*").eq("audit_id", auditId).order("source").order("service");
+  return unwrap(result, "Kosten laden") as AuditCost[];
+}
+
+export async function listAuditEstimates(auditId: string): Promise<AuditEstimate[]> {
+  const result = await supabase.from("audit_estimates").select("*").eq("audit_id", auditId).order("source").order("service");
+  return unwrap(result, "Kostenvoranschlag laden") as AuditEstimate[];
 }
 
 export async function listRankings(auditId: string): Promise<Ranking[]> {
@@ -129,6 +170,13 @@ async function signedUrl(bucket: string, path: string, action: string): Promise<
 export async function reportUrl(audit: Audit): Promise<string | null> {
   if (audit.report_path === null) return null;
   return signedUrl("reports", audit.report_path, "Bericht öffnen");
+}
+
+export async function reportDownloadUrl(audit: Audit, fileName: string): Promise<string | null> {
+  if (audit.report_path === null) return null;
+  const { data, error } = await supabase.storage.from("reports").createSignedUrl(audit.report_path, SIGNED_URL_SECONDS, { download: fileName });
+  if (error !== null) throw new QueryError("Bericht herunterladen", error.message, null);
+  return data.signedUrl;
 }
 
 export async function auditTexts(auditId: string): Promise<AuditTexts | null> {
@@ -157,10 +205,6 @@ async function fetchWithin(url: string, timeoutMs: number, action: string): Prom
   }
 }
 
-/**
- * Where the worker says it took name, city and industry from; null when raw.json is missing or does not say.
- * Unreadable files, server errors and timeouts reject, so the caller can show that the source is unknown.
- */
 export async function identificationSource(rawPath: string): Promise<string | null> {
   const action = "Erkennungsquelle laden";
   const { data, error } = await supabase.storage.from("raw").createSignedUrl(rawPath, SIGNED_URL_SECONDS);
@@ -191,14 +235,12 @@ export async function saveSetting(key: string, value: unknown): Promise<void> {
   unwrap(await supabase.from("settings").upsert({ key, value }), "Einstellung speichern");
 }
 
-/** Usage rows from `fromDay` on; `null` when the table cannot be read (not migrated or no right to read). */
 export async function sourceUsageSince(fromDay: string): Promise<SourceUsage[] | null> {
   const result = await supabase.from("source_usage").select("day, source, count").gte("day", fromDay);
   if (result.error !== null) return null;
   return result.data;
 }
 
-/** Requests from the form on repocity.speedofthespirit.dev/anfrage/ (crm.open_audit_requests, administrator only). */
 export async function listOpenAuditRequests(): Promise<OpenAuditRequest[]> {
   const rows = unwrap(await supabase.schema("crm").rpc("open_audit_requests"), "Offene Anfragen laden");
   return Array.isArray(rows) ? (rows as OpenAuditRequest[]) : [];

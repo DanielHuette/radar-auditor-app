@@ -1,0 +1,224 @@
+{
+ "version": "0.1.20261103",
+ "status_code": 20000,
+ "status_message": "Ok.",
+ "time": "0 sec.",
+ "cost": 0,
+ "tasks_count": 1,
+ "tasks_error": 0,
+ "tasks": [
+  {
+   "id": "11131211-3135-0298-2000-b1ef95ed8223",
+   "status_code": 20000,
+   "status_message": "Ok.",
+   "time": "0 sec.",
+   "cost": 0,
+   "result_count": 1,
+   "path": [
+    "v3",
+    "business_data",
+    "google",
+    "reviews",
+    "task_get",
+    "11131211-3135-0298-2000-b1ef95ed8223"
+   ],
+   "data": {},
+   "result": [
+    {
+     "keyword": "hedonism wines",
+     "type": "google_reviews",
+     "se_domain": "google.co.uk",
+     "location_code": 1006886,
+     "language_code": "en",
+     "check_url": "https://www.google.co.uk/search?q=hedonism%20wines&sort=qualityScore&hl=en&gl=GB&ie=UTF-8&uule=w+CAIQIFISCXXeIa8LoNhHEZkq1d1aOpZS",
+     "datetime": "2026-11-13 03:44:37 +00:00",
+     "title": "Hedonism Wines",
+     "sub_title": "3-7 Davies St, London W1K 3DJ, United Kingdom",
+     "rating": {
+      "rating_type": "Max5",
+      "value": 4.8,
+      "votes_count": 1528,
+      "rating_max": 5
+     },
+     "feature_id": "0x4876052ce9c2190f:0x4e1505095325804d",
+     "place_id": "ChIJDxnC6SwFdkgRTYAlUwkFFU4",
+     "cid": "5626408847077113933",
+     "reviews_count": 1528,
+     "items_count": 10,
+     "items": [
+      {
+       "type": "google_reviews_search",
+       "rank_group": 1,
+       "review_text": "A beautifully curated wine collection offering an impressive selection to suit a wide range of tastes, occasions and budgets. From accessible everyday bottles to more distinguished vintages, there is something to appeal to both casual enthusiasts and discerning wine lovers.\n\nThe location is convenient, and the staff are courteous and welcoming. The additional selection of glassware, featuring glasses in a variety of shapes and styles, is a thoughtful touch that complements the wine offering perfectly.\n\nThere is genuine pleasure in simply wandering through the collection, browsing the shelves and discovering wines from different regions and producers. While some bottles command a premium, the quality and breadth of the selection make it worthwhile for those seeking something special.\n\nA superb destination for wine enthusiasts, combining variety, knowledgeable hospitality and an inviting atmosphere. Highly recommended for anyone who appreciates fine wine and the pleasure of discovering something exceptional.",
+       "time_ago": "3 weeks ago",
+       "timestamp": "2026-10-16 22:29:49 +00:00",
+       "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": null,
+        "rating_max": 5
+       },
+       "profile_name": "Craig",
+       "owner_answer": null,
+       "owner_time_ago": null,
+       "owner_timestamp": null
+      },
+      {
+       "type": "google_reviews_search",
+       "rank_group": 2,
+       "review_text": "Located in the heart of Mayfair, Hedonism Wines is widely regarded as one of London’s premier wine destinations. Since opening in 2012, it has built a reputation for offering one of the world’s most extensive collections of fine wines, rare spirits, and collectible bottles. From everyday drinking wines to legendary Bordeaux First Growths, cult Californian labels, rare Burgundies, and prestigious Champagnes, wine lovers can easily spend hours browsing its impressive selection. The store’s lower level houses many of its most valuable and sought-after bottles, making it a paradise for serious collectors and enthusiasts alike.\n\nOne of the best wine stores in town. Came here today to pick up a few bottles for dinner and was once again amazed by the sheer breadth of their collection. The store offers a complete world of wines from every major wine-producing region. If your wallet allows, you’ll find plenty of cult wines, top Bordeaux labels, and other highly collectible bottles waiting for you. The Burgundy selection is particularly impressive, while the spirits section is equally extensive, featuring a remarkable range of whiskies, gins, cognacs, and other premium aperitifs.\n\nWhat stood out most was the excellent service. The staff were knowledgeable, patient, and happy to guide customers regardless of whether they were buying a modest bottle or a prized collectible. A wonderful place to explore, learn, and occasionally indulge in something truly special. 🍷🍾",
+       "time_ago": "5 months ago",
+       "timestamp": "2026-05-23 15:14:32 +00:00",
+       "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": null,
+        "rating_max": 5
+       },
+       "profile_name": "Andrew Goh",
+       "owner_answer": null,
+       "owner_time_ago": null,
+       "owner_timestamp": null
+      },
+      {
+       "type": "google_reviews_search",
+       "rank_group": 3,
+       "review_text": "They stock wines for all occasions and taste. You can always get wine that fits your budget. Good location, courteous staff. Glasses of various shapes are also on sale here.",
+       "time_ago": "3 months ago",
+       "timestamp": "2026-07-29 20:04:42 +00:00",
+       "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": null,
+        "rating_max": 5
+       },
+       "profile_name": "Alex Ajibade",
+       "owner_answer": null,
+       "owner_time_ago": null,
+       "owner_timestamp": null
+      },
+      {
+       "type": "google_reviews_search",
+       "rank_group": 4,
+       "review_text": "I’ve been buying wine from Hedonism for many years now, and the experience has consistently been exceptional. It is obviously an extraordinary shop in terms of the range of wines and spirits, but what has always set it apart for me is the people.\n\nOliver has looked after me for years and is a huge part of the reason I keep coming back. His knowledge is outstanding, but more importantly he takes the time to understand what you actually enjoy rather than simply trying to sell you something. His recommendations have introduced me to some fantastic wines over the years, and the level of service he provides is second to none. Over time he has also become a great friend, which probably says a lot about the kind of person he is. Hugely knowledgeable, thoughtful, generous with his time and just a genuinely great guy.\n\nShay on the door also deserves a mention. He has been there for as long as I can remember and is always incredibly friendly and welcoming. Some might consider it a small thing, but being greeted by someone who remembers you and is always pleased to see you adds a lot to the experience.\n\nThere are plenty of places in London where you can buy great wine, but very few where the service and relationships make you actively look forward to going back. Hedonism is one of those places, and Oliver and Shay in particular are a huge credit to it.",
+       "time_ago": "2 months ago",
+       "timestamp": "2026-09-10 21:00:32 +00:00",
+       "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": null,
+        "rating_max": 5
+       },
+       "profile_name": "Benjamin Leslie",
+       "owner_answer": null,
+       "owner_time_ago": null,
+       "owner_timestamp": null
+      },
+      {
+       "type": "google_reviews_search",
+       "rank_group": 5,
+       "review_text": "Knowledgeable staff and a fantastic selection of wines and spirits. It's a really great place to find something special. I have been to a few different spirit and wine tastings that they run which has been a thoroughly enjoyable and memorable experience. Sign up to their newsletter!",
+       "time_ago": "a week ago",
+       "timestamp": "2026-10-30 16:21:11 +00:00",
+       "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": null,
+        "rating_max": 5
+       },
+       "profile_name": "Egle A",
+       "owner_answer": null,
+       "owner_time_ago": null,
+       "owner_timestamp": null
+      },
+      {
+       "type": "google_reviews_search",
+       "rank_group": 6,
+       "review_text": "Payton has been amazing to show us around and sharing the story on how hedonism comes about. Cant believe we spend more than an hour in the shop. Its like a museum. It has a good variety and vintages. Other staff was very helpful when i ask for a certain year and they can quickly find it on the list. We had tasting and bought a few bottles too",
+       "time_ago": "9 months ago",
+       "timestamp": "2026-02-12 22:12:17 +00:00",
+       "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": null,
+        "rating_max": 5
+       },
+       "profile_name": "Mia",
+       "owner_answer": null,
+       "owner_time_ago": null,
+       "owner_timestamp": null
+      },
+      {
+       "type": "google_reviews_search",
+       "rank_group": 7,
+       "review_text": "Hedonism Wines is on another level. Incredible selection, beautifully presented, and a true experience rather than just a shop.",
+       "time_ago": "7 months ago",
+       "timestamp": "2026-03-18 21:25:34 +00:00",
+       "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": null,
+        "rating_max": 5
+       },
+       "profile_name": "Nedim Oruc",
+       "owner_answer": null,
+       "owner_time_ago": null,
+       "owner_timestamp": null
+      },
+      {
+       "type": "google_reviews_search",
+       "rank_group": 8,
+       "review_text": "Absolutely my favourite wine shop! Their high quality and verity of Whisky, Cognac, Brandy and more is impressive. The staff are welcoming, professional, know their alcohol. It's your go-to for any drinks event. It's like candy-land for quality drinks :)",
+       "time_ago": "10 months ago",
+       "timestamp": "2025-12-19 17:35:55 +00:00",
+       "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": null,
+        "rating_max": 5
+       },
+       "profile_name": "Jonathan Gan",
+       "owner_answer": null,
+       "owner_time_ago": null,
+       "owner_timestamp": null
+      },
+      {
+       "type": "google_reviews_search",
+       "rank_group": 9,
+       "review_text": "A world-renowned premium wine and spirits boutique located in London’s Mayfair. Hedonism Wines offers an extraordinary selection of over 6,500 fine wines and 3,000 spirits from around the globe, including rare and collectible bottles alongside outstanding everyday favourites. The store features expert sommeliers on hand to provide personalised recommendations, state-of-the-art tasting stations, curated events and tastings, and a welcoming atmosphere for both enthusiasts and serious collectors. Whether you’re seeking a special gift, a rare vintage or professional advice, Hedonism delivers an exceptional shopping experience.",
+       "time_ago": "8 months ago",
+       "timestamp": "2026-02-15 15:18:24 +00:00",
+       "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": null,
+        "rating_max": 5
+       },
+       "profile_name": "Alex Smirnov",
+       "owner_answer": null,
+       "owner_time_ago": null,
+       "owner_timestamp": null
+      },
+      {
+       "type": "google_reviews_search",
+       "rank_group": 10,
+       "review_text": "Great store with an impressive selection of wines and spirits. I picked up a lovely Bruichladdich 18, which I'd researched and chosen myself beforehand.\n\nUnfortunately, the customer service was a bit disappointing. Staff came across as somewhat snobbish and unfriendly, almost giving the impression that unless you're spending a fortune on their top-end bottles, you're not particularly worth their attention.\n\nI asked if they offered whisky samples or tastings, as other retailers like The Whisky Exchange and The Whisky Shop sometimes do. The sales assistant turned to her colleague and remarked that I was asking for samples \"like they do with perfume\", before dismissing the question rather condescendingly.\n\nI wasn't expecting a free bottle of Pétrus, just a friendly answer to a perfectly ordinary question!\n\nA fantastic selection, but the attitude was rather off-putting. A little warmth and genuine customer service would go a long way.",
+       "time_ago": "a month ago",
+       "timestamp": "2026-10-12 22:44:53 +00:00",
+       "rating": {
+        "rating_type": "Max5",
+        "value": 3,
+        "votes_count": null,
+        "rating_max": 5
+       },
+       "profile_name": "Diego Zambrano",
+       "owner_answer": "Dear Diego,<br><br>Thank you so much for taking the time to share your experience and I am glad that you enjoyed the site and range of whiskies. Great choice by the way!<br>However, I am terribly sorry to hear that you did not experience the level of customer service we pride ourselves on delivering and I can only apologise for this.<br><br>If you could please share a few more details here, especially the date and approximate time, this would help greatly to better understand what happened and book in additional training for the team.<br>https://hedonism.co.uk/pages/contact<br><br>Also, please ask for a shop manager next time you visit, so we can apologise in person and hopefully show you that a visit at Hedonism Wines can be much more than what you experienced recently.<br><br>All the best,",
+       "owner_time_ago": "4 weeks ago",
+       "owner_timestamp": "2026-10-16 03:44:37 +00:00"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

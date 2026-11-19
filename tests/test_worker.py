@@ -1,10 +1,5 @@
-"""Tests for the worker loop and job dispatch.
-
-Context: Unit tests with fake repositories; collectors, scoring and reporting are monkeypatched.
-| Input: Fixtures. | Output: Assertions.
-"""
-
 import asyncio
+import json
 import os
 import signal
 import threading
@@ -13,14 +8,15 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, call
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
+from conftest import CHECK_COUNT, keep_files_in_memory
 from pydantic import HttpUrl
 
 import radarauditor
 from radarauditor.collectors.quota import SourceGate
-from radarauditor.collectors.snapshot import RawAudit
+from radarauditor.collectors.snapshot import RawAudit, SocialGap, SocialSnapshot
 from radarauditor.config import Settings, load_settings
 from radarauditor.db.app_settings import Source, WorkerCapabilities, WorkerHeartbeat
 from radarauditor.db.models import (
@@ -38,11 +34,12 @@ from radarauditor.db.models import (
 )
 from radarauditor.errors import (
     AnalysisUnavailableError,
+    AuditHalted,
     ConfigurationError,
     RadarError,
     StorageError,
 )
-from radarauditor.jobs import worker
+from radarauditor.jobs import claude_code, worker
 from radarauditor.jobs.heartbeat import CapabilityProbe
 from radarauditor.jobs.mail_triage import ReadOutcome
 
@@ -65,22 +62,30 @@ NOT_LOGGED_IN = AVAILABLE.model_copy(
     }
 )
 CATALOGUE_PATH = Path(__file__).resolve().parents[1] / "config" / "pruefkatalog.yaml"
+REAL_REPORT_CHECKS = worker._report_checks
+
+
+@pytest.fixture(autouse=True)
+def stored_steps(fake_repositories: MagicMock) -> dict[tuple[str, str], bytes]:
+    return keep_files_in_memory(fake_repositories)
+
+
+@pytest.fixture(autouse=True)
+def no_check_report(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(worker, "_report_checks", MagicMock())
 
 
 @pytest.fixture(autouse=True)
 def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Poll without real waiting."""
     monkeypatch.setattr(worker, "POLL_SECONDS", 0.01)
 
 
 @pytest.fixture(autouse=True)
 def no_host_detection(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep the serve loop from probing the test machine for Chromium and Claude Code."""
     monkeypatch.setattr(worker, "detect_capabilities", lambda settings: AVAILABLE)
 
 
 def test_claim_next_follows_priority(fake_repositories: MagicMock, make_job: JobFactory) -> None:
-    """Score is taken only when no collect job is queued."""
     score_job = make_job(JobKind.SCORE)
     fake_repositories.claim_jobs.side_effect = lambda kind, limit: (
         [score_job] if kind is JobKind.SCORE else []
@@ -89,12 +94,12 @@ def test_claim_next_follows_priority(fake_repositories: MagicMock, make_job: Job
     assert worker.claim_next(fake_repositories) is score_job
     assert [c.args for c in fake_repositories.claim_jobs.call_args_list] == [
         (JobKind.COLLECT, 1),
+        (JobKind.REPAIR, 1),
         (JobKind.SCORE, 1),
     ]
 
 
 def test_claim_next_skips_paused_kinds(fake_repositories: MagicMock) -> None:
-    """A paused kind is not even asked for."""
     assert worker.claim_next(fake_repositories, frozenset({JobKind.COLLECT})) is None
     kinds = [c.args[0] for c in fake_repositories.claim_jobs.call_args_list]
     assert JobKind.COLLECT not in kinds
@@ -108,12 +113,10 @@ def test_claim_next_skips_paused_kinds(fake_repositories: MagicMock) -> None:
 def test_collect_pauses_only_while_analysis_is_unavailable(
     capabilities: WorkerCapabilities | None, paused: frozenset[JobKind]
 ) -> None:
-    """Without Claude Code no new audit starts; unknown capabilities pause nothing."""
     assert worker.paused_kinds(capabilities) == paused
 
 
 def test_claim_next_returns_none_on_empty_queue(fake_repositories: MagicMock) -> None:
-    """All four kinds are asked once, then None."""
     assert worker.claim_next(fake_repositories) is None
     assert fake_repositories.claim_jobs.call_count == len(worker.PRIORITY)
 
@@ -124,7 +127,6 @@ async def test_process_job_marks_success(
     make_job: JobFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A finished job is marked done."""
     job = make_job(JobKind.REPORT)
     monkeypatch.setattr(worker, "run_job", AsyncMock())
 
@@ -139,7 +141,6 @@ async def test_process_job_requeues_before_last_attempt(
     make_job: JobFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An early failure puts the job back with the error message."""
     job = make_job(JobKind.COLLECT, attempts=1)
     monkeypatch.setattr(worker, "run_job", AsyncMock(side_effect=ValueError("site down")))
 
@@ -156,7 +157,6 @@ async def test_process_job_fails_audit_on_last_attempt(
     make_job: JobFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The last failed attempt fails the job and the audit."""
     job = make_job(JobKind.COLLECT, attempts=worker.MAX_ATTEMPTS)
     monkeypatch.setattr(worker, "run_job", AsyncMock(side_effect=StorageError("bucket gone")))
 
@@ -176,7 +176,6 @@ async def test_process_job_survives_unrecordable_failure(
     make_job: JobFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When Supabase is down the failure is only logged."""
     job = make_job(JobKind.COLLECT)
     monkeypatch.setattr(worker, "run_job", AsyncMock(side_effect=ValueError("x")))
     fake_repositories.requeue_job.side_effect = StorageError("offline")
@@ -190,7 +189,6 @@ async def test_process_job_survives_unmarkable_success(
     make_job: JobFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A failure to mark the job done is only logged."""
     monkeypatch.setattr(worker, "run_job", AsyncMock())
     fake_repositories.finish_job.side_effect = StorageError("offline")
 
@@ -204,7 +202,6 @@ async def test_collect_uploads_raw_audit_and_enqueues_score(
     sample_raw_audit: RawAudit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """COLLECT stores the RawAudit, advances the audit and queues scoring."""
     job = make_job(JobKind.COLLECT)
     collect = AsyncMock(return_value=sample_raw_audit)
     monkeypatch.setattr("radarauditor.collectors.run.collect_audit", collect)
@@ -220,13 +217,17 @@ async def test_collect_uploads_raw_audit_and_enqueues_score(
 
     collect.assert_awaited_once()
     assert collect.await_args is not None
-    assert collect.await_args.args[:3] == (job.audit_id, fake_repositories, settings)
+    unattended = settings.model_copy(update={"assistant_handoff": False, "halt_stages": ()})
+    assert collect.await_args.args[:3] == (job.audit_id, fake_repositories, unattended)
     assert isinstance(collect.await_args.args[3], SourceGate)
     assert RawAudit.model_validate_json(uploaded[0]) == sample_raw_audit
     raw_path = f"{job.audit_id}/raw.json"
     fake_repositories.upload.assert_called_once()
     assert fake_repositories.upload.call_args.args[:2] == ("raw", raw_path)
-    fake_repositories.update_audit.assert_called_once_with(job.audit_id, raw_data_path=raw_path)
+    social = sample_raw_audit.social.model_dump(mode="json") if sample_raw_audit.social else None
+    fake_repositories.update_audit.assert_called_once_with(
+        job.audit_id, raw_data_path=raw_path, social=social
+    )
     assert fake_repositories.set_audit_status.call_args_list == [
         call(job.audit_id, AuditStatus.COLLECTING),
         call(job.audit_id, AuditStatus.COLLECTED),
@@ -234,7 +235,32 @@ async def test_collect_uploads_raw_audit_and_enqueues_score(
     fake_repositories.enqueue.assert_called_once_with(JobKind.SCORE, job.customer_id, job.audit_id)
 
 
-async def test_score_saves_results_and_enqueues_analysis(
+async def test_collect_stores_the_social_measurement_on_the_audit(
+    fake_repositories: MagicMock,
+    settings: Settings,
+    make_job: JobFactory,
+    sample_raw_audit: RawAudit,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    social = SocialSnapshot(
+        accounts=[],
+        gaps=[SocialGap(platform="x", reason="no_account_found")],
+        collected_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    raw = sample_raw_audit.model_copy(update={"social": social})
+    monkeypatch.setattr("radarauditor.collectors.run.collect_audit", AsyncMock(return_value=raw))
+    job = make_job(JobKind.COLLECT)
+
+    await worker.run_job(job, fake_repositories, settings)
+
+    fake_repositories.update_audit.assert_called_once_with(
+        job.audit_id,
+        raw_data_path=f"{job.audit_id}/raw.json",
+        social=social.model_dump(mode="json"),
+    )
+
+
+async def test_score_saves_results_and_hands_over_to_the_control(
     fake_repositories: MagicMock,
     settings: Settings,
     make_job: JobFactory,
@@ -242,7 +268,6 @@ async def test_score_saves_results_and_enqueues_analysis(
     sample_check_results: list[CheckResult],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """SCORE evaluates the stored RawAudit and hands the audit to analysis."""
     job = make_job(JobKind.SCORE)
     catalogue = object()
     load_catalogue = MagicMock(return_value=catalogue)
@@ -277,17 +302,80 @@ async def test_score_saves_results_and_enqueues_analysis(
     )
     with_potential.assert_called_once_with(sample_check_results, catalogue, (0.0, 0.0))
     fake_repositories.save_check_results.assert_called_once_with(enriched)
-    total_score.assert_called_once_with(enriched, catalogue)
-    fake_repositories.update_audit.assert_called_once_with(
-        job.audit_id, total_score=Decimal("61.50")
-    )
+    total_score.assert_not_called()
+    fake_repositories.set_total_score.assert_called_once_with(job.audit_id, None)
     assert fake_repositories.set_audit_status.call_args_list == [
-        call(job.audit_id, AuditStatus.SCORED),
-        call(job.audit_id, AuditStatus.AWAITING_ANALYSIS),
+        call(job.audit_id, AuditStatus.CONTROLLING)
     ]
-    fake_repositories.enqueue.assert_called_once_with(
-        JobKind.ANALYSE, job.customer_id, job.audit_id
+    fake_repositories.enqueue.assert_not_called()
+
+
+async def test_score_compares_the_positions_with_the_previous_reported_audit(
+    fake_repositories: MagicMock,
+    settings: Settings,
+    make_job: JobFactory,
+    sample_audit: Audit,
+    sample_raw_audit: RawAudit,
+    sample_check_results: list[CheckResult],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    previous = sample_audit.model_copy(
+        update={
+            "id": uuid4(),
+            "status": AuditStatus.REPORTED,
+            "requested_at": sample_audit.requested_at - timedelta(days=30),
+        }
     )
+    keyword = Keyword(
+        id=uuid4(),
+        customer_id=sample_audit.customer_id,
+        phrase="Dachdecker",
+        city="Münster",
+        monthly_volume=None,
+        is_primary=True,
+    )
+
+    def ranking(audit_id: UUID, organic: int) -> Ranking:
+        return Ranking(
+            id=uuid4(),
+            audit_id=audit_id,
+            keyword_id=keyword.id,
+            subject="customer",
+            organic_position=organic,
+            local_pack_position=None,
+            grid_point=None,
+            measured_at=sample_audit.requested_at,
+        )
+
+    positions = {
+        previous.id: [ranking(previous.id, 9)],
+        sample_audit.id: [ranking(sample_audit.id, 4)],
+    }
+    fake_repositories.previous_audit.return_value = previous
+    fake_repositories.keywords.return_value = [keyword]
+    fake_repositories.rankings.side_effect = lambda audit_id: positions[audit_id]
+    evaluate = MagicMock(return_value=sample_check_results)
+    monkeypatch.setattr("radarauditor.scoring.catalog.load_catalogue", MagicMock())
+    monkeypatch.setattr("radarauditor.scoring.evaluator.evaluate", evaluate)
+    monkeypatch.setattr("radarauditor.scoring.evaluator.total_score", MagicMock())
+    monkeypatch.setattr(
+        "radarauditor.scoring.potential.with_potential", lambda results, *_: results
+    )
+
+    def write(bucket: str, remote_path: str, local_file: Path) -> Path:
+        local_file.write_text(sample_raw_audit.model_dump_json(), encoding="utf-8")
+        return local_file
+
+    fake_repositories.download.side_effect = write
+    await worker.run_job(make_job(JobKind.SCORE), fake_repositories, settings)
+
+    scored: RawAudit = evaluate.call_args.args[1]
+    assert scored.ranking_history is not None
+    assert scored.ranking_history.previous_audit_id == previous.id
+    assert [
+        (change.phrase, change.kind, change.before, change.after)
+        for change in scored.ranking_history.changes
+    ] == [("Dachdecker", "organic", 9, 4), ("Dachdecker", "local_pack", None, None)]
 
 
 async def test_score_passes_paid_and_access_context(
@@ -299,7 +387,6 @@ async def test_score_passes_paid_and_access_context(
     sample_check_results: list[CheckResult],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Paid rankings come from the settings, customer access from the audit kind."""
     fake_repositories.audit.return_value = sample_audit.model_copy(
         update={"kind": AuditKind.WITH_ACCESS}
     )
@@ -333,7 +420,6 @@ async def test_score_applies_the_app_settings(
     sample_check_results: list[CheckResult],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The dataforseo switch is read from table settings; disabled checks come from the audit."""
     fake_repositories.settings_values.return_value = {
         "sources": {"dataforseo": {"enabled": False}},
     }
@@ -361,7 +447,6 @@ async def test_collect_gate_counts_against_the_database(
     sample_raw_audit: RawAudit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The gate handed to the collectors uses the job's caps and consume_source_quota."""
     fake_repositories.settings_values.return_value = {
         "sources": {"google_search": {"daily_cap": 7}}
     }
@@ -383,7 +468,6 @@ async def test_collect_gate_enforces_the_monthly_cost_cap(
     sample_raw_audit: RawAudit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The gate reads and adds the DataForSEO spend through the repositories."""
     fake_repositories.settings_values.return_value = {
         "sources": {"dataforseo": {"monthly_cost_cap_eur": 5}}
     }
@@ -397,7 +481,7 @@ async def test_collect_gate_enforces_the_monthly_cost_cap(
     assert collect.await_args is not None
     gate: SourceGate = collect.await_args.args[3]
     gate.acquire(Source.DATAFORSEO)
-    gate.record_cost(Source.DATAFORSEO, Decimal("0.02"))
+    gate.record_cost(Source.DATAFORSEO, Decimal("0.02"), service="volume")
     fake_repositories.month_source_cost.assert_called_once_with("dataforseo")
     fake_repositories.add_source_cost.assert_called_once_with("dataforseo", Decimal("0.02"))
     assert gate.cost_capped == {Source.DATAFORSEO}
@@ -406,7 +490,6 @@ async def test_collect_gate_enforces_the_monthly_cost_cap(
 async def test_malformed_settings_fail_the_job(
     fake_repositories: MagicMock, settings: Settings, make_job: JobFactory
 ) -> None:
-    """A settings row of the wrong shape stops the job with a readable error."""
     fake_repositories.settings_values.return_value = {"sources": []}
 
     with pytest.raises(ConfigurationError, match="sources"):
@@ -414,7 +497,6 @@ async def test_malformed_settings_fail_the_job(
 
 
 async def test_beat_writes_the_heartbeat(fake_repositories: MagicMock) -> None:
-    """Each beat stores time, version and capabilities under worker_heartbeat."""
     capabilities = NOT_LOGGED_IN
     probe = CapabilityProbe(lambda: capabilities)
 
@@ -428,7 +510,6 @@ async def test_beat_writes_the_heartbeat(fake_repositories: MagicMock) -> None:
 
 
 async def test_beat_survives_storage_errors(fake_repositories: MagicMock) -> None:
-    """A failed heartbeat write is logged, not raised."""
     fake_repositories.set_setting.side_effect = StorageError("offline")
     probe = CapabilityProbe(lambda: AVAILABLE)
 
@@ -438,7 +519,6 @@ async def test_beat_survives_storage_errors(fake_repositories: MagicMock) -> Non
 
 
 async def test_beat_without_detection_writes_nothing(fake_repositories: MagicMock) -> None:
-    """A failed detection is logged and reported as unknown."""
 
     def broken() -> WorkerCapabilities:
         raise OSError("no process table")
@@ -450,7 +530,6 @@ async def test_beat_without_detection_writes_nothing(fake_repositories: MagicMoc
 async def test_serve_claims_no_collect_jobs_without_claude_code(
     fake_repositories: MagicMock, settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """While the heartbeat says analysis is unavailable, collect jobs stay queued."""
     stop = asyncio.Event()
     monkeypatch.setattr(worker, "detect_capabilities", lambda settings: NOT_LOGGED_IN)
     kinds: list[JobKind] = []
@@ -469,17 +548,13 @@ async def test_serve_claims_no_collect_jobs_without_claude_code(
 
 
 class FakeReader:
-    """Stands in for MailReader: hands out the given outcomes and records the order of calls."""
-
     def __init__(self, outcomes: list[ReadOutcome], stop: asyncio.Event, order: list[str]) -> None:
-        """Remember the outcomes, the event that ends the loop and the shared order list."""
         self.outcomes = outcomes
         self.stop = stop
         self.order = order
         self.calls = 0
 
     def read_one(self, now: datetime) -> ReadOutcome:
-        """Return the next outcome; the last one stops the loop."""
         self.calls += 1
         self.order.append("mail")
         if self.calls >= len(self.outcomes):
@@ -502,7 +577,6 @@ NO_LOGIN = ReadOutcome(
 async def test_idle_polls_issue_documents_before_reading_one_mail(
     fake_repositories: MagicMock, settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Requested PDFs never wait for mail reading, and each idle poll reads one mail."""
     stop = asyncio.Event()
     order: list[str] = []
     reader = FakeReader([READ, READ], stop, order)
@@ -527,7 +601,6 @@ async def test_no_mails_are_read_without_claude_code_or_when_switched_off(
     capabilities: WorkerCapabilities,
     batch: int,
 ) -> None:
-    """Claimed mails would only lose an attempt, so none are claimed."""
     stop = asyncio.Event()
     monkeypatch.setattr(worker, "detect_capabilities", lambda current: capabilities)
     reader = FakeReader([READ], asyncio.Event(), [])
@@ -552,7 +625,6 @@ async def test_no_mails_are_read_without_claude_code_or_when_switched_off(
 async def test_a_mail_problem_pauses_reading_until_claude_code_is_checked_again(
     fake_repositories: MagicMock, settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """After a lost login the probe runs again at once, and reading waits for its answer."""
     stop = asyncio.Event()
     order: list[str] = []
     reader = FakeReader([NO_LOGIN, READ], stop, order)
@@ -577,7 +649,6 @@ async def test_a_mail_problem_pauses_reading_until_claude_code_is_checked_again(
 async def test_a_mail_problem_reaches_the_heartbeat(
     fake_repositories: MagicMock, settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The app learns from the heartbeat that mails are not read and why."""
     stop = asyncio.Event()
     problem = "Die Mails im CRM lassen sich nicht abholen"
     outcome = ReadOutcome(handled=False, problem=problem, claude_unavailable=False)
@@ -604,7 +675,6 @@ async def test_a_mail_run_that_fails_outright_is_logged(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """An unexpected error while reading mails does not stop the worker."""
     stop = asyncio.Event()
 
     class Broken:
@@ -628,7 +698,6 @@ async def test_collect_saves_rankings_derived_from_raw_audit(
     raw_audit_full: RawAudit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """COLLECT stores one ranking row per searched keyword and subject before scoring."""
     job = make_job(JobKind.COLLECT)
     monkeypatch.setattr(
         "radarauditor.collectors.run.collect_audit", AsyncMock(return_value=raw_audit_full)
@@ -663,7 +732,6 @@ async def test_collect_without_website_uses_crawled_host_or_none(
     sample_customer: Customer,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Without a website the crawl's host is used; without a profile the customer name is."""
     job = make_job(JobKind.COLLECT)
     collect = AsyncMock(return_value=raw_audit_full)
     monkeypatch.setattr("radarauditor.collectors.run.collect_audit", collect)
@@ -691,7 +759,6 @@ async def test_collect_without_website_uses_crawled_host_or_none(
 async def test_score_without_raw_data_fails(
     fake_repositories: MagicMock, settings: Settings, make_job: JobFactory, sample_audit: Audit
 ) -> None:
-    """An audit without raw data cannot be scored."""
     fake_repositories.audit.return_value = sample_audit.model_copy(update={"raw_data_path": None})
 
     with pytest.raises(RadarError, match="no raw data"):
@@ -718,12 +785,15 @@ async def test_report_picks_report_type_and_finishes_audit(
     has_previous: bool,
     expected: str,
 ) -> None:
-    """Monthly audits with an earlier report get the before-after report, all others sales."""
     job = make_job(JobKind.REPORT)
     pdf = tmp_path / "bericht.pdf"
     builders = {"sales": MagicMock(return_value=pdf), "monthly": MagicMock(return_value=pdf)}
     monkeypatch.setattr("radarauditor.reporting.report.build_sales_report", builders["sales"])
     monkeypatch.setattr("radarauditor.reporting.report.build_monthly_report", builders["monthly"])
+    advice = tmp_path / "empfehlung.pdf"
+    monkeypatch.setattr(
+        "radarauditor.reporting.report.build_recommendation", MagicMock(return_value=advice)
+    )
     fake_repositories.audit.return_value = sample_audit.model_copy(update={"purpose": purpose})
     fake_repositories.previous_audit.return_value = sample_audit if has_previous else None
 
@@ -731,7 +801,10 @@ async def test_report_picks_report_type_and_finishes_audit(
 
     builders[expected].assert_called_once_with(job.audit_id, fake_repositories, settings)
     report_path = f"{job.audit_id}/bericht.pdf"
-    fake_repositories.upload.assert_called_once_with("reports", report_path, pdf)
+    uploads = [call("reports", report_path, pdf)]
+    if expected == "sales":
+        uploads.insert(0, call("reports", f"{job.audit_id}/empfehlung.pdf", advice))
+    assert fake_repositories.upload.call_args_list == uploads
     fake_repositories.update_audit.assert_called_once_with(job.audit_id, report_path=report_path)
     fake_repositories.set_audit_status.assert_called_once_with(job.audit_id, AuditStatus.REPORTED)
     kind, payload = fake_repositories.new_event.call_args.args
@@ -747,7 +820,6 @@ async def test_a_monthly_report_queues_the_monthly_service_before_it_is_reported
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The reply and profile drafts of the month are queued once the before-after report exists."""
     job = make_job(JobKind.REPORT)
     pdf = tmp_path / "bericht.pdf"
     monkeypatch.setattr(
@@ -771,10 +843,13 @@ async def test_a_sales_report_queues_no_monthly_service(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Only a monthly audit gets the monthly service."""
     monkeypatch.setattr(
         "radarauditor.reporting.report.build_sales_report",
         MagicMock(return_value=tmp_path / "bericht.pdf"),
+    )
+    monkeypatch.setattr(
+        "radarauditor.reporting.report.build_recommendation",
+        MagicMock(return_value=tmp_path / "empfehlung.pdf"),
     )
 
     await worker.run_job(make_job(JobKind.REPORT), fake_repositories, settings)
@@ -786,7 +861,6 @@ async def test_a_sales_report_queues_no_monthly_service(
 async def test_audit_jobs_need_an_audit(
     fake_repositories: MagicMock, settings: Settings, make_job: JobFactory, kind: JobKind
 ) -> None:
-    """Collect, score and report jobs without audit id are rejected."""
     with pytest.raises(RadarError, match="no audit id"):
         await worker.run_job(make_job(kind, audit_id=None), fake_repositories, settings)
 
@@ -797,7 +871,6 @@ async def test_analyse_jobs_run_the_analysis_step(
     make_job: JobFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """ANALYSE jobs go to the analysis step with the job, repositories and settings."""
     analyse_job = MagicMock()
     monkeypatch.setattr("radarauditor.jobs.analysis.analyse_job", analyse_job)
     job = make_job(JobKind.ANALYSE)
@@ -828,7 +901,6 @@ async def test_analyse_job_without_answer_is_requeued_with_backoff(
     reason: str,
     wait: timedelta,
 ) -> None:
-    """With the fake CLI: the job waits with a German reason, the audit stays awaiting_analysis."""
 
     def write(bucket: str, remote_path: str, local_file: Path) -> Path:
         local_file.write_text(sample_raw_audit.model_dump_json(), encoding="utf-8")
@@ -859,7 +931,6 @@ async def test_analyse_job_with_claude_code_end_to_end(
     sample_raw_audit: RawAudit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The fake CLI writes valid files: findings saved, report queued, job done."""
 
     def write(bucket: str, remote_path: str, local_file: Path) -> Path:
         local_file.write_text(sample_raw_audit.model_dump_json(), encoding="utf-8")
@@ -883,7 +954,6 @@ async def test_requeue_failure_of_an_analyse_job_is_only_logged(
     make_job: JobFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When Supabase is down the waiting job cannot be stored; the loop goes on."""
     failing = AsyncMock(side_effect=AnalysisUnavailableError("Claude Code ist nicht angemeldet"))
     monkeypatch.setattr(worker, "run_job", failing)
     fake_repositories.requeue_job.side_effect = StorageError("offline")
@@ -893,7 +963,7 @@ async def test_requeue_failure_of_an_analyse_job_is_only_logged(
     fake_repositories.finish_job.assert_not_called()
 
 
-async def test_score_stores_potential_and_uplift(
+async def test_score_stores_potential_and_no_uplift(
     fake_repositories: MagicMock,
     settings: Settings,
     make_job: JobFactory,
@@ -902,7 +972,6 @@ async def test_score_stores_potential_and_uplift(
     sample_customer: Customer,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Scoring with the real catalogue stores potential points and uplift on every result."""
     monkeypatch.setattr(
         "radarauditor.scoring.evaluator.evaluate", MagicMock(return_value=report_check_results)
     )
@@ -939,10 +1008,9 @@ async def test_score_stores_potential_and_uplift(
 
     saved = fake_repositories.save_check_results.call_args.args[0]
     assert all(result.potential_points is not None for result in saved)
-    assert all(result.uplift_low is not None and result.uplift_high is not None for result in saved)
+    assert all(result.uplift_low == 0 and result.uplift_high == 0 for result in saved)
     open_results = [result for result in saved if result.outcome.value in {"failed", "partial"}]
     assert sum(result.potential_points or 0 for result in open_results) > 0
-    assert sum(result.uplift_high or 0 for result in saved) > 0
 
 
 async def test_serve_runs_claimed_job_then_stops(
@@ -951,7 +1019,6 @@ async def test_serve_runs_claimed_job_then_stops(
     make_job: JobFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A claimed job is processed; the loop ends once the stop event is set."""
     stop = asyncio.Event()
     job = make_job(JobKind.COLLECT)
     claims = iter([job])
@@ -971,7 +1038,6 @@ async def test_serve_runs_claimed_job_then_stops(
 async def test_serve_requeues_jobs_left_running_before_claiming(
     fake_repositories: MagicMock, settings: Settings
 ) -> None:
-    """Jobs a restart cut off go back into the queue before the first claim."""
     stop = asyncio.Event()
     order: list[str] = []
     fake_repositories.requeue_running_jobs.side_effect = lambda error: order.append("requeue") or 1
@@ -992,7 +1058,6 @@ async def test_serve_requeues_jobs_left_running_before_claiming(
 async def test_serve_starts_when_requeueing_interrupted_jobs_fails(
     fake_repositories: MagicMock, settings: Settings
 ) -> None:
-    """A failing requeue is logged; the worker still claims jobs."""
     stop = asyncio.Event()
     fake_repositories.requeue_running_jobs.side_effect = StorageError("offline")
 
@@ -1010,7 +1075,6 @@ async def test_serve_starts_when_requeueing_interrupted_jobs_fails(
 async def test_serve_keeps_polling_after_claim_errors(
     fake_repositories: MagicMock, settings: Settings
 ) -> None:
-    """A failing claim is logged and retried after the poll interval."""
     stop = asyncio.Event()
     attempts: list[int] = []
 
@@ -1030,7 +1094,6 @@ async def test_serve_keeps_polling_after_claim_errors(
 async def test_serve_delivers_events_when_idle(
     fake_repositories: MagicMock, environment: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """With an endpoint configured, idle polls deliver outbox events."""
     monkeypatch.setenv("EVENT_ENDPOINT", "https://crm.example/hooks")
     settings = load_settings()
     stop = asyncio.Event()
@@ -1050,7 +1113,6 @@ async def test_serve_delivers_events_when_idle(
 async def test_serve_survives_event_delivery_errors(
     fake_repositories: MagicMock, environment: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A failing outbox read does not stop the worker."""
     monkeypatch.setenv("EVENT_ENDPOINT", "https://crm.example/hooks")
     settings = load_settings()
     stop = asyncio.Event()
@@ -1069,7 +1131,6 @@ async def test_serve_survives_event_delivery_errors(
 async def test_serve_handles_document_requests_when_idle(
     fake_repositories: MagicMock, settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Each idle poll issues the documents the app requested."""
     stop = asyncio.Event()
 
     def issue(repositories: MagicMock, current: Settings) -> int:
@@ -1087,7 +1148,6 @@ async def test_serve_handles_document_requests_when_idle(
 async def test_document_requests_run_beside_the_heartbeat(
     fake_repositories: MagicMock, settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A request that lets Claude Code write runs in a thread, so the event loop keeps beating."""
     stop = asyncio.Event()
     threads: list[str] = []
 
@@ -1108,7 +1168,6 @@ async def test_document_requests_run_beside_the_heartbeat(
 async def test_serve_runs_a_waiting_customer_search_before_claiming_jobs(
     fake_repositories: MagicMock, settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A customer search waits at most for the job that is running."""
     stop = asyncio.Event()
     order: list[str] = []
 
@@ -1137,7 +1196,6 @@ def test_document_request_errors_are_logged_not_raised(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A failing request listing does not reach the loop."""
     monkeypatch.setattr(
         "radarauditor.documents.requests.process_pending_requests",
         MagicMock(side_effect=StorageError("offline")),
@@ -1151,7 +1209,6 @@ def test_document_request_errors_are_logged_not_raised(
 def test_document_requests_with_real_modules_and_nothing_pending(
     fake_repositories: MagicMock, settings: Settings
 ) -> None:
-    """With no requests nothing is written."""
     worker.run_document_requests(fake_repositories, settings)
 
     fake_repositories.set_document_data.assert_not_called()
@@ -1161,7 +1218,6 @@ def test_document_requests_with_real_modules_and_nothing_pending(
 async def test_run_forever_stops_on_sigterm(
     fake_repositories: MagicMock, settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """SIGTERM ends the loop gracefully and removes the handlers."""
     monkeypatch.setattr(worker, "Repositories", MagicMock(return_value=fake_repositories))
 
     def claim_and_terminate(kind: JobKind, limit: int) -> list[Job]:
@@ -1178,7 +1234,6 @@ async def test_run_forever_stops_on_sigterm(
 async def test_beat_marks_the_alive_file_after_a_stored_heartbeat(
     fake_repositories: MagicMock, tmp_path: Path
 ) -> None:
-    """The container health check sees a fresh file only while heartbeats reach the database."""
     alive_file = tmp_path / "worker-alive"
     probe = CapabilityProbe(lambda: AVAILABLE)
     fake_repositories.set_setting.side_effect = StorageError("offline")
@@ -1197,7 +1252,6 @@ async def test_serve_keeps_beating_while_a_job_runs(
     make_job: JobFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A long job does not let the heartbeat go stale, so app and health check stay green."""
     stop = asyncio.Event()
     claims = iter([make_job(JobKind.ANALYSE)])
     monkeypatch.setattr(worker, "claim_next", lambda repositories, paused: next(claims, None))
@@ -1221,7 +1275,6 @@ async def test_other_error_of_an_analyse_job_waits_instead_of_failing(
     make_job: JobFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An unexpected error after several backoffs still re-queues; an analyse job never fails."""
     monkeypatch.setattr(worker, "run_job", AsyncMock(side_effect=StorageError("timeout")))
     job = make_job(JobKind.ANALYSE, attempts=7)
 
@@ -1251,7 +1304,6 @@ async def test_score_uses_the_checks_selected_for_the_audit(
     own: list[str],
     expected: frozenset[str],
 ) -> None:
-    """Only the audit's own selection counts; an empty one runs every check."""
     fake_repositories.audit.return_value = sample_audit.model_copy(update={"disabled_checks": own})
     evaluate = MagicMock(return_value=sample_check_results)
     monkeypatch.setattr("radarauditor.scoring.catalog.load_catalogue", MagicMock())
@@ -1292,7 +1344,6 @@ async def test_missing_city_fails_the_audit_at_once(
     make_job: JobFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A business without a findable city is not retried; the audit shows the German message."""
     from radarauditor.collectors import identify
     from radarauditor.errors import IdentificationError
 
@@ -1313,10 +1364,86 @@ async def test_missing_city_fails_the_audit_at_once(
     )
 
 
+async def test_a_halted_audit_waits_for_daniel_and_is_not_scored(
+    fake_repositories: MagicMock,
+    settings: Settings,
+    make_job: JobFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    halted = AuditHalted(
+        "Sichtbarkeitsaudit für Katja Karsch angehalten, wartet auf Daniel: "
+        "Google-Suche: Google zeigt eine Sicherheitsabfrage"
+    )
+    monkeypatch.setattr("radarauditor.collectors.run.collect_audit", AsyncMock(side_effect=halted))
+    job = make_job(JobKind.COLLECT, attempts=1)
+
+    await worker.process_job(job, fake_repositories, settings)
+
+    assert fake_repositories.set_audit_status.call_args_list == [
+        call(job.audit_id, AuditStatus.COLLECTING),
+        call(job.audit_id, AuditStatus.HALTED, str(halted)),
+    ]
+    fake_repositories.enqueue.assert_not_called()
+    fake_repositories.requeue_job.assert_not_called()
+    fake_repositories.upload.assert_not_called()
+    fake_repositories.finish_job.assert_called_once_with(job.id, JobStatus.DONE)
+
+
+async def test_score_reports_every_check_of_the_audit(
+    fake_repositories: MagicMock,
+    settings: Settings,
+    make_job: JobFactory,
+    sample_raw_audit: RawAudit,
+    sample_check_results: list[CheckResult],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    job = make_job(JobKind.SCORE)
+    monkeypatch.setattr(worker, "_report_checks", REAL_REPORT_CHECKS)
+    monkeypatch.setattr(
+        "radarauditor.scoring.evaluator.evaluate", MagicMock(return_value=sample_check_results)
+    )
+    monkeypatch.setattr(
+        "radarauditor.scoring.evaluator.total_score", MagicMock(return_value=Decimal("61.5"))
+    )
+    monkeypatch.setattr(
+        "radarauditor.scoring.potential.with_potential",
+        MagicMock(return_value=sample_check_results),
+    )
+
+    def write(bucket: str, remote_path: str, local_file: Path) -> Path:
+        local_file.write_text(sample_raw_audit.model_dump_json(), encoding="utf-8")
+        return local_file
+
+    fake_repositories.download.side_effect = write
+    scoring_settings = settings.model_copy(
+        update={
+            "catalogue_path": CATALOGUE_PATH,
+            "routes_path": CATALOGUE_PATH.with_name("messwege.yaml"),
+            "radar_work_dir": tmp_path / "work",
+        }
+    )
+
+    await worker.run_job(job, fake_repositories, scoring_settings)
+
+    started, finished = fake_repositories.add_audit_events.call_args_list
+    assert [event.route for event in started.args[1]] == ["auswertung"]
+    audit_id, events = finished.args
+    assert audit_id == job.audit_id
+    assert [event.check_number for event in events] == list(range(1, CHECK_COUNT + 1))
+    folder = tmp_path / "work" / "ereignisse"
+    assert (
+        len((folder / f"{job.audit_id}.jsonl").read_text(encoding="utf-8").splitlines())
+        == CHECK_COUNT + 1
+    )
+    assert "| Nr | Kennung | Prüfung | Ergebnis | Grund |" in (
+        folder / f"{job.audit_id}_uebersicht.md"
+    ).read_text(encoding="utf-8")
+
+
 async def test_the_cockpit_assistant_runs_beside_the_jobs(
     fake_repositories: MagicMock, settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A request typed in the Cockpit does not wait for a long audit to finish."""
     stop = asyncio.Event()
     started: list[tuple[object, int]] = []
     job_started = asyncio.Event()
@@ -1361,3 +1488,113 @@ async def test_the_cockpit_assistant_can_be_switched_off(
     await asyncio.wait_for(worker.serve(fake_repositories, off, stop), timeout=2)
 
     assert started == []
+
+
+@pytest.mark.parametrize(
+    ("kind", "service"), [(JobKind.COLLECT, "assistants"), (JobKind.ANALYSE, "analysis")]
+)
+async def test_run_job_books_the_claude_tokens_of_an_audit_job(
+    fake_repositories: MagicMock,
+    settings: Settings,
+    make_job: JobFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    kind: JobKind,
+    service: str,
+) -> None:
+    job = make_job(kind)
+
+    async def dispatch(*arguments: object) -> None:
+        claude_code.check_result(
+            0,
+            json.dumps(
+                {
+                    "subtype": "success",
+                    "is_error": False,
+                    "result": "x",
+                    "usage": {"input_tokens": 5, "output_tokens": 7},
+                }
+            ),
+            "",
+        )
+
+    monkeypatch.setattr(worker, "_dispatch", dispatch)
+
+    await worker.run_job(job, fake_repositories, settings)
+
+    fake_repositories.add_audit_cost.assert_called_once_with(
+        job.audit_id, "claude", service, calls=1, cost=Decimal(0), tokens_in=5, tokens_out=7
+    )
+
+
+@pytest.mark.parametrize("kind", [JobKind.SCORE, JobKind.REPORT, JobKind.SERP_RETRY])
+def test_jobs_that_do_not_use_claude_book_no_tokens(
+    fake_repositories: MagicMock, make_job: JobFactory, kind: JobKind
+) -> None:
+    assert worker._usage_sink(make_job(kind), fake_repositories) is None
+
+
+def test_a_job_without_an_audit_books_no_tokens(
+    fake_repositories: MagicMock, make_job: JobFactory
+) -> None:
+    assert worker._usage_sink(make_job(JobKind.ANALYSE, audit_id=None), fake_repositories) is None
+
+
+async def test_collect_stops_before_anything_is_collected_when_a_migration_is_missing(
+    fake_repositories: MagicMock,
+    settings: Settings,
+    make_job: JobFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_repositories.missing_migrations.return_value = ["023", "024"]
+    collect = AsyncMock()
+    monkeypatch.setattr("radarauditor.collectors.run.collect_audit", collect)
+
+    with pytest.raises(AuditHalted, match="Datenbank-Änderung 023, 024 fehlt"):
+        await worker.run_job(make_job(JobKind.COLLECT), fake_repositories, settings)
+
+    collect.assert_not_awaited()
+    fake_repositories.set_audit_status.assert_not_called()
+    fake_repositories.upload.assert_not_called()
+
+
+async def test_a_failed_ads_step_does_not_send_the_audit_to_repair(
+    fake_repositories: MagicMock,
+    settings: Settings,
+    make_job: JobFactory,
+    sample_raw_audit: RawAudit,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from radarauditor.collectors.steps import StepStore
+
+    keep_files_in_memory(fake_repositories)
+    job = make_job(JobKind.COLLECT)
+    StepStore(job.audit_id, fake_repositories).keep("ads_google", None, [], "ads interface down")
+    monkeypatch.setattr(
+        "radarauditor.collectors.run.collect_audit", AsyncMock(return_value=sample_raw_audit)
+    )
+
+    await worker.run_job(job, fake_repositories, settings)
+
+    fake_repositories.enqueue.assert_called_once_with(JobKind.SCORE, job.customer_id, job.audit_id)
+
+
+async def test_another_failed_step_still_sends_the_audit_to_repair(
+    fake_repositories: MagicMock,
+    settings: Settings,
+    make_job: JobFactory,
+    sample_raw_audit: RawAudit,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from radarauditor.collectors.steps import StepStore
+
+    keep_files_in_memory(fake_repositories)
+    job = make_job(JobKind.COLLECT)
+    StepStore(job.audit_id, fake_repositories).keep("ads_google", None, [], "ads interface down")
+    StepStore(job.audit_id, fake_repositories).keep("bing", None, [], "blocked")
+    monkeypatch.setattr(
+        "radarauditor.collectors.run.collect_audit", AsyncMock(return_value=sample_raw_audit)
+    )
+
+    await worker.run_job(job, fake_repositories, settings)
+
+    fake_repositories.enqueue.assert_called_once_with(JobKind.REPAIR, job.customer_id, job.audit_id)

@@ -1,17 +1,3 @@
-"""Read public Google Business Profile data through the Places API (New).
-
-Context: Paid fallback when Google Maps blocks the server browser; works for any business without
-owner access. The API returns at most five reviews and never the owner's replies, so reply rate
-and reply time cannot be measured from this source; the review checks report that limitation
-instead of a value. The map grid uses Text Search with the identifier-only field mask, the
-cheapest request.
-Input: Business name and address, place_id, or a phrase and a point.
-The customer search (search_prospects) asks one page of a Text Search with exactly the fields that
-show a neglected profile; reviews are not requested, so the request stays in the Enterprise SKU.
-Output: PlaceSnapshot with every field marked as read by the Places API, ranked place ids, or one
-page of a customer search.
-"""
-
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
@@ -22,6 +8,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, SecretStr, ValidationError
 from pydantic.alias_generators import to_camel
 
+from radarauditor.collectors import raw_answers
 from radarauditor.collectors.patterns import parse_http_url
 from radarauditor.collectors.snapshot import PLACES_API_FIELDS, PlaceSnapshot
 from radarauditor.collectors.transport import send
@@ -85,25 +72,18 @@ PROSPECT_FIELD_MASK = ",".join([*(f"places.{name}" for name in PROSPECT_FIELDS),
 
 
 class PlacesSku(StrEnum):
-    """Billing tiers (SKUs) of the requests this module sends; the field mask decides the tier."""
-
     TEXT_SEARCH_IDS_ONLY = "text_search_essentials_ids_only"
     TEXT_SEARCH_ENTERPRISE = "text_search_enterprise"
     TEXT_SEARCH_ENTERPRISE_ATMOSPHERE = "text_search_enterprise_atmosphere"
     PLACE_DETAILS_ENTERPRISE_ATMOSPHERE = "place_details_enterprise_atmosphere"
 
 
-# USD per 1,000 requests, first volume tier, from the Google Maps Platform core services price
-# list (developers.google.com/maps/billing-and-pricing/pricing, updated 2026-10-28). The free
-# monthly calls of each tier are not subtracted, so the booked spend is never below the bill.
 PRICE_USD_PER_THOUSAND: dict[PlacesSku, Decimal] = {
     PlacesSku.TEXT_SEARCH_IDS_ONLY: Decimal(0),
     PlacesSku.TEXT_SEARCH_ENTERPRISE: Decimal(35),
     PlacesSku.TEXT_SEARCH_ENTERPRISE_ATMOSPHERE: Decimal(40),
     PlacesSku.PLACE_DETAILS_ENTERPRISE_ATMOSPHERE: Decimal(25),
 }
-# Tier of each request: reviews make it Enterprise + Atmosphere, phone, website, rating or opening
-# hours Enterprise, the place id alone is free.
 FIND_PLACE_SKU = PlacesSku.TEXT_SEARCH_IDS_ONLY
 SEARCH_BUSINESSES_SKU = PlacesSku.TEXT_SEARCH_ENTERPRISE
 PLACE_DETAILS_SKU = PlacesSku.PLACE_DETAILS_ENTERPRISE_ATMOSPHERE
@@ -114,15 +94,6 @@ SEARCH_PROSPECTS_SKU = PlacesSku.TEXT_SEARCH_ENTERPRISE
 
 
 def request_cost_eur(sku: PlacesSku, eur_per_usd: Decimal) -> Decimal:
-    """Price of one request of a tier in euros.
-
-    Args:
-        sku: Billing tier of the request.
-        eur_per_usd: Euros per US dollar.
-
-    Returns:
-        The list price of one request converted to euros.
-    """
     return PRICE_USD_PER_THOUSAND[sku] / 1000 * eur_per_usd
 
 
@@ -167,12 +138,6 @@ class _Place(_ApiModel):
 
 @dataclass(frozen=True)
 class BusinessCandidate:
-    """A business Text Search found for a name or website, before it is accepted as the customer.
-
-    category is the German text of the primary category, for example "Dachdecker"; latitude and
-    longitude are the map position of the profile.
-    """
-
     place_id: str
     name: str
     formatted_address: str
@@ -187,8 +152,6 @@ class BusinessCandidate:
 
 @dataclass(frozen=True)
 class ListedPlace:
-    """One business of a Text Search result list, with what the review comparison needs."""
-
     place_id: str
     name: str
     review_count: int
@@ -197,11 +160,6 @@ class ListedPlace:
 
 @dataclass(frozen=True)
 class ProspectPlace:
-    """One business of a customer search with the facts that show a neglected profile.
-
-    photo_count is capped at 10 by Google; has_opening_hours is False when the profile has none.
-    """
-
     place_id: str
     name: str
     formatted_address: str
@@ -217,8 +175,6 @@ class ProspectPlace:
 
 @dataclass(frozen=True)
 class ProspectPage:
-    """One page of a customer search; next_page_token is None on the last page."""
-
     places: list[ProspectPlace]
     next_page_token: str | None
 
@@ -240,20 +196,6 @@ class _ProspectResponse(_SearchResponse):
 
 
 async def find_place(name: str, address: str, api_key: SecretStr) -> str | None:
-    """Resolve a business to a place_id with Text Search; None if not found.
-
-    Args:
-        name: Business name as written on the website or profile.
-        address: Address or city that narrows the search.
-        api_key: Google Cloud key with the Places API (New) enabled.
-
-    Returns:
-        The place_id of the best match, or None.
-
-    Raises:
-        TransientCollectionError: On rate limits or 5xx responses.
-        CollectionError: On an invalid key or a malformed answer.
-    """
     body = {
         "textQuery": f"{name} {address}".strip(),
         "languageCode": LANGUAGE_CODE,
@@ -267,19 +209,6 @@ async def find_place(name: str, address: str, api_key: SecretStr) -> str | None:
 
 
 async def search_businesses(query: str, api_key: SecretStr) -> list[BusinessCandidate]:
-    """Find businesses for a name with city, or for a website host, to identify a customer.
-
-    Args:
-        query: For example "Dachdeckerei Hollenbeck Münster" or "dachdecker-hollenbeck.de".
-        api_key: Google Cloud key with the Places API (New) enabled.
-
-    Returns:
-        Up to IDENTIFY_PAGE_SIZE candidates in Google's order.
-
-    Raises:
-        TransientCollectionError: On rate limits or 5xx responses.
-        CollectionError: On an invalid key or a malformed answer.
-    """
     body = {
         "textQuery": query.strip(),
         "languageCode": LANGUAGE_CODE,
@@ -310,19 +239,6 @@ def _candidate(place: _Place) -> BusinessCandidate:
 
 
 async def place_details(place_id: str, api_key: SecretStr) -> PlaceSnapshot:
-    """Fetch the public details of one place with a fixed field mask.
-
-    Args:
-        place_id: Google place identifier.
-        api_key: Google Cloud key with the Places API (New) enabled.
-
-    Returns:
-        Public profile facts.
-
-    Raises:
-        TransientCollectionError: On rate limits or 5xx responses.
-        CollectionError: On an unknown place, an invalid key or a malformed answer.
-    """
     url = f"{PLACES_BASE_URL}/places/{quote(place_id, safe='')}"
     payload = await _request(
         "GET",
@@ -338,23 +254,6 @@ async def place_details(place_id: str, api_key: SecretStr) -> PlaceSnapshot:
 async def top_competitors(
     phrase: str, latitude: float, longitude: float, api_key: SecretStr, limit: int = 3
 ) -> list[PlaceSnapshot]:
-    """Return the best-ranked businesses for a phrase near a point, as Google lists them.
-
-    Args:
-        phrase: Search phrase, for example "Dachdecker Münster".
-        latitude: Centre of the search area.
-        longitude: Centre of the search area.
-        api_key: Google Cloud key with the Places API (New) enabled.
-        limit: Number of places to return, 1 to 20.
-
-    Returns:
-        Up to `limit` places in Google's order.
-
-    Raises:
-        ValueError: If limit is outside 1..20.
-        TransientCollectionError: On rate limits or 5xx responses.
-        CollectionError: On an invalid key or a malformed answer.
-    """
     if not 1 <= limit <= MAX_PAGE_SIZE:
         raise ValueError(f"limit must be between 1 and {MAX_PAGE_SIZE}, got {limit}")
     body = {
@@ -379,25 +278,6 @@ async def top_competitors(
 async def ranked_place_ids(
     phrase: str, latitude: float, longitude: float, api_key: SecretStr, radius_meters: float
 ) -> list[str]:
-    """Return the ids of the places Google ranks for a phrase around a point, best first.
-
-    Only place ids are requested (field mask places.id), which Google bills as the free
-    identifier-only Text Search.
-
-    Args:
-        phrase: Search phrase, for example "Dachdecker Münster".
-        latitude: Point the search is biased to.
-        longitude: Point the search is biased to.
-        api_key: Google Cloud key with the Places API (New) enabled.
-        radius_meters: Radius of the location bias around the point.
-
-    Returns:
-        Up to MAX_PAGE_SIZE place ids in Google's order.
-
-    Raises:
-        TransientCollectionError: On rate limits or 5xx responses.
-        CollectionError: On an invalid key or a malformed answer.
-    """
     body = {
         "textQuery": phrase,
         "languageCode": LANGUAGE_CODE,
@@ -419,24 +299,6 @@ async def ranked_place_ids(
 async def listed_businesses(
     phrase: str, latitude: float, longitude: float, api_key: SecretStr, radius_meters: float
 ) -> list[ListedPlace]:
-    """Return the businesses Google lists for a phrase around a point with their review counts.
-
-    Only id, name, rating and review count are requested, the fields the review comparison needs.
-
-    Args:
-        phrase: Search phrase, for example "Dachdecker Münster".
-        latitude: Point the search is biased to.
-        longitude: Point the search is biased to.
-        api_key: Google Cloud key with the Places API (New) enabled.
-        radius_meters: Radius of the location bias around the point.
-
-    Returns:
-        Up to MAX_PAGE_SIZE listed places in Google's order.
-
-    Raises:
-        TransientCollectionError: On rate limits or 5xx responses.
-        CollectionError: On an invalid key or a malformed answer.
-    """
     body = {
         "textQuery": phrase,
         "languageCode": LANGUAGE_CODE,
@@ -467,20 +329,6 @@ async def listed_businesses(
 async def search_prospects(
     phrase: str, api_key: SecretStr, page_token: str | None = None
 ) -> ProspectPage:
-    """Return one page of the businesses Google lists for a trade in a city.
-
-    Args:
-        phrase: For example "Dachdecker in Münster".
-        api_key: Google Cloud key with the Places API (New) enabled.
-        page_token: Token of the previous page; None for the first page.
-
-    Returns:
-        Up to MAX_PAGE_SIZE businesses in Google's order and the token of the next page.
-
-    Raises:
-        TransientCollectionError: On rate limits or 5xx responses.
-        CollectionError: On an invalid key or a malformed answer.
-    """
     body: dict[str, object] = {
         "textQuery": phrase.strip(),
         "languageCode": LANGUAGE_CODE,
@@ -532,6 +380,7 @@ async def _request(
         response = await send(
             client, method, url, source=source, headers=headers, **request_arguments
         )
+    raw_answers.keep(raw_answers.file_name("place", "places_api", source), response.content)
     try:
         payload: object = response.json()
     except ValueError as error:
@@ -567,7 +416,6 @@ def _to_snapshot(place: _Place) -> PlaceSnapshot:
 
 
 def _review(review: _Review) -> dict[str, object]:
-    """Keep the review under the API's own key names, which the review checks read."""
     return {
         "publishTime": review.publish_time,
         "rating": review.rating,

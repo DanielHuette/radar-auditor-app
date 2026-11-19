@@ -1,11 +1,3 @@
-"""Shared outcome rules and snapshot helpers for the area check modules.
-
-Context: Keeps the pass/partial/fail arithmetic and the text, URL and address normalisation in one
-place so every area judges the same way.
-Input: Snapshot parts, measured counts and catalogue thresholds.
-Output: CheckOutcome values and normalised keys.
-"""
-
 import re
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -13,6 +5,7 @@ from urllib.parse import urlsplit
 
 from pydantic import HttpUrl
 
+from radarauditor.collectors.identity import Identity, fold, identity, is_name_search
 from radarauditor.collectors.patterns import host_of
 from radarauditor.collectors.snapshot import (
     PageSnapshot,
@@ -21,6 +14,7 @@ from radarauditor.collectors.snapshot import (
     SerpResult,
     WebsiteSnapshot,
 )
+from radarauditor.collectors.validation import result_problems
 from radarauditor.db.models import CheckOutcome
 from radarauditor.errors import ScoringError
 
@@ -29,9 +23,9 @@ Thresholds = Mapping[str, float | int | str]
 CheckFunction = Callable[[RawAudit, Thresholds], CheckReturn]
 
 TOLERANCE = 0.2
-MOST_SHARE = 0.5
 MAX_LISTED = 10
 NO_PAID_DATA = "no_paid_data"
+PROFILE_NOT_PROVABLE = "profile_not_provable"
 
 POSTAL_CODE_PATTERN = re.compile(r"\b(\d{5})\b")
 LEGAL_FORM_PATTERN = re.compile(
@@ -47,7 +41,6 @@ NAP_KEYS: dict[str, tuple[str, ...]] = {
     "postal_code": ("postal_code", "postal", "zip", "plz"),
     "phone": ("phone", "telephone", "telefon", "tel"),
 }
-UMLAUTS = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})
 GOOGLE_PROFILE_MARKERS = (
     "google.com/maps",
     "google.de/maps",
@@ -60,19 +53,10 @@ GOOGLE_PROFILE_MARKERS = (
 
 
 def not_measurable(reason: str, **measured: object) -> CheckReturn:
-    """Return NOT_MEASURABLE with the reason and any partial measurements."""
     return CheckOutcome.NOT_MEASURABLE, {"reason": reason, **measured}
 
 
 def route_entry(routes: Iterable[str | None]) -> dict[str, object]:
-    """Measured entry naming how the data was read, for the route note of the app.
-
-    Args:
-        routes: Route of every value the check used; None for values without a recorded route.
-
-    Returns:
-        {"route": id} for one route, {"routes": [ids]} for several, {} for none.
-    """
     found = sorted({route for route in routes if route})
     if not found:
         return {}
@@ -82,27 +66,12 @@ def route_entry(routes: Iterable[str | None]) -> dict[str, object]:
 
 
 def place_routes(places: Iterable[PlaceSnapshot], field: str) -> dict[str, object]:
-    """route_entry for one field of one or more Google profiles."""
     return route_entry(place.route_of(field) for place in places)
 
 
 def dispatch(
     checks: Mapping[str, CheckFunction], check_id: str, raw: RawAudit, thresholds: Thresholds
 ) -> CheckReturn:
-    """Run the check function registered for check_id.
-
-    Args:
-        checks: Check functions of one area by id.
-        check_id: Catalogue id.
-        raw: Collected audit data.
-        thresholds: Catalogue thresholds of the check.
-
-    Returns:
-        Outcome and measured values.
-
-    Raises:
-        ScoringError: If the area has no function for check_id.
-    """
     check = checks.get(check_id)
     if check is None:
         raise ScoringError(f"No check function for {check_id}")
@@ -110,46 +79,13 @@ def dispatch(
 
 
 def number(thresholds: Thresholds, key: str) -> float:
-    """Read a numeric threshold.
-
-    Raises:
-        ScoringError: If the threshold is missing or not a number.
-    """
     value = thresholds.get(key)
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ScoringError(f"Threshold {key!r} is missing or not numeric")
     return float(value)
 
 
-def share_outcome(good: int, total: int) -> CheckOutcome:
-    """PASSED if all items are good, PARTIAL if at least half are, FAILED otherwise."""
-    if total <= 0 or good >= total:
-        return CheckOutcome.PASSED
-    if good / total >= MOST_SHARE:
-        return CheckOutcome.PARTIAL
-    return CheckOutcome.FAILED
-
-
-def at_most_outcome(value: float, limit: float) -> CheckOutcome:
-    """PASSED if value <= limit, PARTIAL within 20 % above, FAILED beyond."""
-    if value <= limit:
-        return CheckOutcome.PASSED
-    if value <= round(limit * (1 + TOLERANCE), 9):
-        return CheckOutcome.PARTIAL
-    return CheckOutcome.FAILED
-
-
-def at_least_outcome(value: float, minimum: float) -> CheckOutcome:
-    """PASSED if value >= minimum, PARTIAL within 20 % below, FAILED beyond."""
-    if value >= minimum:
-        return CheckOutcome.PASSED
-    if value >= round(minimum * (1 - TOLERANCE), 9):
-        return CheckOutcome.PARTIAL
-    return CheckOutcome.FAILED
-
-
 def band_outcome(value: float, pass_from: float, partial_from: float) -> CheckOutcome:
-    """PASSED if value >= pass_from, PARTIAL if value >= partial_from, FAILED below."""
     if value >= pass_from:
         return CheckOutcome.PASSED
     if value >= partial_from:
@@ -158,7 +94,6 @@ def band_outcome(value: float, pass_from: float, partial_from: float) -> CheckOu
 
 
 def ceiling_outcome(value: float, pass_to: float, partial_to: float) -> CheckOutcome:
-    """PASSED if value <= pass_to, PARTIAL if value <= partial_to, FAILED above."""
     if value <= pass_to:
         return CheckOutcome.PASSED
     if value <= partial_to:
@@ -167,7 +102,6 @@ def ceiling_outcome(value: float, pass_to: float, partial_to: float) -> CheckOut
 
 
 def share_of_best(own: float, rivals: Mapping[str, float]) -> tuple[float, str | None]:
-    """Own value as a share of the best rival and that rival; 1.0 when no rival has any."""
     if not rivals:
         return 1.0, None
     leader = max(rivals, key=lambda name: rivals[name])
@@ -178,7 +112,6 @@ def share_of_best(own: float, rivals: Mapping[str, float]) -> tuple[float, str |
 
 
 def combine(outcomes: Iterable[CheckOutcome]) -> CheckOutcome:
-    """All PASSED gives PASSED, all FAILED gives FAILED, any mix gives PARTIAL."""
     judged = [outcome for outcome in outcomes if outcome is not CheckOutcome.NOT_MEASURABLE]
     if not judged:
         return CheckOutcome.NOT_MEASURABLE
@@ -189,31 +122,22 @@ def combine(outcomes: Iterable[CheckOutcome]) -> CheckOutcome:
     return CheckOutcome.PARTIAL
 
 
-def fold(text: str) -> str:
-    """Lower-case and transliterate German umlauts so slugs and text compare equal."""
-    return text.casefold().translate(UMLAUTS)
-
-
 def tokens(text: str) -> list[str]:
-    """Split folded text into alphanumeric words."""
     return re.findall(r"[a-z0-9]+", fold(text))
 
 
 def same_site(url: str, host: str) -> bool:
-    """True if url lives on host or one of its subdomains."""
     candidate = host_of(url)
     return candidate is not None and (candidate == host or candidate.endswith(f".{host}"))
 
 
 def is_google_profile_link(link: str, profile_url: str | None) -> bool:
-    """True for a Google Maps or profile short link, or the place's own Google address."""
     if any(marker in link for marker in GOOGLE_PROFILE_MARKERS):
         return True
     return profile_url is not None and url_key(link) == url_key(profile_url)
 
 
 def url_key(url: str | HttpUrl) -> str:
-    """Normalised URL for comparisons: host without www, path without trailing slash."""
     parts = urlsplit(str(url))
     host = (parts.hostname or "").removeprefix("www.")
     path = parts.path.rstrip("/") or "/"
@@ -222,22 +146,18 @@ def url_key(url: str | HttpUrl) -> str:
 
 
 def url_path(url: str | HttpUrl) -> str:
-    """Folded path of a URL."""
     return fold(urlsplit(str(url)).path)
 
 
 def listed(items: Iterable[str]) -> list[str]:
-    """First MAX_LISTED items, enough for a finding without bloating the record."""
     return list(items)[:MAX_LISTED]
 
 
 def content_pages(website: WebsiteSnapshot) -> list[PageSnapshot]:
-    """Pages that answered with a 2xx status."""
     return [page for page in website.pages if 200 <= page.status_code < 300]
 
 
 def start_page(website: WebsiteSnapshot) -> PageSnapshot | None:
-    """The crawled page matching the start URL, else the first successful page."""
     start = url_key(website.start_url)
     pages = content_pages(website)
     for page in pages:
@@ -247,7 +167,6 @@ def start_page(website: WebsiteSnapshot) -> PageSnapshot | None:
 
 
 def find_page(website: WebsiteSnapshot, url: str | HttpUrl | None) -> PageSnapshot | None:
-    """The crawled page for url, if it was crawled."""
     if url is None:
         return None
     wanted = url_key(url)
@@ -255,7 +174,6 @@ def find_page(website: WebsiteSnapshot, url: str | HttpUrl | None) -> PageSnapsh
 
 
 def click_depths(website: WebsiteSnapshot) -> dict[str, int]:
-    """Breadth-first link distance from the start page for every reachable crawled page."""
     links = {
         url_key(page.url): {url_key(link) for link in page.internal_links} for page in website.pages
     }
@@ -272,7 +190,6 @@ def click_depths(website: WebsiteSnapshot) -> dict[str, int]:
 
 
 def is_utility_page(page: PageSnapshot, website: WebsiteSnapshot) -> bool:
-    """True for legal, contact, about, blog and similar pages that are not service pages."""
     key = url_key(page.url)
     for legal in (website.legal_notice_url, website.privacy_url):
         if legal is not None and url_key(legal) == key:
@@ -281,18 +198,15 @@ def is_utility_page(page: PageSnapshot, website: WebsiteSnapshot) -> bool:
 
 
 def h1_texts(page: PageSnapshot) -> list[str]:
-    """Texts of all level-one headings."""
     return [text for level, text in page.headings if level == 1]
 
 
 def page_text(page: PageSnapshot) -> str:
-    """Folded title, headings and visible text excerpt of a page."""
     parts = [page.title or "", *(text for _, text in page.headings), page.text_excerpt]
     return fold(" ".join(parts))
 
 
 def postal_code(text: str | None) -> str | None:
-    """First five-digit German postal code in text."""
     if not text:
         return None
     match = POSTAL_CODE_PATTERN.search(text)
@@ -300,7 +214,6 @@ def postal_code(text: str | None) -> str | None:
 
 
 def phone_key(phone: str | None) -> str | None:
-    """Digits of a phone number in national format, so +49 251 1 and 0251-1 compare equal."""
     if not phone:
         return None
     stripped = phone.strip()
@@ -313,7 +226,6 @@ def phone_key(phone: str | None) -> str | None:
 
 
 def street_key(street: str | None) -> str | None:
-    """Street and house number folded, with every Straße spelling reduced to str."""
     if not street:
         return None
     folded = fold(street)
@@ -323,7 +235,6 @@ def street_key(street: str | None) -> str | None:
 
 
 def address_key(address: str | None) -> str | None:
-    """Street plus postal code of a one-line address, independent of separators and country."""
     if not address:
         return None
     code = postal_code(address)
@@ -335,7 +246,6 @@ def address_key(address: str | None) -> str | None:
 
 
 def normalise_name(name: str | None) -> str:
-    """Business name without legal form, punctuation and case."""
     if not name:
         return ""
     words = " ".join(tokens(name))
@@ -343,39 +253,31 @@ def normalise_name(name: str | None) -> str:
 
 
 def names_match(left: str | None, right: str | None) -> bool:
-    """True if one normalised business name contains the other."""
     first, second = normalise_name(left), normalise_name(right)
     return bool(first) and bool(second) and (first in second or second in first)
 
 
-def business_name(raw: RawAudit) -> str | None:
-    """Name from the website footer, else from the Google profile.
+def own_identity(raw: RawAudit) -> Identity:
+    business = raw.business
+    return identity(
+        name=business_name(raw),
+        place_ids=[raw.place.place_id] if raw.place is not None else [],
+        website=customer_host(raw),
+        phone=business.phone if business is not None else None,
+        street=business.street if business is not None else None,
+        postal_code=business.postal_code if business is not None else None,
+    )
 
-    The footer comes first because a keyword-stuffed profile name would make service searches
-    look like searches for the brand.
-    """
-    if raw.website is not None:
-        name = nap_value(raw.website.footer_nap, "name")
-        if name:
-            return name
-    return raw.place.name if raw.place is not None else None
+
+def business_name(raw: RawAudit) -> str | None:
+    return (raw.business.name or None) if raw.business is not None else None
 
 
 def business_city(raw: RawAudit) -> str | None:
-    """City from the website footer, else from the Google profile address."""
-    if raw.website is not None:
-        city = raw.website.footer_nap.get("city")
-        if city:
-            return city
-    if raw.place is not None:
-        match = re.search(r"\b\d{5}\s+([^,]+)", raw.place.formatted_address)
-        if match:
-            return match.group(1).strip()
-    return None
+    return (raw.business.city or None) if raw.business is not None else None
 
 
 def customer_host(raw: RawAudit) -> str | None:
-    """Host of the customer's website from the crawl, else from the Google profile."""
     if raw.website is not None:
         return host_of(raw.website.start_url)
     if raw.place is not None:
@@ -384,31 +286,36 @@ def customer_host(raw: RawAudit) -> str | None:
 
 
 def google_web_serps(raw: RawAudit) -> list[SerpResult]:
-    """Google web searches, without Bing and image searches."""
     return [serp for serp in raw.serps if serp.engine == "google" and serp.vertical == "web"]
 
 
+def usable(serps: Iterable[SerpResult]) -> list[SerpResult]:
+    return [serp for serp in serps if not result_problems(serp)]
+
+
+def serp_coverage(
+    considered: Iterable[SerpResult], used: Iterable[SerpResult]
+) -> dict[str, object]:
+    used_phrases = {serp.phrase for serp in used}
+    missing = [serp.phrase for serp in considered if serp.phrase not in used_phrases]
+    return {"phrases_evaluated": len(used_phrases), "phrases_missing": listed(missing)}
+
+
 def brand_serps(raw: RawAudit) -> list[SerpResult]:
-    """Google web searches for the business name."""
     name = business_name(raw)
     if name is None:
         return []
-    return [serp for serp in google_web_serps(raw) if names_match(serp.phrase, name)]
+    return [serp for serp in google_web_serps(raw) if is_name_search(serp.phrase, name)]
 
 
 def service_terms(raw: RawAudit) -> dict[str, list[str]]:
-    """Service words of every tracked search phrase except brand searches, city removed.
-
-    The phrases are those searched on Google and on Google Maps, so a blocked Google search
-    still leaves the keywords of the Maps positions.
-    """
     city_tokens = set(tokens(business_city(raw) or ""))
     name = business_name(raw)
     phrases = [serp.phrase for serp in google_web_serps(raw)]
     phrases.extend(ranking.phrase for ranking in raw.map_rankings)
     terms: dict[str, list[str]] = {}
     for phrase in phrases:
-        if (name is not None and names_match(phrase, name)) or phrase in terms:
+        if (name is not None and is_name_search(phrase, name)) or phrase in terms:
             continue
         words = [word for word in tokens(phrase) if word not in city_tokens]
         if words:
@@ -417,14 +324,12 @@ def service_terms(raw: RawAudit) -> dict[str, list[str]]:
 
 
 def page_matches_terms(page: PageSnapshot, words: list[str]) -> bool:
-    """True if the URL, title or main heading of the page contains every service word."""
     focus = " ".join([url_path(page.url), page.title or "", *h1_texts(page)])
     present = set(tokens(focus))
     return all(word in present or word in fold(focus) for word in words)
 
 
 def service_pages(raw: RawAudit) -> list[PageSnapshot]:
-    """Pages dedicated to a tracked service, or all non-utility subpages if no phrase is tracked."""
     if raw.website is None:
         return []
     website = raw.website
@@ -439,7 +344,6 @@ def service_pages(raw: RawAudit) -> list[PageSnapshot]:
 
 
 def schema_objects(json_ld: Iterable[object]) -> Iterator[dict[str, object]]:
-    """Every JSON-LD object, flattening lists, @graph containers and nested objects."""
     stack: list[object] = list(json_ld)
     while stack:
         item = stack.pop()
@@ -454,7 +358,6 @@ def schema_objects(json_ld: Iterable[object]) -> Iterator[dict[str, object]]:
 
 
 def schema_types(item: Mapping[str, object]) -> set[str]:
-    """The @type values of one JSON-LD object."""
     value = item.get("@type")
     if isinstance(value, str):
         return {value}
@@ -464,12 +367,10 @@ def schema_types(item: Mapping[str, object]) -> set[str]:
 
 
 def page_schema_types(page: PageSnapshot) -> set[str]:
-    """All @type values on a page."""
     return {kind for item in schema_objects(page.json_ld) for kind in schema_types(item)}
 
 
 def string_values(value: object) -> list[str]:
-    """Strings of a JSON-LD property that may be a string, an object with @id/url, or a list."""
     if isinstance(value, str):
         return [value]
     if isinstance(value, dict):
@@ -480,7 +381,6 @@ def string_values(value: object) -> list[str]:
 
 
 def nap_value(nap: Mapping[str, str], field: str) -> str | None:
-    """Value of a footer NAP field, tolerant of the key spelling the crawler used."""
     filled = {
         key.casefold(): value.strip() for key, value in nap.items() if value and value.strip()
     }

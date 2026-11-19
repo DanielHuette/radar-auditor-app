@@ -1,14 +1,3 @@
-"""Stand-in for the Claude Code CLI in tests of the headless analysis.
-
-Context: Copied into a temporary folder with an executable shebang by the fake_claude fixture.
-Input: The arguments of `claude -p "/auswerten <folder>" ...`, `claude -p "/optimieren <folder>"`,
-the heartbeat's answer check `claude -p "Antworte nur mit OK." ...`, an assistant question
-`claude -p "<question>" ...`, a mail to classify or `claude auth status`; mode from
-FAKE_CLAUDE_MODE (ok, invalid, not_logged_in, error, garbage, sleep, empty, mail).
-Output: findings.json and texte.json (or aenderungen.json) in the folder or an answer text, one JSON
-result on stdout, argv.json (and cwd.txt for questions) next to the script.
-"""
-
 import json
 import os
 import sys
@@ -20,7 +9,6 @@ PING_PROMPT = "Antworte nur mit OK."
 TEXTS = {
     "introduction": "Sie werden gefunden.",
     "summary": "Gut. Lückenhaft. Teuer.",
-    "forecast_note": "Eine Schätzung.",
     "subscription_reason": "Ihre Wettbewerber holen auf.",
     "offer_text": "Erstoptimierung.",
     "talk_text": "Sie stehen auf der Karte hinter drei Nachbarn.",
@@ -39,17 +27,21 @@ ANSWER = (
 
 
 def main() -> None:
-    """Behave like Claude Code in the mode the test chose."""
     mode = os.environ.get("FAKE_CLAUDE_MODE", "ok")
     if sys.argv[1:3] == ["auth", "status"]:
         print(json.dumps({"loggedIn": mode != "not_logged_in", "authMethod": "claude.ai"}))
         return
     Path(__file__).with_name("argv.json").write_text(json.dumps(sys.argv[1:]), encoding="utf-8")
+    Path(__file__).with_name("claude_mds.txt").write_text(
+        os.environ.get("CLAUDE_CODE_DISABLE_CLAUDE_MDS", ""), encoding="utf-8"
+    )
     if sys.argv[2].startswith("/optimieren "):
         optimise(Path(sys.argv[2].removeprefix("/optimieren ")), mode)
         return
     if mode == "sleep":
         time.sleep(30)
+    if mode == "slow":
+        stay_a_moment()
     if mode == "not_logged_in":
         fail("Not logged in · Please run /login")
     if mode == "error":
@@ -84,19 +76,25 @@ def main() -> None:
     succeed("1 Befund")
 
 
+def stay_a_moment() -> None:
+    log = Path(__file__).with_name("calls.log")
+    with log.open("a", encoding="utf-8") as handle:
+        handle.write(f"start {time.time()}\n")
+    time.sleep(0.8)
+    with log.open("a", encoding="utf-8") as handle:
+        handle.write(f"end {time.time()}\n")
+
+
 def succeed(result: str) -> None:
-    """Print the JSON result of a successful run."""
     print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": result}))
 
 
 def fail(result: str) -> None:
-    """Print the JSON result of a failed run and exit with code 1."""
     print(json.dumps({"type": "result", "subtype": "success", "is_error": True, "result": result}))
     sys.exit(1)
 
 
 def optimise(folder: Path, mode: str) -> None:
-    """Draft one WordPress description (when reachable) and one manual change."""
     changes: list[dict[str, object]] = [
         {"target": "manual:Branchenbuch", "check_id": None, "before": None, "after": "Eintragen."}
     ]

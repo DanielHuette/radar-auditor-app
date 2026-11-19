@@ -22,6 +22,10 @@ function sameSubject(left: string, right: string): boolean {
   return left.trim().toLocaleLowerCase("de") === right.trim().toLocaleLowerCase("de");
 }
 
+export function keywordLabel(keyword: Keyword): string {
+  return keyword.scope === "nationwide" ? `${keyword.phrase} (bundesweit)` : keyword.phrase;
+}
+
 /**
  * Best position per subject and keyword, ignoring grid measurements. The customer comes
  * first, competitors follow in the order they were measured.
@@ -49,7 +53,7 @@ export function rankingMatrix(
       return found.length === 0 ? null : Math.min(...found);
     }),
   }));
-  return { keywords: measured.map((keyword) => keyword.phrase), series };
+  return { keywords: measured.map(keywordLabel), series };
 }
 
 /** Bar length that grows with a better position, so the leader has the longest bar. */

@@ -38,7 +38,7 @@ Vier Teile arbeiten zusammen:
    ![Handy: Reiter Prüfen mit Website-Adresse](bilder/pruefen-handy.png)
    ![PC: Reiter Prüfen](bilder/pruefen-desktop.png)
 
-2. **Wähl die Prüfungen aus.** Der Katalog `config/pruefkatalog.yaml` hat 108 Prüfungen in 14 Bereichen, a bis n. Oben steht „Alle Prüfungen“ mit der Zahl der eingeschalteten. Jeder Bereich hat ein Kästchen für alle seine Prüfungen und klappt auf Tippen auf; dann steht jede Prüfung mit einem Satz, warum sie zählt. Die Auswahl bleibt auf dem Gerät gespeichert und wird mit der Prüfung abgelegt (`audits.disabled_checks`); nur sie gilt für diese Prüfung. **Prüfung starten** tippen. Steht dort „Prüfungen gerade nicht möglich“, kann Claude Code auf dem Server gerade nicht auswerten; der Grund steht dabei.
+2. **Wähl die Prüfungen aus.** Der Katalog `config/pruefkatalog.yaml` hat 62 Prüfungen in 14 Bereichen, a bis n. Oben steht „Alle Prüfungen“ mit der Zahl der eingeschalteten. Jeder Bereich hat ein Kästchen für alle seine Prüfungen und klappt auf Tippen auf; dann steht jede Prüfung mit einem Satz, warum sie zählt. Die Auswahl bleibt auf dem Gerät gespeichert und wird mit der Prüfung abgelegt (`audits.disabled_checks`); nur sie gilt für diese Prüfung. **Prüfung starten** tippen. Steht dort „Prüfungen gerade nicht möglich“, kann Claude Code auf dem Server gerade nicht auswerten; der Grund steht dabei.
 
    ![Handy: Auswahl der Prüfungen mit aufgeklapptem Bereich](bilder/pruefen-auswahl-handy.png)
    ![PC: Auswahl der Prüfungen](bilder/pruefen-auswahl-desktop.png)

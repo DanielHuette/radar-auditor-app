@@ -6,12 +6,12 @@ Every audit, analysis, PDF and optimisation runs in the worker container on a re
 
 ## 1. Server size and location
 
-| Resource | Minimum | Recommended | Why |
-|---|---|---|---|
-| CPU | 2 vCPU | 4 vCPU | Chromium renders Google, Maps and the assistant sites; Claude Code and PDF rendering run alongside |
-| RAM | 4 GB | 8 GB | Chromium with several pages takes 1–2 GB, Claude Code about 0.5 GB, the worker about 0.5 GB |
-| Disk | 30 GB SSD | 40 GB SSD or more | image 3.4 GB, build cache during updates another 3–4 GB, browser profile, logs |
-| Location | Germany | Germany (for example Falkenstein, Nuremberg or Frankfurt) | Google search and Maps answer by the server's location; a German address gives the results German customers see |
+  Resource   Minimum   Recommended   Why  
+ --- --- --- --- 
+  CPU   2 vCPU   4 vCPU   Chromium renders Google, Maps and the assistant sites; Claude Code and PDF rendering run alongside  
+  RAM   4 GB   8 GB   Chromium with several pages takes 1–2 GB, Claude Code about 0.5 GB, the worker about 0.5 GB  
+  Disk   30 GB SSD   40 GB SSD or more   image 3.4 GB, build cache during updates another 3–4 GB, browser profile, logs  
+  Location   Germany   Germany (for example Falkenstein, Nuremberg or Frankfurt)   Google search and Maps answer by the server's location; a German address gives the results German customers see  
 
 Any provider offering Ubuntu 24.04 works, for example a Hetzner Cloud CX32 or CPX31. Plain x86-64 (amd64) is tested; Arm servers are not.
 
@@ -51,7 +51,7 @@ sudo apt-get install -y ca-certificates curl git postgresql-client
 sudo install -m 0755 -d /etc/apt/keyrings
 sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
 sudo chmod a+r /etc/apt/keyrings/docker.asc
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable"   sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 sudo apt-get update
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 sudo usermod -aG docker radar
@@ -73,43 +73,41 @@ Until the field-app branch is merged into `main`, clone with `--branch mobil`. I
 
 Every line of `.env`:
 
-| Variable | Value | Where to get it |
-|---|---|---|
-| `SUPABASE_URL` | `https://<ref>.supabase.co` | Supabase → **Project Settings** → **Data API** → Project URL |
-| `SUPABASE_SERVICE_KEY` | secret key | Supabase → **Project Settings** → **API Keys** → **service_role** (or **Secret key**) |
-| `GOOGLE_API_KEY` | key with PageSpeed Insights API and Places API (New) | Google Cloud → **APIs & Services** → **Credentials** ([SETUP.md](SETUP.md) section 3) |
-| `RADAR_WORK_DIR` | leave as is | set by `docker-compose.yml` to the volume `work` |
-| `WORKER_ALIVE_FILE` | empty | empty means `worker-alive` in the work directory; the health check reads it |
-| `BROWSER_PROFILE_DIR` | leave as is | set by `docker-compose.yml` to the volume `browser-profile` |
-| `FORECAST_PATH` | `config/prognose.yaml` | part of the image |
-| `TEMPLATES_DIR` | `templates` | part of the image |
-| `CATALOGUE_PATH` | `config/pruefkatalog.yaml` | part of the image |
-| `QUESTIONS_PATH` | empty | empty means `config/fragen.yaml` |
-| `PACKAGES_PATH` | empty | empty means `config/pakete.yaml` |
-| `INDUSTRIES_PATH` | empty | empty means `config/branchen.yaml` |
-| `EVENT_ENDPOINT` | empty, or the webhook address of the customer-management system | your CRM |
-| `DATAFORSEO_LOGIN` | login e-mail | https://app.dataforseo.com → **API Access** |
-| `DATAFORSEO_PASSWORD` | API password (not the account password) | same page |
-| `DATAFORSEO_EUR_PER_USD` | `1` | keep; counts every dollar as a euro against the monthly cost cap |
-| `OPENAI_API_KEY` | optional | https://platform.openai.com/api-keys; used only when chatgpt.com blocks the server browser |
-| `GEMINI_API_KEY` | optional | https://aistudio.google.com → **Get API key**; used only when gemini.google.com blocks |
-| `PERPLEXITY_API_KEY` | optional | https://www.perplexity.ai/settings/api; used only when perplexity.ai blocks |
-| `OPENAI_MODEL` | keep the default | model of the ChatGPT fallback |
-| `GEMINI_MODEL` | keep the default | model of the Gemini fallback |
-| `PERPLEXITY_MODEL` | `fast` | preset of the Perplexity fallback |
-| `CLAUDE_MODEL` | keep the default | model Claude Code answers the assistant questions with |
-| `ASSISTANT_TIMEOUT_SECONDS` | `120` | seconds per assistant answer |
-| `GOOGLE_OAUTH_CLIENT_ID` | only for audits with customer access | [SETUP.md](SETUP.md) section 9 |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | only for audits with customer access | [SETUP.md](SETUP.md) section 9 |
-| `ANALYSIS_CLAUDE_COMMAND` | `claude` | the Claude Code CLI in the image |
-| `ANALYSIS_TIMEOUT_SECONDS` | `900` | seconds per analysis before it is re-queued |
-| `ANALYSIS_PROJECT_DIR` | leave as is | set by `docker-compose.yml` to `/opt/radarauditor`, where skills and commands lie |
-| `ANALYSIS_PERMISSION_MODE` | `dontAsk` | keep |
-| `ANALYSIS_MODEL` | empty | empty uses the default model of the Claude Code login |
-| `MAIL_TRIAGE_BATCH` | `5` | mails taken from the CRM at once (at most 50), read one per idle poll; `0` switches mail reading off |
-| `MAIL_TRIAGE_TIMEOUT_SECONDS` | `120` | seconds per mail |
-| `MAIL_TRIAGE_CLAIM_SECONDS` | `900` | seconds the taken mails stay reserved, 30 to 3600; at least batch times seconds per mail, which may not exceed 3600 |
-| `MAIL_TRIAGE_MODEL` | `sonnet` | model Claude Code reads the mails with |
+  Variable   Value   Where to get it  
+ --- --- --- 
+  `SUPABASE_URL`   `https://<ref>.supabase.co`   Supabase → **Project Settings** → **Data API** → Project URL  
+  `SUPABASE_SERVICE_KEY`   secret key   Supabase → **Project Settings** → **API Keys** → **service_role** (or **Secret key**)  
+  `GOOGLE_API_KEY`   key with PageSpeed Insights API and Places API (New)   Google Cloud → **APIs & Services** → **Credentials** ([SETUP.md](SETUP.md) section 3)  
+  `RADAR_WORK_DIR`   leave as is   set by `docker-compose.yml` to the volume `work`  
+  `WORKER_ALIVE_FILE`   empty   empty means `worker-alive` in the work directory; the health check reads it  
+  `BROWSER_PROFILE_DIR`   leave as is   set by `docker-compose.yml` to the volume `browser-profile`  
+  `FORECAST_PATH`   `config/prognose.yaml`   part of the image  
+  `TEMPLATES_DIR`   `templates`   part of the image  
+  `CATALOGUE_PATH`   `config/pruefkatalog.yaml`   part of the image  
+  `QUESTIONS_PATH`   empty   empty means `config/fragen.yaml`  
+  `PACKAGES_PATH`   empty   empty means `config/pakete.yaml`  
+  `INDUSTRIES_PATH`   empty   empty means `config/branchen.yaml`  
+  `EVENT_ENDPOINT`   empty, or the webhook address of the customer-management system   your CRM  
+  `DATAFORSEO_LOGIN`   login e-mail   https://app.dataforseo.com → **API Access**  
+  `DATAFORSEO_PASSWORD`   API password (not the account password)   same page  
+  `DATAFORSEO_EUR_PER_USD`   `1`   keep; counts every dollar as a euro against the monthly cost cap  
+  `OPENAI_API_KEY`   optional   https://platform.openai.com/api-keys; used only when chatgpt.com blocks the server browser  
+  `OPENAI_MODEL`   keep the default   model of the ChatGPT fallback  
+  `CLAUDE_MODEL`   keep the default   model Claude Code answers the assistant questions with  
+  `ASSISTANT_TIMEOUT_SECONDS`   `120`   seconds per assistant answer  
+  `CLAUDE_PARALLEL_QUESTIONS`   `4`   questions to Claude running at the same time (1 to 8)  
+  `BROWSER_CHANNEL`   `chromium`   browser of the browser assistants; `chrome` on the PC collector  
+  `GOOGLE_OAUTH_CLIENT_ID`   only for audits with customer access   [SETUP.md](SETUP.md) section 9  
+  `GOOGLE_OAUTH_CLIENT_SECRET`   only for audits with customer access   [SETUP.md](SETUP.md) section 9  
+  `ANALYSIS_CLAUDE_COMMAND`   `claude`   the Claude Code CLI in the image  
+  `ANALYSIS_TIMEOUT_SECONDS`   `900`   seconds per analysis before it is re-queued  
+  `ANALYSIS_PROJECT_DIR`   leave as is   set by `docker-compose.yml` to `/project`; `PROJECT_DIR` (default: the project folder) is bound there with skills, commands and the finished PDFs; the container user has to be able to write there, otherwise the step reports an error  
+  `ANALYSIS_PERMISSION_MODE`   `dontAsk`   keep  
+  `ANALYSIS_MODEL`   empty   empty uses the default model of the Claude Code login  
+  `MAIL_TRIAGE_BATCH`   `5`   mails taken from the CRM at once (at most 50), read one per idle poll; `0` switches mail reading off  
+  `MAIL_TRIAGE_TIMEOUT_SECONDS`   `120`   seconds per mail  
+  `MAIL_TRIAGE_CLAIM_SECONDS`   `900`   seconds the taken mails stay reserved, 30 to 3600; at least batch times seconds per mail, which may not exceed 3600  
+  `MAIL_TRIAGE_MODEL`   `sonnet`   model Claude Code reads the mails with  
 
 The four paths marked "set by `docker-compose.yml`" are overridden inside the container, so a `.env` copied from the PC works unchanged.
 
@@ -124,7 +122,7 @@ The field app needs migrations `006_field_app.sql`, `007_serp_retry.sql`, `009_s
    ```
    read -rs -p "Connection string: " DB_URL; echo
    for f in 006_field_app 007_serp_retry 009_source_cost 010_manual_changes 011_url_only_audit 012_field_audit_parts 013_crm_handover 014_remove_billing 015_link_crm_leads; do
-     psql "$DB_URL" -v ON_ERROR_STOP=1 -f "supabase/migrations/$f.sql" || break
+     psql "$DB_URL" -v ON_ERROR_STOP=1 -f "supabase/migrations/$f.sql"    break
    done
    unset DB_URL
    ```
@@ -171,7 +169,7 @@ It reports `"loggedIn": true`. Within ten minutes the worker notices the login (
 
 Alternative without an interactive login on the server: run `claude setup-token` on your PC (Claude Code installed there), add the token it prints as a line `CLAUDE_CODE_OAUTH_TOKEN=<token>` to `.env` and run `docker compose up -d`. The token is valid for a year.
 
-### 7.2 Browser logins (ChatGPT, Gemini with your Google account, Perplexity)
+### 7.2 Browser logins (ChatGPT, Google)
 
 The worker reads these sites in a persistent Chromium profile. You log in once in a visible copy of that browser, shown in your PC's browser through an SSH tunnel.
 
@@ -189,10 +187,9 @@ The worker reads these sites in a persistent Chromium profile. You log in once i
    ```
 
    It prints `Browser ready: open http://localhost:6080/vnc.html through the SSH tunnel.`
-3. **On your PC**, open http://localhost:6080/vnc.html and click **Connect**. A Chromium window with three tabs appears:
+3. **On your PC**, open http://localhost:6080/vnc.html and click **Connect**. A Chromium window with two tabs appears:
    - **chatgpt.com**: sign in with your OpenAI account.
-   - **gemini.google.com**: sign in with your Google account. Google may ask for a confirmation on your phone because the server is a new device; confirm it.
-   - **perplexity.ai**: sign in with your Perplexity account.
+   - **google.de**: sign in with your Google account. Google may ask for a confirmation on your phone because the server is a new device; confirm it.
 
    Answer cookie banners as you like; the choice is stored in the profile.
 4. **Close the Chromium window** (the X at the top right). The server terminal prints `Browser closed, profile saved in /data/browser-profile.` and the login container ends.
@@ -230,11 +227,11 @@ docker image prune -f
 
 ## 10. Backups
 
-| Volume | Content | Back up |
-|---|---|---|
-| `radarauditor_browser-profile` | cookies and logins of ChatGPT, Google, Perplexity | yes, saves repeating step 7.2 |
-| `radarauditor_claude-login` | Claude Code login | yes, saves repeating step 7.1 |
-| `radarauditor_work` | temporary hand-off folders of running jobs | no |
+  Volume   Content   Back up  
+ --- --- --- 
+  `radarauditor_browser-profile`   cookies and logins of ChatGPT and Google   yes, saves repeating step 7.2  
+  `radarauditor_claude-login`   Claude Code login   yes, saves repeating step 7.1  
+  `radarauditor_work`   temporary hand-off folders of running jobs   no  
 
 All business data lives in Supabase (its own daily backups) and is not on the server. Back up with the worker stopped, so the browser profile is consistent:
 
@@ -262,11 +259,11 @@ docker compose up -d
 
 ## 11. Troubleshooting
 
-| Symptom | Cause and fix |
-|---|---|
-| `docker compose ps` shows `(unhealthy)` | no heartbeat for three minutes; `docker compose logs worker` names the cause (Supabase address or key, network) |
-| Log: `missing environment variables: …` | the named line in `.env` is empty; fill it and run `docker compose up -d` |
-| App: "Die Auswertung auf dem Server ist nicht bereit." | Claude Code not logged in or the subscription limit reached; `docker compose exec worker claude auth status`, then step 7.1 |
-| Audit shows "Google-Suche wird nachgeholt" | Google blocked the server browser; the searches are repeated with backoff, or come from DataForSEO when it is switched on |
-| Login container: `error: no Playwright Chromium` | the image build was interrupted; `docker compose build --no-cache` |
-| http://localhost:6080 does not load | the SSH tunnel of step 7.2 is not open, or the login container is not running |
+  Symptom   Cause and fix  
+ --- --- 
+  `docker compose ps` shows `(unhealthy)`   no heartbeat for three minutes; `docker compose logs worker` names the cause (Supabase address or key, network)  
+  Log: `missing environment variables: …`   the named line in `.env` is empty; fill it and run `docker compose up -d`  
+  App: "Die Auswertung auf dem Server ist nicht bereit."   Claude Code not logged in or the subscription limit reached; `docker compose exec worker claude auth status`, then step 7.1  
+  Audit shows "Google-Suche wird nachgeholt"   Google blocked the server browser; the searches are repeated with backoff, or come from DataForSEO when it is switched on  
+  Login container: `error: no Playwright Chromium`   the image build was interrupted; `docker compose build --no-cache`  
+  http://localhost:6080 does not load   the SSH tunnel of step 7.2 is not open, or the login container is not running  

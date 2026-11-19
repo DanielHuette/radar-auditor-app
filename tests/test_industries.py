@@ -26,6 +26,7 @@ GROUP_IDS = [
     "recht_steuern_beratung",
     "fitness_sport",
     "handel_dienstleistung",
+    "kunst_kreativ",
 ]
 
 
@@ -35,7 +36,7 @@ def industries() -> IndustryCatalogue:
     return load_industries(INDUSTRIES_FILE)
 
 
-def test_twelve_groups_in_order(industries: IndustryCatalogue) -> None:
+def test_thirteen_groups_in_order(industries: IndustryCatalogue) -> None:
     """The app lists the groups in the order of the file."""
     assert [group.id for group in industries.groups] == GROUP_IDS
 
@@ -71,6 +72,14 @@ def test_values_outside_every_group_stay_as_stored(industries: IndustryCatalogue
     assert industries.resolve("Sonstiges") is None
     assert industries.label(" Sonstiges ") == "Sonstiges"
     assert industries.question_term("Dachdecker") == "Dachdecker"
+
+
+def test_an_artist_belongs_to_art_and_creative_work(industries: IndustryCatalogue) -> None:
+    """An artist as entered in the app has a group, so the audit gets search phrases."""
+    group = industries.resolve("K\u00fcnstlerin")
+
+    assert group is not None and group.id == "kunst_kreativ"
+    assert industries.question_term("K\u00fcnstlerin") == "K\u00fcnstler"
 
 
 def test_label_and_question_term_of_a_group(industries: IndustryCatalogue) -> None:
@@ -124,6 +133,7 @@ def test_duplicate_ids_are_rejected(tmp_path: Path) -> None:
 # config/branchen.yaml uses them.
 DOCUMENTED_GOOGLE_TYPES = frozenset(
     {
+        "art_studio", "art_gallery",
         "roofing_contractor", "painter", "electrician", "plumber", "furniture_store",
         "car_repair", "car_dealer", "tire_shop", "car_wash", "auto_parts_store", "truck_dealer",
         "hair_salon", "hair_care", "barber_shop", "beauty_salon", "beautician", "nail_salon",

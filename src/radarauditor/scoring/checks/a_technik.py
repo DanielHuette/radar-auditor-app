@@ -1,270 +1,443 @@
-"""Checks of area a: technik (ids a1..).
+from collections.abc import Callable
+from dataclasses import dataclass
+from urllib.parse import urlsplit
 
-Context: One pure function per catalogue check; each returns outcome and measured values.
-Input: RawAudit and thresholds.
-Output: (CheckOutcome, measured dict).
-"""
+from pydantic import HttpUrl
 
-import re
-from urllib.robotparser import RobotFileParser
-
-from radarauditor.collectors.snapshot import RawAudit
+from radarauditor.collectors import crawl_extras
+from radarauditor.collectors.snapshot import (
+    AgentFetch,
+    PageSnapshot,
+    PageSpeedField,
+    RawAudit,
+    WebsiteSnapshot,
+)
 from radarauditor.db.models import CheckOutcome
 from radarauditor.scoring.checks.common import (
     CheckFunction,
     CheckReturn,
     Thresholds,
-    at_least_outcome,
-    at_most_outcome,
-    combine,
+    ceiling_outcome,
     content_pages,
     dispatch,
     listed,
     not_measurable,
     number,
-    share_outcome,
+    tokens,
     url_key,
-    url_path,
+)
+from radarauditor.scoring.checks.crawl import (
+    BLOCK_STATUSES,
+    HTTP_OK,
+    agent_fetches,
+    crawled,
+    gradation,
+    has_extended_data,
+    is_system_path,
+    is_transient_status,
+    looks_like_block_page,
+    no_extended_data,
+    origin_root,
+    robots_blocked_pages,
+    robots_unavailable,
+    similarity,
+    start_key,
+)
+from radarauditor.scoring.checks.robots import (
+    BINGBOT,
+    CLAUDE_SEARCHBOT,
+    CLAUDE_USER,
+    GOOGLE_EXTENDED,
+    GOOGLEBOT,
+    INDEX_BLOCKING,
+    OAI_SEARCHBOT,
+    SNIPPET_BLOCKING,
+    RobotsRules,
+    directives_for,
 )
 
-MOBILE_USABLE_SCORE = 50
-ADMIN_PATH_PATTERN = re.compile(
-    r"/(wp-admin|wp-login\.php|admin|administrator|backend|phpmyadmin)\b"
+LAB_SOURCE = "lab"
+SPEED_LIMITS = (
+    "lcp_good_ms",
+    "lcp_poor_ms",
+    "cls_good",
+    "cls_poor",
+    "inp_good_ms",
+    "inp_poor_ms",
+    "tbt_good_ms",
+    "tbt_poor_ms",
 )
-
-
-def https_single_host(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """a1: the site uses HTTPS and every host variant ends on one address."""
-    if raw.website is None:
-        return not_measurable("no_website")
-    website = raw.website
-    parts = [website.uses_https, website.redirects_to_single_host]
-    outcome = combine(CheckOutcome.PASSED if part else CheckOutcome.FAILED for part in parts)
-    return outcome, {
-        "uses_https": website.uses_https,
-        "redirects_to_single_host": website.redirects_to_single_host,
-    }
+SPEED_RATINGS = {
+    CheckOutcome.PASSED: "good",
+    CheckOutcome.PARTIAL: "needs_improvement",
+    CheckOutcome.FAILED: "poor",
+}
+GOOGLE_EXTENDED_NOTE = "betrifft nicht die Google-Suche"
+PageMeta = Callable[[PageSnapshot], str | None]
 
 
 def loading_speed(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """a2: LCP, CLS, INP and the mobile score meet their limits; a mix of results is partial."""
-    if raw.pagespeed is None:
-        return not_measurable("no_pagespeed")
     speed = raw.pagespeed
-    limits = {
-        "lcp_ms_max": number(thresholds, "lcp_ms_max"),
-        "cls_max": number(thresholds, "cls_max"),
-        "inp_ms_max": number(thresholds, "inp_ms_max"),
-        "mobile_score_min": number(thresholds, "mobile_score_min"),
+    if speed is None:
+        return not_measurable("no_pagespeed")
+    if speed.lab is None:
+        return not_measurable("pagespeed_data_outdated" if speed.older_format else "no_pagespeed")
+    lab, visitors = speed.lab, speed.field_data
+    limits = {key: number(thresholds, key) for key in SPEED_LIMITS}
+    lcp_ms, lcp_source = _preferred(visitors, visitors.lcp_ms if visitors else None, lab.lcp_ms)
+    cls, cls_source = _preferred(visitors, visitors.cls if visitors else None, lab.cls)
+    lcp = ceiling_outcome(lcp_ms, limits["lcp_good_ms"], limits["lcp_poor_ms"])
+    layout = ceiling_outcome(cls, limits["cls_good"], limits["cls_poor"])
+    measured: dict[str, object] = {
+        "lcp_ms": lcp_ms,
+        "lcp_source": lcp_source,
+        "lcp_rating": SPEED_RATINGS[lcp],
+        "cls": cls,
+        "cls_source": cls_source,
+        "cls_rating": SPEED_RATINGS[layout],
     }
-    outcomes = [
-        at_most_outcome(speed.lcp_ms, limits["lcp_ms_max"]),
-        at_most_outcome(speed.cls, limits["cls_max"]),
-        at_least_outcome(speed.mobile_performance, limits["mobile_score_min"]),
-    ]
-    if speed.inp_ms is not None:
-        outcomes.append(at_most_outcome(speed.inp_ms, limits["inp_ms_max"]))
-    return combine(outcomes), {
-        "lcp_ms": speed.lcp_ms,
-        "cls": speed.cls,
-        "inp_ms": speed.inp_ms,
+    if visitors is not None and visitors.inp_ms is not None:
+        reaction = ceiling_outcome(visitors.inp_ms, limits["inp_good_ms"], limits["inp_poor_ms"])
+        measured |= {
+            "inp_ms": visitors.inp_ms,
+            "inp_source": _visitor_source(visitors),
+            "inp_rating": SPEED_RATINGS[reaction],
+        }
+    else:
+        reaction = ceiling_outcome(lab.tbt_ms, limits["tbt_good_ms"], limits["tbt_poor_ms"])
+        measured |= {
+            "tbt_ms": lab.tbt_ms,
+            "tbt_source": LAB_SOURCE,
+            "tbt_rating": SPEED_RATINGS[reaction],
+        }
+    measured |= {
+        "lab_runs": lab.runs,
         "mobile_performance": speed.mobile_performance,
         "desktop_performance": speed.desktop_performance,
-        **limits,
     }
+    return _speed_outcome((lcp, layout, reaction)), measured
 
 
-def mobile_display(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """a3: every page sets a viewport and the mobile score is not poor; a mix is partial.
-
-    The catalogue may set mobile_score_min; without it Lighthouse's lower bound of the
-    "needs improvement" band applies.
-    """
-    if raw.website is None or not content_pages(raw.website):
-        return not_measurable("no_website")
-    pages = content_pages(raw.website)
-    without_viewport = [str(page.url) for page in pages if not page.has_viewport_meta]
-    outcomes = [share_outcome(len(pages) - len(without_viewport), len(pages))]
-    minimum = (
-        number(thresholds, "mobile_score_min")
-        if "mobile_score_min" in thresholds
-        else MOBILE_USABLE_SCORE
-    )
-    mobile = raw.pagespeed.mobile_performance if raw.pagespeed is not None else None
-    if mobile is not None:
-        outcomes.append(at_least_outcome(mobile, minimum))
-    return combine(outcomes), {
-        "pages_without_viewport": listed(without_viewport),
-        "pages_without_viewport_count": len(without_viewport),
-        "pages_total": len(pages),
-        "mobile_performance": mobile,
-        "mobile_score_min": minimum,
-    }
+def _preferred(
+    visitors: PageSpeedField | None, visitor_value: float | None, lab_value: float
+) -> tuple[float, str]:
+    if visitors is None or visitor_value is None:
+        return lab_value, LAB_SOURCE
+    return visitor_value, _visitor_source(visitors)
 
 
-def robots_and_sitemap(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """a4: robots.txt exists without blocking everything, and a sitemap is declared."""
-    if raw.website is None:
-        return not_measurable("no_website")
-    website = raw.website
-    blocks_all = False
-    if website.robots_txt is not None:
-        parser = RobotFileParser()
-        parser.parse(website.robots_txt.splitlines())
-        blocks_all = not parser.can_fetch("Googlebot", str(website.start_url))
-    if blocks_all:
-        outcome = CheckOutcome.FAILED
-    else:
-        parts = [website.robots_txt is not None, bool(website.sitemap_urls)]
-        outcome = combine(CheckOutcome.PASSED if part else CheckOutcome.FAILED for part in parts)
-    return outcome, {
-        "has_robots_txt": website.robots_txt is not None,
-        "sitemap_count": len(website.sitemap_urls),
-        "blocks_google": blocks_all,
-    }
+def _visitor_source(visitors: PageSpeedField) -> str:
+    return f"field_{visitors.scope}"
 
 
-def broken_links(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """a5: linked pages that answer with an error, plus crawl errors, stay within max_broken."""
+def _speed_outcome(ratings: tuple[CheckOutcome, ...]) -> CheckOutcome:
+    if CheckOutcome.FAILED in ratings:
+        return CheckOutcome.FAILED
+    if CheckOutcome.PARTIAL in ratings:
+        return CheckOutcome.PARTIAL
+    return CheckOutcome.PASSED
+
+
+def _address(url: str | HttpUrl) -> str:
+    parts = urlsplit(str(url))
+    query = f"?{parts.query}" if parts.query else ""
+    return f"{parts.scheme.lower()}://{parts.netloc.lower()}{parts.path.rstrip('/') or '/'}{query}"
+
+
+def _google_meta(page: PageSnapshot) -> str | None:
+    return page.meta_robots
+
+
+def _bing_meta(page: PageSnapshot) -> str | None:
+    return page.meta_robots_bing
+
+
+def _index_problem(
+    page: PageSnapshot, bot: str, meta: PageMeta, rules: RobotsRules, linked: set[str], start: str
+) -> str | None:
+    address = str(page.url)
+    if not rules.allows(bot, address):
+        return f"robots.txt sperrt {bot}"
+    if page.status_code != HTTP_OK:
+        if url_key(page.url) == start or url_key(page.url) in linked:
+            return f"Status {page.status_code}"
+        return None
+    for source, value in (("meta", meta(page)), ("X-Robots-Tag", page.x_robots_tag)):
+        if directives_for(value, bot) & INDEX_BLOCKING:
+            return f"noindex ({source})"
+    if page.canonical is not None and _address(page.canonical) != _address(page.url):
+        return f"canonical zeigt auf {page.canonical}"
+    return None
+
+
+def _can_index(raw: RawAudit, bot: str, meta: PageMeta) -> CheckReturn:
     if raw.website is None or not raw.website.pages:
         return not_measurable("no_website")
     website = raw.website
+    if not has_extended_data(website):
+        return no_extended_data()
+    if (unavailable := robots_unavailable(website)) is not None:
+        return unavailable
+    rules = RobotsRules(website.robots_txt)
     linked = {url_key(link) for page in website.pages for link in page.internal_links}
-    broken = [
-        str(page.url)
-        for page in website.pages
-        if page.status_code >= 400 and url_key(page.url) in linked
-    ]
-    bad = len(broken) + len(website.crawl_errors)
-    limit = number(thresholds, "max_broken")
-    total = len(website.pages) + len(website.crawl_errors)
-    if bad <= limit:
-        outcome = CheckOutcome.PASSED
-    else:
-        outcome = share_outcome(total - bad, total)
-        if outcome is CheckOutcome.PASSED:
-            outcome = CheckOutcome.PARTIAL
+    start = start_key(website)
+    reasons: dict[str, str] = {
+        url: f"robots.txt sperrt {bot}"
+        for url in website.robots_skipped
+        if not is_system_path(url) and not rules.allows(bot, url)
+    }
+    for page in website.pages:
+        problem = _index_problem(page, bot, meta, rules, linked, start)
+        if problem is not None:
+            reasons.setdefault(str(page.url), problem)
+    affected = list(reasons)
+    outcome = gradation(affected, website)
     return outcome, {
-        "broken_urls": listed(broken),
-        "broken_count": len(broken),
-        "crawl_errors": listed(website.crawl_errors),
-        "pages_total": len(website.pages),
-        "max_broken": limit,
+        "pages_total": len(website.pages) + len(website.robots_skipped),
+        "start_page_affected": any(url_key(url) == start for url in affected),
+        "pages_affected": listed(affected),
+        "pages_affected_count": len(affected),
+        "pages_affected_reasons": dict(list(reasons.items())[:10]),
+        "blocked_by_robots": listed(url for url, why in reasons.items() if "robots.txt" in why),
+        "wrong_status": listed(url for url, why in reasons.items() if why.startswith("Status")),
+        "noindex_pages": listed(url for url, why in reasons.items() if why.startswith("noindex")),
+        "other_canonical_pages": listed(
+            url for url, why in reasons.items() if why.startswith("canonical")
+        ),
+        "robots_txt_present": website.robots_txt is not None,
+        "system_paths_blocked": listed(
+            url
+            for url in website.robots_skipped
+            if is_system_path(url) and not rules.allows(bot, url)
+        ),
     }
 
 
-def canonical_per_page(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """a6: every successful page declares a canonical URL."""
-    if raw.website is None or not content_pages(raw.website):
+def google_can_index(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
+    return _can_index(raw, GOOGLEBOT, _google_meta)
+
+
+def bing_can_index(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
+    return _can_index(raw, BINGBOT, _bing_meta)
+
+
+def snippet_not_blocked(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
+    website = crawled(raw)
+    if website is None:
         return not_measurable("no_website")
-    pages = content_pages(raw.website)
-    missing = [str(page.url) for page in pages if page.canonical is None]
-    return share_outcome(len(pages) - len(missing), len(pages)), {
-        "pages_missing_canonical": listed(missing),
-        "pages_missing_count": len(missing),
-        "pages_total": len(pages),
+    if not has_extended_data(website):
+        return no_extended_data()
+    reasons: dict[str, str] = {}
+    for page in content_pages(website):
+        found = directives_for(page.meta_robots, GOOGLEBOT) | directives_for(
+            page.x_robots_tag, GOOGLEBOT
+        )
+        blocking = sorted(found & SNIPPET_BLOCKING)
+        if blocking:
+            reasons[str(page.url)] = ", ".join(blocking)
+    affected = list(reasons)
+    return gradation(affected, website), {
+        "pages_total": len(content_pages(website)),
+        "pages_affected": listed(affected),
+        "pages_affected_count": len(affected),
+        "pages_affected_reasons": dict(list(reasons.items())[:10]),
     }
 
 
-def images_optimised(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """a7: images have alt text and none exceeds the size limit used by the crawler."""
-    if raw.website is None or not content_pages(raw.website):
-        return not_measurable("no_website")
-    pages = content_pages(raw.website)
-    max_missing_alt = number(thresholds, "max_missing_alt")
-    missing_alt = sum(page.images_without_alt for page in pages)
-    oversized = sum(page.oversized_images for page in pages)
-    pages_with_issues = [
-        str(page.url) for page in pages if page.images_without_alt or page.oversized_images
-    ]
-    if missing_alt <= max_missing_alt and oversized == 0:
-        outcome = CheckOutcome.PASSED
-    else:
-        outcome = share_outcome(len(pages) - len(pages_with_issues), len(pages))
-        if outcome is CheckOutcome.PASSED:
-            outcome = CheckOutcome.PARTIAL
-    return outcome, {
-        "images_without_alt": missing_alt,
-        "oversized_images": oversized,
-        "pages_with_issues": listed(pages_with_issues),
-        "pages_total": len(pages),
-        "max_image_kb": number(thresholds, "max_image_kb"),
-        "max_missing_alt": max_missing_alt,
-    }
-
-
-def readable_without_javascript(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """a8: pages delivered as HTML carry words and headings without running scripts."""
-    if raw.website is None or not content_pages(raw.website):
-        return not_measurable("no_website")
-    pages = content_pages(raw.website)
-    empty = [str(page.url) for page in pages if page.word_count == 0 or not page.headings]
-    return share_outcome(len(pages) - len(empty), len(pages)), {
-        "pages_without_text": listed(empty),
-        "pages_without_text_count": len(empty),
-        "pages_total": len(pages),
-    }
-
-
-def language_marked(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """a9: every page declares German as its language."""
-    if raw.website is None or not content_pages(raw.website):
-        return not_measurable("no_website")
-    pages = content_pages(raw.website)
-    unmarked = [
-        str(page.url) for page in pages if not (page.lang or "").casefold().startswith("de")
-    ]
-    return share_outcome(len(pages) - len(unmarked), len(pages)), {
-        "pages_without_german_lang": listed(unmarked),
-        "pages_total": len(pages),
-    }
-
-
-def secure_content(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """a10: no open admin pages were reachable and an HTTPS site links no page over plain HTTP."""
-    if raw.website is None or not raw.website.pages:
-        return not_measurable("no_website")
-    website = raw.website
-    open_admin = [
-        str(page.url)
-        for page in content_pages(website)
-        if ADMIN_PATH_PATTERN.search(url_path(page.url))
-    ]
-    insecure_links = sorted(
-        {
-            str(link)
-            for page in website.pages
-            for link in page.internal_links
-            if website.uses_https and str(link).startswith("http://")
-        }
-    )
-    if open_admin:
+def _agent_robots(website: WebsiteSnapshot, agent: str) -> tuple[CheckOutcome, dict[str, object]]:
+    rules = RobotsRules(website.robots_txt)
+    root_blocked = not rules.allows(agent, origin_root(website))
+    blocked, system_paths = robots_blocked_pages(website, rules, agent)
+    if root_blocked:
         outcome = CheckOutcome.FAILED
-    elif insecure_links:
+    elif blocked:
         outcome = CheckOutcome.PARTIAL
     else:
         outcome = CheckOutcome.PASSED
     return outcome, {
-        "open_admin_pages": listed(open_admin),
-        "insecure_links": listed(insecure_links),
-        "insecure_link_count": len(insecure_links),
+        "agent": agent,
+        "site_blocked": root_blocked,
+        "pages_blocked": listed(blocked),
+        "pages_blocked_count": len(blocked),
+        "system_paths_blocked": listed(system_paths),
+        "system_paths_blocked_count": len(system_paths),
+    }
+
+
+def _robots_presence(website: WebsiteSnapshot) -> dict[str, object]:
+    return {"robots_txt_present": website.robots_txt is not None}
+
+
+def gemini_allowed(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
+    website = crawled(raw)
+    if website is None:
+        return not_measurable("no_website")
+    if (unavailable := robots_unavailable(website)) is not None:
+        return unavailable
+    outcome, measured = _agent_robots(website, GOOGLE_EXTENDED)
+    return outcome, {**measured, **_robots_presence(website), "note": GOOGLE_EXTENDED_NOTE}
+
+
+def chatgpt_search_allowed(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
+    website = crawled(raw)
+    if website is None:
+        return not_measurable("no_website")
+    if (unavailable := robots_unavailable(website)) is not None:
+        return unavailable
+    outcome, measured = _agent_robots(website, OAI_SEARCHBOT)
+    return outcome, {**measured, **_robots_presence(website), "changes_take_effect_hours": 24}
+
+
+def claude_allowed(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
+    website = crawled(raw)
+    if website is None:
+        return not_measurable("no_website")
+    if (unavailable := robots_unavailable(website)) is not None:
+        return unavailable
+    results = {agent: _agent_robots(website, agent) for agent in (CLAUDE_SEARCHBOT, CLAUDE_USER)}
+    outcomes = [outcome for outcome, _ in results.values()]
+    failed = sum(1 for outcome in outcomes if outcome is CheckOutcome.FAILED)
+    if failed == len(outcomes):
+        outcome = CheckOutcome.FAILED
+    elif failed or CheckOutcome.PARTIAL in outcomes:
+        outcome = CheckOutcome.PARTIAL
+    else:
+        outcome = CheckOutcome.PASSED
+    return outcome, {
+        "agents": {agent: measured for agent, (_, measured) in results.items()},
+        **_robots_presence(website),
+    }
+
+
+@dataclass(frozen=True)
+class _Pair:
+    visitor: AgentFetch
+    bot: AgentFetch
+
+
+def _pair(website: WebsiteSnapshot, agent: str) -> _Pair | CheckReturn:
+    fetches = agent_fetches(website)
+    if fetches is None or crawl_extras.VISITOR not in fetches or agent not in fetches:
+        return not_measurable("no_agent_fetches")
+    visitor, bot = fetches[crawl_extras.VISITOR], fetches[agent]
+    if visitor.status != HTTP_OK:
+        return not_measurable("visitor_fetch_not_200", visitor_status=visitor.status)
+    if bot.status is None:
+        return not_measurable("bot_fetch_failed", bot_error=bot.error)
+    return _Pair(visitor, bot)
+
+
+def _same_page(raw: RawAudit, agent: str, thresholds: Thresholds) -> CheckReturn:
+    website = crawled(raw)
+    if website is None:
+        return not_measurable("no_website")
+    pair = _pair(website, agent)
+    if not isinstance(pair, _Pair):
+        return pair
+    measured: dict[str, object] = {
+        "agent": agent,
+        "visitor_status": pair.visitor.status,
+        "bot_status": pair.bot.status,
+    }
+    if pair.bot.status != HTTP_OK:
+        return not_measurable("bot_fetch_not_200", bot_status=pair.bot.status)
+    visitor_words, bot_words = len(tokens(pair.visitor.text)), len(tokens(pair.bot.text))
+    main_text = number(thresholds, "main_text_words")
+    no_text = number(thresholds, "no_text_words")
+    min_overlap = number(thresholds, "min_overlap")
+    compare_from = number(thresholds, "compare_from_words")
+    score = round(similarity(pair.visitor.text, pair.bot.text), 3)
+    measured |= {
+        "similarity": score,
+        "visitor_words": visitor_words,
+        "bot_words": bot_words,
+        "min_overlap": min_overlap,
+        "compare_from_words": compare_from,
+    }
+    if (visitor_words >= main_text and bot_words <= no_text) or (
+        bot_words >= main_text and visitor_words <= no_text
+    ):
+        return CheckOutcome.FAILED, {**measured, "difference": "one_version_without_text"}
+    if min(visitor_words, bot_words) >= compare_from and score < min_overlap:
+        return CheckOutcome.FAILED, {**measured, "difference": "text_differs"}
+    if max(visitor_words, bot_words) <= no_text:
+        return not_measurable("no_comparable_text", **measured)
+    return CheckOutcome.PASSED, measured
+
+
+def _firewall(raw: RawAudit, agent: str) -> CheckReturn:
+    website = crawled(raw)
+    if website is None:
+        return not_measurable("no_website")
+    pair = _pair(website, agent)
+    if not isinstance(pair, _Pair):
+        return pair
+    measured: dict[str, object] = {"agent": agent, "bot_status": pair.bot.status}
+    if pair.bot.status in BLOCK_STATUSES:
+        return CheckOutcome.FAILED, {**measured, "reason_blocked": f"Status {pair.bot.status}"}
+    if is_transient_status(pair.bot.status):
+        return not_measurable("bot_fetch_unavailable", **measured)
+    if pair.bot.status != HTTP_OK:
+        return not_measurable("bot_status_unclear", **measured)
+    if looks_like_block_page(pair.bot.text) and not looks_like_block_page(pair.visitor.text):
+        return CheckOutcome.FAILED, {**measured, "reason_blocked": "block page"}
+    return CheckOutcome.PASSED, measured
+
+
+def google_same_page(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
+    return _same_page(raw, crawl_extras.GOOGLEBOT, thresholds)
+
+
+def bing_same_page(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
+    return _same_page(raw, crawl_extras.BINGBOT, thresholds)
+
+
+def chatgpt_firewall(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
+    return _firewall(raw, crawl_extras.OAI_SEARCHBOT)
+
+
+def claude_firewall(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
+    return _firewall(raw, crawl_extras.CLAUDE_SEARCHBOT)
+
+
+def images_described(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
+    website = crawled(raw)
+    if website is None:
+        return not_measurable("no_website")
+    pages = content_pages(website)
+    if all(page.images is None for page in pages):
+        return no_extended_data()
+    shown = [(page, image) for page in pages for image in page.images or [] if not image.decorative]
+    if not shown:
+        return CheckOutcome.NOT_APPLICABLE, {"reason": "no_content_images"}
+    missing = [(page, image) for page, image in shown if not (image.alt or "").strip()]
+    by_page: dict[str, int] = {}
+    for page, _ in missing:
+        by_page[str(page.url)] = by_page.get(str(page.url), 0) + 1
+    return gradation(list(by_page), website), {
+        "images_total": len(shown),
+        "images_described": len(shown) - len(missing),
+        "images_without_alt": len(missing),
+        "pages_with_issues": listed(by_page),
+        "missing_by_page": dict(list(by_page.items())[:10]),
+        "missing_files": listed(image.file_name or image.source or "" for _, image in missing),
     }
 
 
 CHECKS: dict[str, CheckFunction] = {
-    "a1": https_single_host,
     "a2": loading_speed,
-    "a3": mobile_display,
-    "a4": robots_and_sitemap,
-    "a5": broken_links,
-    "a6": canonical_per_page,
-    "a7": images_optimised,
-    "a8": readable_without_javascript,
-    "a9": language_marked,
-    "a10": secure_content,
+    "a4": google_can_index,
+    "a7": images_described,
+    "a11": gemini_allowed,
+    "a12": snippet_not_blocked,
+    "a13": google_same_page,
+    "a14": bing_can_index,
+    "a15": chatgpt_search_allowed,
+    "a16": chatgpt_firewall,
+    "a17": claude_allowed,
+    "a18": claude_firewall,
 }
 
 
 def run(check_id: str, raw: RawAudit, thresholds: dict[str, float | int | str]) -> CheckReturn:
-    """Dispatch to the function for check_id within this area."""
     return dispatch(CHECKS, check_id, raw, thresholds)

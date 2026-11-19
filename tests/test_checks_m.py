@@ -1,18 +1,16 @@
-"""Tests for the checks of area m (wirkung mit Kundenzugang).
-
-Context: Pure rule tests on RawAudit fixtures. | Input: Fixtures. | Output: Assertions.
-"""
-
 from collections.abc import Callable
 
 import pytest
 
-from radarauditor.collectors.snapshot import AnalyticsSnapshot, RawAudit, SearchQuery
+from radarauditor.collectors.snapshot import RawAudit, SearchQuery
 from radarauditor.db.models import CheckOutcome
 from radarauditor.errors import ScoringError
 from radarauditor.scoring.checks.m_wirkung import change_percent, run
 
-CHECKS = ["m1", "m2", "m3", "m4"]
+CHECKS = [
+    "m1",
+    "m2",
+]
 ReviewFactory = Callable[[str, int, str | None], dict[str, object]]
 
 
@@ -95,59 +93,6 @@ def test_m2_needs_search_console_and_phrases(raw_audit_full: RawAudit) -> None:
     }
     no_phrases = raw_audit_full.model_copy(update={"serps": []})
     assert run("m2", no_phrases, {})[1] == {"reason": "no_search_phrases"}
-
-
-@pytest.mark.parametrize(
-    ("sessions", "key_events", "expected"),
-    [
-        (640, 23, CheckOutcome.PASSED),
-        (640, 0, CheckOutcome.PARTIAL),
-        (0, 0, CheckOutcome.FAILED),
-    ],
-)
-def test_m3_judges_enquiries(
-    raw_audit_full: RawAudit, sessions: int, key_events: int, expected: CheckOutcome
-) -> None:
-    analytics = AnalyticsSnapshot(
-        property_id="1", sessions=sessions, engaged_sessions=0, key_events=key_events
-    )
-    outcome, measured = run("m3", _with_access(raw_audit_full, analytics=analytics), {})
-    assert outcome is expected
-    assert measured["key_events"] == key_events
-
-
-def test_m3_without_analytics(raw_audit_full: RawAudit) -> None:
-    assert run("m3", _with_access(raw_audit_full, analytics=None), {})[1] == {
-        "reason": "no_analytics"
-    }
-
-
-@pytest.mark.parametrize(
-    ("replies", "expected"),
-    [
-        (["2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05", None], CheckOutcome.PASSED),
-        (["2026-09-02", "2026-09-03", "2026-09-04", "2026-09-30", None], CheckOutcome.PARTIAL),
-        (["2026-09-02", "2026-09-30", None, None, None], CheckOutcome.FAILED),
-    ],
-)
-def test_m4_reply_share_within_seven_days(
-    raw_audit_full: RawAudit,
-    make_owner_review: ReviewFactory,
-    replies: list[str | None],
-    expected: CheckOutcome,
-) -> None:
-    reviews = [make_owner_review("2026-09-01", 5, reply) for reply in replies]
-    outcome, measured = run("m4", _with_access(raw_audit_full, owner_reviews=reviews), {})
-    assert outcome is expected
-    assert measured["reviews"] == 5
-    assert measured["replied"] == sum(1 for reply in replies if reply)
-
-
-def test_m4_without_reviews(raw_audit_full: RawAudit) -> None:
-    raw = _with_access(raw_audit_full, owner_reviews=[])
-    assert run("m4", raw, {})[1] == {"reason": "no_owner_reviews"}
-    outcome, measured = run("m4", raw_audit_full, {})
-    assert measured["average_reply_days"] == 1.2
 
 
 def test_unknown_check_raises(raw_audit_full: RawAudit) -> None:

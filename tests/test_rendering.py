@@ -1,8 +1,3 @@
-"""Tests for the shared rendering helpers and the texte.json schema.
-
-Context: Pure functions plus one real WeasyPrint call. | Input: Literals. | Output: Assertions.
-"""
-
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -35,12 +30,10 @@ SKILL_PATH = Path(__file__).resolve().parents[1] / "skills" / "radar-auswerter" 
     ],
 )
 def test_german_number(value: Decimal | float | None, places: int, expected: str) -> None:
-    """Dot for thousands, comma for decimals, half up."""
     assert german_number(value, places) == expected
 
 
 def test_german_number_rejects_bad_input() -> None:
-    """Infinity and negative places are errors."""
     with pytest.raises(RenderError, match="finite"):
         german_number(float("inf"))
     with pytest.raises(RenderError, match="places"):
@@ -48,7 +41,6 @@ def test_german_number_rejects_bad_input() -> None:
 
 
 def test_german_currency_and_date() -> None:
-    """Euro sign after a non-breaking space, dates as DD.MM.YYYY."""
     assert german_currency(Decimal("1234.5")) == "1.234,50 €"
     assert german_currency(None) == "–"
     assert german_date(date(2026, 3, 1)) == "01.03.2026"
@@ -67,18 +59,15 @@ def test_german_currency_and_date() -> None:
     ],
 )
 def test_filename_slug(name: str, expected: str) -> None:
-    """ASCII only, words joined by underscores."""
     assert filename_slug(name) == expected
 
 
 def test_template_environment_needs_folder(tmp_path: Path) -> None:
-    """A missing template folder is reported."""
     with pytest.raises(RenderError, match="does not exist"):
         template_environment(tmp_path / "fehlt")
 
 
 def test_render_template_escapes_and_formats(tmp_path: Path) -> None:
-    """Autoescaping and the German filters are active."""
     (tmp_path / "t.html").write_text("{{ name }} {{ amount|currency }}", encoding="utf-8")
 
     html = render_template(tmp_path, "t.html", {"name": "<b>", "amount": Decimal(5)})
@@ -87,7 +76,6 @@ def test_render_template_escapes_and_formats(tmp_path: Path) -> None:
 
 
 def test_render_template_rejects_undefined_values(tmp_path: Path) -> None:
-    """A typo in a template is an error, not an empty string."""
     (tmp_path / "t.html").write_text("{{ missing }}", encoding="utf-8")
 
     with pytest.raises(RenderError, match="t.html"):
@@ -95,7 +83,6 @@ def test_render_template_rejects_undefined_values(tmp_path: Path) -> None:
 
 
 def test_write_pdf(tmp_path: Path) -> None:
-    """A PDF is written atomically into a new folder."""
     output = write_pdf("<p>Hallo</p>", tmp_path / "neu" / "x.pdf")
 
     assert output.read_bytes().startswith(b"%PDF")
@@ -103,7 +90,6 @@ def test_write_pdf(tmp_path: Path) -> None:
 
 
 def test_write_pdf_reports_unwritable_target(tmp_path: Path) -> None:
-    """A file in place of the folder is a render error."""
     blocker = tmp_path / "blockiert"
     blocker.write_text("x", encoding="utf-8")
 
@@ -112,10 +98,9 @@ def test_write_pdf_reports_unwritable_target(tmp_path: Path) -> None:
 
 
 def test_parse_texts(report_texts: ReportTexts) -> None:
-    """The schema round-trips; before_after is optional, lists default to empty."""
     parsed = parse_texts(report_texts.model_dump_json())
     minimal = parse_texts(
-        '{"introduction": "a", "summary": "b", "forecast_note": "c",'
+        '{"introduction": "a", "summary": "b", '
         ' "subscription_reason": "d", "offer_text": "e", "talk_text": "f"}'
     )
 
@@ -127,20 +112,17 @@ def test_parse_texts(report_texts: ReportTexts) -> None:
 
 
 def test_parse_texts_of_earlier_evaluations_keeps_their_texts() -> None:
-    """A texte.json written before talk_text existed still gives its own texts to the report."""
     texts = parse_texts(
-        '{"introduction": "a", "summary": "b", "forecast_note": "c",'
-        ' "subscription_reason": "d", "offer_text": "e"}'
+        '{"introduction": "a", "summary": "b",  "subscription_reason": "d", "offer_text": "e"}'
     )
     assert texts.summary == "b"
     assert texts.talk_text is None
 
 
 def test_parse_texts_rejects_empty_talk_text() -> None:
-    """An empty conversation text is invalid."""
     with pytest.raises(RenderError, match="talk_text"):
         parse_texts(
-            '{"introduction": "a", "summary": "b", "forecast_note": "c",'
+            '{"introduction": "a", "summary": "b", '
             ' "subscription_reason": "d", "offer_text": "e", "talk_text": ""}'
         )
 
@@ -150,13 +132,11 @@ def test_parse_texts_rejects_empty_talk_text() -> None:
     ["kein json", '{"introduction": ""}', '{"review_replies": [{"reply": "x"}]}'],
 )
 def test_parse_texts_rejects_invalid_content(content: str) -> None:
-    """Malformed JSON and missing or empty fields are render errors."""
     with pytest.raises(RenderError, match="texte.json invalid"):
         parse_texts(content)
 
 
 def test_skill_documents_every_texts_field() -> None:
-    """Claude is told about every field the report reads."""
     skill = SKILL_PATH.read_text(encoding="utf-8")
 
     for field in ReportTexts.model_fields:

@@ -1,5 +1,6 @@
-import type { ComponentChildren } from "preact";
+import type { ComponentChildren, RefObject } from "preact";
 import { useLocation } from "preact-iso";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import { AccountMenu } from "./AccountMenu";
 import { Icon, type IconName } from "./Icon";
 import { Logo } from "./Logo";
@@ -41,11 +42,49 @@ interface ShellProps {
   email: string;
 }
 
+interface Pill {
+  y: number;
+  h: number;
+}
+
+function usePill(links: RefObject<HTMLElement>, path: string): Pill | null {
+  const [pill, setPill] = useState<Pill | null>(null);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const current = links.current?.querySelector<HTMLElement>('a[aria-current="page"]') ?? null;
+      setPill(current === null ? null : { y: current.offsetTop, h: current.offsetHeight });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+    };
+  }, [path]);
+  return pill;
+}
+
+function SideNav({ path }: { path: string }) {
+  const links = useRef<HTMLDivElement>(null);
+  const pill = usePill(links, path);
+  const placement = pill === null ? { opacity: 0 } : { transform: `translateY(${String(pill.y)}px)`, height: `${String(pill.h)}px` };
+  return (
+    <nav class="sidenav" aria-label="Hauptnavigation">
+      <a href="/" class="sidenav__logo" aria-label="Zur Startseite">
+        <Logo size={40} label="RadarAuditor" />
+      </a>
+      <div class="sidenav__links" ref={links}>
+        <span class="sidenav__pill" aria-hidden="true" style={placement} />
+        <NavLinks path={path} />
+      </div>
+    </nav>
+  );
+}
+
 function TopBar({ path, email }: { path: string; email: string }) {
   return (
     <header class="shell__top">
       <a href="/" class="shell__logo" aria-label="Zur Startseite">
-        <Logo size={34} />
+        <Logo size={28} label="RadarAuditor" />
       </a>
       <div class="shell__tools">
         <a href="/einstellungen" class="iconbtn" aria-label="Einstellungen" aria-current={path === "/einstellungen" ? "page" : undefined}>
@@ -61,14 +100,7 @@ export function Shell({ children, admin, email }: ShellProps) {
   const { path } = useLocation();
   return (
     <div class="shell">
-      <nav class="sidenav" aria-label="Hauptnavigation">
-        <a href="/" class="sidenav__logo" aria-label="Zur Startseite">
-          <Logo size={40} compact />
-        </a>
-        <div class="sidenav__links">
-          <NavLinks path={path} />
-        </div>
-      </nav>
+      <SideNav path={path} />
       <TopBar path={path} email={email} />
       <main class="shell__main" data-readonly={admin === false ? "" : undefined}>
         {admin === false && (

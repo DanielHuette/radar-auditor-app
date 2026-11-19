@@ -1,14 +1,9 @@
-"""Shared fixtures: settings, catalogue, sample RawAudit, mocked repositories, fake browser.
-
-Context: External services are never called in tests. | Input: Nothing. | Output: Fixtures.
-"""
-
 import random
 import sys
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
@@ -19,23 +14,34 @@ import pytest
 from pydantic import HttpUrl, SecretStr
 from tenacity import wait_none
 
-from radarauditor.collectors import transport
+from radarauditor.collectors import apify, transport
 from radarauditor.collectors.browser import BrowserService, ContextFactory, Pacing
 from radarauditor.collectors.quota import SourceGate
 from radarauditor.collectors.snapshot import (
     AccessSnapshot,
+    AgentFetch,
     AnalyticsSnapshot,
     AssistantAnswer,
     BacklinkSummary,
+    BusinessFacts,
     DirectoryHit,
     GapKeyword,
+    ImageInfo,
+    LinkInfo,
     PageSnapshot,
+    PageSpeedField,
+    PageSpeedLab,
     PageSpeedSnapshot,
     PaidSnapshot,
     PlaceSnapshot,
     RawAudit,
     SearchQuery,
     SerpResult,
+    SitemapEntry,
+    SocialAccount,
+    SocialPost,
+    SocialSnapshot,
+    UrlProbe,
     WebsiteSnapshot,
 )
 from radarauditor.config import Settings, load_settings
@@ -46,6 +52,7 @@ from radarauditor.db.models import (
     AuditStatus,
     CheckOutcome,
     CheckResult,
+    ControlState,
     Customer,
     Finding,
     Job,
@@ -61,6 +68,7 @@ from radarauditor.reporting.texts import ReportTexts
 from radarauditor.scoring.catalog import Catalogue, load_catalogue
 from radarauditor.scoring.evaluator import evaluate
 
+CHECK_COUNT = 62
 CUSTOMER_ID = UUID("00000000-0000-4000-8000-000000000001")
 AUDIT_ID = UUID("00000000-0000-4000-8000-000000000002")
 JOB_ID = UUID("00000000-0000-4000-8000-000000000003")
@@ -69,14 +77,17 @@ FIXED_TIME = datetime(2026, 10, 1, 9, 0, tzinfo=UTC)
 
 MINIMAL_CATALOGUE = """\
 areas:
-  - id: a
-    name: Technische Grundlage der Website
+  - id: google
+    name: Google
     weight: 100
     checks:
       - id: a1
         name: HTTPS und eine einzige Adresse
         why: Ohne Schloss warnt Google.
-        source: crawler
+        provider: google
+        kind: kriterium
+        source: https://developers.google.com/search/docs/essentials/technical
+        measurement: crawler
         requires_paid: false
         requires_access: false
         thresholds: {}
@@ -85,7 +96,10 @@ areas:
       - id: a2
         name: Ladezeit mobil und Desktop
         why: Warten kostet Anrufe.
-        source: pagespeed
+        provider: google
+        kind: kriterium
+        source: https://developers.google.com/search/docs/appearance/page-experience
+        measurement: pagespeed
         requires_paid: false
         requires_access: false
         thresholds: {lcp_ms_max: 2500}
@@ -104,7 +118,6 @@ DUMMY_ENVIRONMENT = {
 
 @pytest.fixture
 def environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """Set dummy environment variables, isolate from any .env file and return the work dir."""
     monkeypatch.chdir(tmp_path)
     for name, value in DUMMY_ENVIRONMENT.items():
         monkeypatch.setenv(name, value)
@@ -117,25 +130,23 @@ def environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     monkeypatch.setenv(
         "INDUSTRIES_PATH", str(Path(__file__).resolve().parents[1] / INDUSTRIES_FILE)
     )
-    # Tests must never start the real Claude Code; tests of the headless run use a fake script.
     monkeypatch.setenv("ANALYSIS_CLAUDE_COMMAND", "claude-not-installed-in-tests")
+    monkeypatch.setenv("AUDIT_MANAGER_ENABLED", "0")
     monkeypatch.delenv("EVENT_ENDPOINT", raising=False)
     return work_dir
 
 
 @pytest.fixture
 def settings(environment: Path) -> Settings:
-    """Settings built from dummy environment values."""
     return load_settings()
 
 
 @pytest.fixture
 def sample_customer() -> Customer:
-    """A business with a website in Münster."""
     return Customer(
         id=CUSTOMER_ID,
         name="Dachdeckerei Muster",
-        website="https://dachdecker-muster.example",  # type: ignore[arg-type]
+        website="https://dachdecker-muster.example",
         industry="Dachdecker",
         city="Münster",
         created_at=FIXED_TIME,
@@ -144,7 +155,6 @@ def sample_customer() -> Customer:
 
 @pytest.fixture
 def sample_audit() -> Audit:
-    """A scored audit waiting for analysis, with raw data in storage."""
     return Audit(
         id=AUDIT_ID,
         customer_id=CUSTOMER_ID,
@@ -160,13 +170,12 @@ def sample_audit() -> Audit:
 
 @pytest.fixture
 def sample_check_results() -> list[CheckResult]:
-    """Two check results of the sample audit."""
     return [
         CheckResult(
             id=UUID("00000000-0000-4000-8000-0000000000a1"),
             audit_id=AUDIT_ID,
             check_id="a1",
-            area="a",
+            area="google",
             outcome=CheckOutcome.FAILED,
             measured={"uses_https": False},
             weight=Decimal("1.000"),
@@ -175,7 +184,7 @@ def sample_check_results() -> list[CheckResult]:
             id=UUID("00000000-0000-4000-8000-0000000000a2"),
             audit_id=AUDIT_ID,
             check_id="a2",
-            area="a",
+            area="google",
             outcome=CheckOutcome.PARTIAL,
             measured={"lcp_ms": 3100},
             weight=Decimal("1.000"),
@@ -185,7 +194,6 @@ def sample_check_results() -> list[CheckResult]:
 
 @pytest.fixture
 def sample_raw_audit() -> RawAudit:
-    """A RawAudit without any collected source."""
     return RawAudit(
         website=None,
         pagespeed=None,
@@ -204,7 +212,6 @@ JobFactory = Callable[..., Job]
 
 @pytest.fixture
 def make_job() -> JobFactory:
-    """Build running jobs of the sample customer from kind, attempts and audit id."""
 
     def build(kind: JobKind, attempts: int = 1, audit_id: UUID | None = AUDIT_ID) -> Job:
         return Job(
@@ -222,17 +229,29 @@ def make_job() -> JobFactory:
     return build
 
 
+def keep_files_in_memory(repositories: MagicMock) -> dict[tuple[str, str], bytes]:
+    stored: dict[tuple[str, str], bytes] = {}
+
+    def upload_bytes(bucket: str, remote_path: str, payload: bytes) -> str:
+        stored[(bucket, remote_path)] = payload
+        return remote_path
+
+    def download_bytes(bucket: str, remote_path: str) -> bytes:
+        if (bucket, remote_path) not in stored:
+            raise StorageError(f"{bucket}/{remote_path} not found")
+        return stored[(bucket, remote_path)]
+
+    repositories.upload_bytes.side_effect = upload_bytes
+    repositories.download_bytes.side_effect = download_bytes
+    return stored
+
+
 @pytest.fixture
 def fake_repositories(
     sample_customer: Customer,
     sample_audit: Audit,
     sample_check_results: list[CheckResult],
 ) -> MagicMock:
-    """Repositories double with the sample customer, audit and results; no queued jobs.
-
-    Every method of Repositories exists with its real signature (spec); override return values
-    per test.
-    """
     repositories = MagicMock(spec=Repositories)
     repositories.customer.return_value = sample_customer
     repositories.audit.return_value = sample_audit
@@ -254,6 +273,7 @@ def fake_repositories(
     repositories.settings_values.return_value = {}
     repositories.consume_source_quota.return_value = True
     repositories.customer_access.return_value = None
+    repositories.missing_migrations.return_value = []
     repositories.upload.side_effect = lambda bucket, remote_path, local_file: remote_path
     repositories.download.side_effect = lambda bucket, remote_path, local_file: local_file
     return repositories
@@ -266,7 +286,6 @@ ALL_SOURCES_ON = SourcesSettings.model_validate(
 
 @pytest.fixture
 def open_gate() -> SourceGate:
-    """Gate with every source switched on and every request within its cap."""
     return SourceGate(ALL_SOURCES_ON, lambda source, cap: True)
 
 
@@ -275,32 +294,38 @@ QUESTIONS_PATH = Path(__file__).resolve().parents[1] / "config" / "fragen.yaml"
 
 
 @pytest.fixture
-def collector_settings() -> Settings:
-    """Settings with dummy keys, no DataForSEO credentials and no assistant providers."""
+def collector_settings(tmp_path: Path) -> Settings:
     return Settings(
         _env_file=None,
+        radar_work_dir=tmp_path / "work",
+        catalogue_path=CATALOGUE_PATH,
+        halt_stages=(),
         supabase_url="https://example.supabase.co",
         supabase_service_key=SecretStr("service-key"),
         google_api_key=SecretStr("google-key"),
         dataforseo_login=None,
         dataforseo_password=None,
         openai_api_key=None,
-        gemini_api_key=None,
-        perplexity_api_key=None,
         questions_path=QUESTIONS_PATH,
         industries_path=QUESTIONS_PATH.with_name("branchen.yaml"),
+        preflight_routes=False,
+        estimate_before_start=False,
+        assistant_handoff=True,
     )
 
 
 @pytest.fixture
 def fast_retries(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Remove the backoff wait between retries of external calls."""
     monkeypatch.setattr(transport, "RETRY_WAIT", wait_none())
+
+
+@pytest.fixture(autouse=True)
+def instant_apify_cost_reads(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(apify, "COST_SETTLE_SECONDS", 0)
 
 
 @pytest.fixture
 def fixtures_dir() -> Path:
-    """Directory of saved HTML and JSON fixtures."""
     return FIXTURES_DIR
 
 
@@ -308,6 +333,8 @@ CATALOGUE_PATH = Path(__file__).resolve().parents[1] / "config" / "pruefkatalog.
 SITE = "https://www.dachdeckerei-muster.de"
 GOOGLE_MAPS_URL = "https://maps.google.com/?cid=123"
 COLLECTED_AT = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+LAST_MODIFIED = "Wed, 30 Sep 2026 10:00:00 GMT"
+HOST = "dachdeckerei-muster.de"
 
 PAGE_SPECS: list[dict[str, Any]] = [
     {
@@ -382,7 +409,6 @@ POST_TOPICS = ["dachrinne-reinigen", "sturmschaden", "dachbegruenung", "solar-da
 
 
 def _filler(index: int) -> str:
-    """Words unique to one page so the duplicate-content check sees distinct texts."""
     return " ".join(f"seite{index}wort{number}" for number in range(15))
 
 
@@ -418,6 +444,20 @@ def _page(index: int, spec: dict[str, Any], links: list[str]) -> PageSnapshot:
         mailto_links=["mailto:info@dachdeckerei-muster.de"],
         text_excerpt=f"{spec['text']} {_filler(index)}",
         has_viewport_meta=True,
+        last_modified=LAST_MODIFIED,
+        body_text=f"{spec['h1']}. {spec['text']} {_filler(index)} {_filler(index + 100)}",
+        first_text=spec["text"],
+        images=[
+            ImageInfo(
+                source=f"{SITE}/bilder/dachdecker-muenster-{index}.jpg",
+                file_name=f"dachdecker-muenster-{index}.jpg",
+                alt=f"Dachdecker bei der Arbeit in Münster {index}",
+            )
+        ],
+        links=[
+            LinkInfo(kind="href", text="Start", url=f"{SITE}/", in_navigation=True),
+            LinkInfo(kind="href", text="Kontakt", url=f"{SITE}/kontakt/", in_navigation=True),
+        ],
     )
 
 
@@ -468,8 +508,37 @@ def _service_schema() -> list[dict[str, object]]:
     ]
 
 
+def build_variant_probes() -> list[UrlProbe]:
+    moved = [
+        UrlProbe(
+            url=f"{scheme}://{prefix}{HOST}/",
+            status=301,
+            chain=[301, 200],
+            location=f"{SITE}/",
+            final_url=f"{SITE}/",
+        )
+        for scheme, prefix in (("http", ""), ("http", "www."), ("https", ""))
+    ]
+    return [
+        *moved,
+        UrlProbe(url=f"{SITE}/", status=200, chain=[200], final_url=f"{SITE}/"),
+        UrlProbe(
+            url=f"{SITE}/dachsanierung",
+            status=301,
+            chain=[301, 200],
+            location=f"{SITE}/dachsanierung/",
+            final_url=f"{SITE}/dachsanierung/",
+        ),
+        UrlProbe(
+            url=f"{SITE}/dachsanierung/",
+            status=200,
+            chain=[200],
+            final_url=f"{SITE}/dachsanierung/",
+        ),
+    ]
+
+
 def build_website() -> WebsiteSnapshot:
-    """A small, well-built roofer website that passes the crawler checks."""
     post_urls = [f"{SITE}/ratgeber/{topic}/" for topic in POST_TOPICS]
     top_urls = [f"{SITE}{spec['path']}" for spec in PAGE_SPECS]
     pages = []
@@ -517,7 +586,19 @@ def build_website() -> WebsiteSnapshot:
         update={"url": HttpUrl(f"{SITE}/radar-404-probe"), "status_code": 404, "json_ld": []}
     )
     pages.append(probe)
+    entries = [SitemapEntry(url=url, lastmod="2026-09-30") for url in top_urls]
+    visitor_text = " ".join(f"startwort{number}" for number in range(40))
     return WebsiteSnapshot(
+        robots_status=200,
+        sitemap_entries=entries,
+        sitemap_probes=[
+            UrlProbe(url=url, status=200, chain=[200], final_url=url) for url in top_urls
+        ],
+        variant_probes=build_variant_probes(),
+        agent_fetches=[
+            AgentFetch(agent=agent, status=200, text=visitor_text)
+            for agent in ("visitor", "googlebot", "bingbot", "oai-searchbot", "claude-searchbot")
+        ],
         start_url=f"{SITE}/",
         uses_https=True,
         redirects_to_single_host=True,
@@ -551,7 +632,6 @@ PROFILE_DESCRIPTION = (
 
 
 def build_place(name: str = "Dachdeckerei Muster GmbH", **overrides: Any) -> PlaceSnapshot:
-    """The customer's Google profile with five recent, answered reviews."""
     reviews: list[dict[str, object]] = [
         {
             "publishTime": f"2026-{month:02d}-{day:02d}T10:00:00Z",
@@ -607,7 +687,6 @@ def build_place(name: str = "Dachdeckerei Muster GmbH", **overrides: Any) -> Pla
 
 
 def build_competitor(name: str, reviews: int, primary_type: str) -> PlaceSnapshot:
-    """A competing profile with only the fields comparisons use."""
     return build_place(
         name=name,
         place_id=f"place-{name}",
@@ -619,10 +698,6 @@ def build_competitor(name: str, reviews: int, primary_type: str) -> PlaceSnapsho
 
 
 def build_serps() -> list[SerpResult]:
-    """Two service searches, one brand search, one Bing search and one image search.
-
-    Bing and image results hold bare domains, as the browser collectors record them.
-    """
     own = f"{SITE}/"
     return [
         SerpResult(
@@ -678,7 +753,6 @@ def build_serps() -> list[SerpResult]:
 
 
 def build_directories() -> list[DirectoryHit]:
-    """Listings with one consistent phone and address."""
     found = {
         "Apple Business Connect": "https://maps.apple.com/place?id=1",
         "Bing Places": "https://www.bing.com/maps?cid=1",
@@ -711,14 +785,13 @@ def build_directories() -> list[DirectoryHit]:
 
 
 def build_answers() -> list[AssistantAnswer]:
-    """Ten recommendation answers (half naming the business) and ten problem answers (two)."""
     recommendation = "Welchen Dachdecker in Münster empfiehlst du?"
     problem = "Mein Dach ist undicht, was kann ich in Münster tun?"
     answers = []
     for index in range(10):
         answers.append(
             AssistantAnswer(
-                provider="openai" if index % 2 else "gemini",
+                provider="openai" if index % 2 else "google_ai",
                 question=recommendation,
                 mentioned=index < 5,
                 cited_sources=[f"{SITE}/", "https://www.gelbeseiten.de/dachdecker"],
@@ -738,6 +811,19 @@ def build_answers() -> list[AssistantAnswer]:
                 else "Rufen Sie einen Dachdecker.",
             )
         )
+    for provider_question, mentioned_below in ((recommendation, 5), (problem, 2)):
+        for index in range(10):
+            answers.append(
+                AssistantAnswer(
+                    provider="claude",
+                    question=provider_question,
+                    mentioned=index < mentioned_below,
+                    cited_sources=[],
+                    answer_excerpt="Dachdeckerei Muster GmbH aus Münster."
+                    if index < mentioned_below
+                    else "Fragen Sie einen Dachdecker.",
+                )
+            )
     return answers
 
 
@@ -767,7 +853,6 @@ CUSTOMER_DOMAIN = "dachdeckerei-muster.de"
 
 
 def owner_review(day: str, rating: int, reply_day: str | None) -> dict[str, object]:
-    """A profile review as the access collector stores it, answered on reply_day."""
     return {
         "publishTime": f"{day}T10:00:00Z",
         "rating": float(rating),
@@ -779,7 +864,6 @@ def owner_review(day: str, rating: int, reply_day: str | None) -> dict[str, obje
 
 
 def build_access() -> AccessSnapshot:
-    """Profile figures that grew, matching Search Console queries, enquiries, answered reviews."""
     return AccessSnapshot(
         profile_metrics=PROFILE_NOW,
         profile_metrics_previous=PROFILE_BEFORE,
@@ -814,18 +898,48 @@ OwnerReviewFactory = Callable[[str, int, str | None], dict[str, object]]
 
 @pytest.fixture
 def make_owner_review() -> OwnerReviewFactory:
-    """Factory for profile reviews: review day, stars, reply day or None."""
     return owner_review
 
 
 @pytest.fixture
 def access_snapshot() -> AccessSnapshot:
-    """The access data of the full audit."""
     return build_access()
 
 
+def build_social() -> SocialSnapshot:
+    posts = [
+        SocialPost(published_at=COLLECTED_AT - timedelta(days=7 * week + 3), likes=18, comments=2)
+        for week in range(8)
+    ]
+
+    def account(platform: str, handle: str, **fields: Any) -> SocialAccount:
+        return SocialAccount(
+            platform=platform,
+            url=f"https://example.test/{handle}",
+            handle=handle,
+            source="website_link",
+            status="confirmed",
+            **fields,
+        )
+
+    company_data: dict[str, Any] = {
+        "evidence_websites": [SITE],
+        "evidence_phones": ["0251 123456"],
+        "evidence_places": ["Hauptstraße 5, 48143 Münster"],
+    }
+    return SocialSnapshot(
+        accounts=[
+            account("instagram", "muster", followers=400, posts=posts, **company_data),
+            account("facebook", "muster.de", page_likes=380, posts=posts, **company_data),
+            account("linkedin_company", "muster-gmbh", followers=120),
+            account("x", "muster_de", followers=60),
+        ],
+        gaps=[],
+        collected_at=COLLECTED_AT,
+    )
+
+
 def build_paid() -> PaidSnapshot:
-    """Volumes, a link profile ahead of most rivals, a small gap and rising visibility."""
     return PaidSnapshot(
         customer_domain=CUSTOMER_DOMAIN,
         volumes={"Dachdecker Münster": 880, "Dachsanierung Münster": 170},
@@ -866,23 +980,20 @@ def build_paid() -> PaidSnapshot:
 
 @pytest.fixture
 def catalogue() -> Catalogue:
-    """The real check catalogue from config/."""
     return load_catalogue(CATALOGUE_PATH)
 
 
 @pytest.fixture
 def raw_audit_full() -> RawAudit:
-    """A well-run roofer with every source, access and paid data; passes most checks."""
     return RawAudit(
         website=build_website(),
         pagespeed=PageSpeedSnapshot(
             url=f"{SITE}/",
             mobile_performance=85,
             desktop_performance=97,
-            lcp_ms=2100,
-            cls=0.05,
-            inp_ms=150,
             accessibility=92,
+            lab=PageSpeedLab(runs=5, lcp_ms=2300, cls=0.06, tbt_ms=150),
+            field_data=PageSpeedField(scope="url", lcp_ms=2100, cls=0.05, inp_ms=150),
         ),
         place=build_place(),
         competitor_places=[
@@ -897,12 +1008,19 @@ def raw_audit_full() -> RawAudit:
         warnings=[],
         access=build_access(),
         paid=build_paid(),
+        social=build_social(),
+        business=BusinessFacts(
+            name="Dachdeckerei Muster GmbH",
+            city="Münster",
+            street="Hauptstraße 5",
+            postal_code="48143",
+            phone="0251 123456",
+        ),
     )
 
 
 @pytest.fixture
 def raw_audit_minimal() -> RawAudit:
-    """An audit where no collector returned anything."""
     return RawAudit(
         website=None,
         pagespeed=None,
@@ -918,7 +1036,6 @@ def raw_audit_minimal() -> RawAudit:
 
 @pytest.fixture
 def make_page() -> Callable[..., PageSnapshot]:
-    """Factory for a single page with sensible defaults, overridable per field."""
 
     def factory(path: str = "/seite/", **overrides: Any) -> PageSnapshot:
         spec = {
@@ -937,7 +1054,6 @@ def make_page() -> Callable[..., PageSnapshot]:
 
 @pytest.fixture
 def with_website() -> Callable[..., RawAudit]:
-    """Copy of an audit with website fields replaced."""
 
     def factory(raw: RawAudit, **updates: Any) -> RawAudit:
         assert raw.website is not None
@@ -948,7 +1064,6 @@ def with_website() -> Callable[..., RawAudit]:
 
 @pytest.fixture
 def with_place() -> Callable[..., RawAudit]:
-    """Copy of an audit with Google profile fields replaced."""
 
     def factory(raw: RawAudit, **updates: Any) -> RawAudit:
         assert raw.place is not None
@@ -964,10 +1079,12 @@ REPORT_UNMEASURED_KEYWORD_ID = UUID("00000000-0000-4000-8000-000000000103")
 
 
 @pytest.fixture
-def report_settings(settings: Settings) -> Settings:
-    """Settings pointing at the real catalogue, forecast curves and templates."""
+def report_settings(settings: Settings, tmp_path: Path) -> Settings:
+    project = tmp_path / "project"
+    project.mkdir()
     return settings.model_copy(
         update={
+            "analysis_project_dir": project,
             "catalogue_path": CATALOGUE_PATH,
             "forecast_path": REPORT_ROOT / "config" / "prognose.yaml",
             "templates_dir": REPORT_ROOT / "templates",
@@ -978,13 +1095,11 @@ def report_settings(settings: Settings) -> Settings:
 
 @pytest.fixture
 def report_forecast_path() -> Path:
-    """The real forecast curves."""
     return REPORT_ROOT / "config" / "prognose.yaml"
 
 
 @pytest.fixture
 def report_keywords() -> list[Keyword]:
-    """A primary keyword with volume, one without volume and one never measured."""
     return [
         Keyword(
             id=REPORT_PRIMARY_KEYWORD_ID,
@@ -1035,13 +1150,11 @@ def _report_ranking(
 
 @pytest.fixture
 def report_make_ranking() -> Callable[..., Ranking]:
-    """Factory for one ranking row: keyword id, subject, organic, local, grid point, audit id."""
     return _report_ranking
 
 
 @pytest.fixture
 def report_rankings() -> list[Ranking]:
-    """Customer and competitor positions for two keywords plus a 3x3 grid of the primary one."""
     rows = [
         _report_ranking(REPORT_PRIMARY_KEYWORD_ID, "customer", 2, 1),
         _report_ranking(REPORT_PRIMARY_KEYWORD_ID, "Dach Schmidt", 4, 2),
@@ -1057,13 +1170,11 @@ def report_rankings() -> list[Ranking]:
 
 @pytest.fixture
 def report_texts() -> ReportTexts:
-    """Report prose as Claude Code writes it."""
     return ReportTexts.model_validate(
         {
             "introduction": "Sie werden in Münster gut gefunden, verschenken aber Anfragen.",
             "summary": "Ihre Website ist solide. Ihr Google-Profil ist stark. "
             "KI-Assistenten nennen Sie nur in jeder zweiten Antwort.",
-            "forecast_note": "Die Spanne ist eine Schätzung auf Basis Ihrer heutigen Plätze.",
             "subscription_reason": "Ihre Wettbewerber holen bei den Bewertungen auf.",
             "offer_text": "Erstoptimierung und monatliche Betreuung zum Festpreis.",
             "talk_text": "Sie stehen bei Google Maps hinter drei Nachbarn. Der größte Hebel sind "
@@ -1080,7 +1191,6 @@ def report_texts() -> ReportTexts:
 
 @pytest.fixture
 def report_check_results(raw_audit_full: RawAudit, catalogue: Catalogue) -> list[CheckResult]:
-    """Real check results of the full audit, every sixth measurable check failed or partial."""
     results = evaluate(AUDIT_ID, raw_audit_full, catalogue)
     degraded = {0: CheckOutcome.FAILED, 3: CheckOutcome.PARTIAL}
     measurable = [r for r in results if r.outcome is not CheckOutcome.NOT_MEASURABLE]
@@ -1089,17 +1199,22 @@ def report_check_results(raw_audit_full: RawAudit, catalogue: Catalogue) -> list
         for index, result in enumerate(measurable)
         if index % 6 in degraded
     }
+    controlled = {
+        "control_state": ControlState.DONE,
+        "verdict_collected_ok": True,
+        "verdict_data_ok": True,
+        "verdict_evaluation_ok": True,
+    }
     return [
-        result.model_copy(update={"outcome": changed[result.check_id]})
-        if result.check_id in changed
-        else result
+        result.model_copy(
+            update={**controlled, "outcome": changed.get(result.check_id, result.outcome)}
+        )
         for result in results
     ]
 
 
 @pytest.fixture
 def report_findings(report_check_results: list[CheckResult]) -> list[Finding]:
-    """One finding per check that did not pass, severities 3, 2, 1 in turn."""
     open_results = [
         result
         for result in report_check_results
@@ -1123,7 +1238,6 @@ def report_findings(report_check_results: list[CheckResult]) -> list[Finding]:
 
 @pytest.fixture
 def report_location() -> Location:
-    """The customer's main location."""
     return Location(
         id=uuid4(),
         customer_id=CUSTOMER_ID,
@@ -1140,7 +1254,6 @@ def report_location() -> Location:
 
 @pytest.fixture
 def report_storage(raw_audit_full: RawAudit, report_texts: ReportTexts) -> dict[str, bytes]:
-    """Content of storage keyed "<bucket>/<path>"; tests remove or replace entries."""
     return {
         f"raw/{AUDIT_ID}/raw.json": raw_audit_full.model_dump_json().encode(),
         f"raw/{AUDIT_ID}/texte.json": report_texts.model_dump_json().encode(),
@@ -1158,7 +1271,6 @@ def report_repositories(
     report_location: Location,
     sample_audit: Audit,
 ) -> MagicMock:
-    """Repositories double serving a complete audit with rankings and storage files."""
 
     def download(bucket: str, remote_path: str, local_file: Path) -> Path:
         key = f"{bucket}/{remote_path}"
@@ -1180,7 +1292,6 @@ def report_repositories(
 
 @pytest.fixture
 def report_supplier() -> dict[str, object]:
-    """Supplier settings with every required key."""
     return {
         "name": "RepoCity Daniel Hütte",
         "owner": "Daniel Hütte",
@@ -1199,7 +1310,6 @@ def report_supplier() -> dict[str, object]:
 
 @pytest.fixture
 def report_quote_data() -> dict[str, object]:
-    """Quote data with two positions."""
     return {
         "positions": [
             {"description": "Laufende Betreuung Oktober 2026", "quantity": 1, "unit_net": "390.00"},
@@ -1212,7 +1322,6 @@ def report_quote_data() -> dict[str, object]:
 def report_document_repositories(
     fake_repositories: MagicMock, report_supplier: dict[str, object], report_location: Location
 ) -> MagicMock:
-    """Repositories double for documents: supplier setting, saving echoes the row."""
     fake_repositories.settings_value.side_effect = lambda key: (
         report_supplier if key == "supplier" else None
     )
@@ -1223,7 +1332,6 @@ def report_document_repositories(
 
 @pytest.fixture
 def fake_claude(tmp_path: Path) -> Path:
-    """An executable stand-in for the Claude Code CLI; mode via FAKE_CLAUDE_MODE."""
     script = tmp_path / "bin" / "claude"
     script.parent.mkdir()
     source = (FIXTURES_DIR / "fake_claude.py").read_text(encoding="utf-8")
@@ -1234,7 +1342,6 @@ def fake_claude(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def claude_settings(settings: Settings, fake_claude: Path, tmp_path: Path) -> Settings:
-    """Settings that run the fake Claude Code with a short timeout."""
     return settings.model_copy(
         update={
             "analysis_claude_command": str(fake_claude),
@@ -1256,77 +1363,59 @@ HEADLESS_USER_AGENT = (
 
 @dataclass
 class FakeDocument:
-    """What the fake page shows after a navigation; url None means the requested address.
-
-    after_submit are the states the page shows on the following reads once a question was sent
-    with Enter, for example a streaming answer and then the complete one; the last one stays.
-    """
-
     html: str
     url: str | None = None
     status: int = 200
     after_submit: list[str] = field(default_factory=list)
+    later: list[str] = field(default_factory=list)
+
+
+def _shows_consent(html: str) -> bool:
+    return any(label in html for label in ("Alle ablehnen", "Alle akzeptieren", "Nur notwendige"))
 
 
 @dataclass
 class FakeResponse:
-    """Navigation response with a status code."""
-
     status: int
 
 
 class FakeLocator:
-    """Button or field of the fake page."""
-
     def __init__(self, page: "FakePage", name: str) -> None:
-        """Remember the page and the accessible name."""
         self.page = page
         self.name = name
 
     @property
     def first(self) -> "FakeLocator":
-        """Return the locator itself, like Playwright's first match."""
         return self
 
     async def click(self, timeout: int | None = None) -> None:
-        """Record the click; a consent button or an advancing control shows the next document."""
         self.page.clicked.append(self.name)
         if self.page.awaits_consent or self.name in self.page.advancing_clicks:
             self.page.show(self.page.documents.pop(0), self.page.url)
 
     async def wait_for(self, state: str, timeout: int) -> None:
-        """Accept the wait for the dialog to close once it was answered."""
         assert state == "hidden"
         assert self.page.clicked
 
     async def press_sequentially(self, text: str) -> None:
-        """Record typed text."""
         self.page.typed.append(text)
 
     async def press(self, key: str) -> None:
-        """Record a key; Enter sends the question and starts the prepared answer states."""
         self.page.pressed.append(key)
         if key == "Enter":
             self.page.updates = list(self.page.document.after_submit)
 
 
 class FakeMouse:
-    """Records wheel scrolling."""
-
     def __init__(self) -> None:
-        """Start without scrolling."""
         self.scrolled: list[int] = []
 
     async def wheel(self, delta_x: float, delta_y: float) -> None:
-        """Record a vertical scroll."""
         self.scrolled.append(int(delta_y))
 
 
 class FakePage:
-    """Stand-in for a Playwright page that shows prepared documents in order."""
-
     def __init__(self, documents: list[FakeDocument], user_agent: str) -> None:
-        """Queue the documents the page will show."""
         self.documents = documents
         self.user_agent = user_agent
         self.url = "about:blank"
@@ -1344,19 +1433,16 @@ class FakePage:
         self.advancing_clicks: set[str] = set()
         self.scripts: list[str] = []
         self.awaited: list[str] = []
+        self.roles: list[str] = []
 
     def show(self, document: FakeDocument, requested: str) -> None:
-        """Display a document as if it was loaded."""
         self.document = document
-        self.updates = []
+        self.updates = list(document.later)
         self.url = document.url or requested
         self.html = document.html
-        self.awaits_consent = (
-            "Alle ablehnen" in document.html or "Alle akzeptieren" in document.html
-        )
+        self.awaits_consent = _shows_consent(document.html)
 
     async def goto(self, url: str, **_: object) -> FakeResponse:
-        """Show the next queued document, or raise the prepared failure."""
         self.visited.append(url)
         if self.failure is not None:
             raise self.failure
@@ -1365,57 +1451,45 @@ class FakePage:
         return FakeResponse(document.status)
 
     async def content(self) -> str:
-        """Return the current document, moving on to the next answer state after a question."""
         if self.updates:
             self.html = self.updates.pop(0)
+            self.awaits_consent = _shows_consent(self.html)
         return self.html
 
     def get_by_role(self, role: str, name: str, exact: bool = False) -> FakeLocator:
-        """Return a locator for a button, field, tab or menu entry."""
-        assert role in ("button", "textbox", "tab", "menuitemradio")
+        assert role in ("button", "link", "textbox", "tab", "menuitemradio")
+        self.roles.append(role)
         return FakeLocator(self, name)
 
     def locator(self, selector: str) -> FakeLocator:
-        """Return a locator for a CSS selector."""
         return FakeLocator(self, selector)
 
     async def wait_for_selector(self, selector: str, timeout: int) -> None:
-        """Record what the caller waited for; the prepared document is already there."""
         self.awaited.append(selector)
 
     async def wait_for_load_state(self, state: str) -> None:
-        """Accept the load state the browser service waits for."""
         assert state == "domcontentloaded"
 
     async def evaluate(self, expression: str) -> str | None:
-        """Answer navigator.userAgent and record every other script."""
         if expression == "navigator.userAgent":
             return self.user_agent
         self.scripts.append(expression)
         return None
 
     async def close(self) -> None:
-        """Record that the tab was closed."""
         self.closed = True
 
 
 class FakeCdpSession:
-    """Records DevTools commands."""
-
     def __init__(self) -> None:
-        """Start without commands."""
         self.sent: list[tuple[str, dict[str, object]]] = []
 
     async def send(self, method: str, params: dict[str, object]) -> None:
-        """Record one command."""
         self.sent.append((method, params))
 
 
 class FakeContext:
-    """Stand-in for the persistent browser context; every new page is the same FakePage."""
-
     def __init__(self, page: FakePage) -> None:
-        """Serve the given page."""
         self.page = page
         self.pages_opened = 0
         self.init_scripts: list[str] = []
@@ -1426,32 +1500,25 @@ class FakeContext:
         self.closed = False
 
     async def new_page(self) -> FakePage:
-        """Return the page."""
         self.pages_opened += 1
         self.page.closed = False
         return self.page
 
     async def add_init_script(self, script: str) -> None:
-        """Record an init script."""
         self.init_scripts.append(script)
 
     async def set_geolocation(self, geolocation: dict[str, float] | None) -> None:
-        """Record the reported position."""
         self.geolocations.append(geolocation)
 
     async def grant_permissions(self, permissions: list[str]) -> None:
-        """Record granted permissions."""
         self.permissions.append(permissions)
 
     async def new_cdp_session(self, page: FakePage) -> FakeCdpSession:
-        """Return the shared DevTools session."""
         return self.cdp
 
 
 @dataclass
 class FakeBrowser:
-    """A BrowserService on a fake context, with the waits it asked for."""
-
     service: BrowserService
     context: FakeContext
     page: FakePage
@@ -1463,7 +1530,6 @@ BrowserFactory = Callable[..., FakeBrowser]
 
 @pytest.fixture
 def fake_browser(tmp_path: Path) -> BrowserFactory:
-    """Build a BrowserService that serves prepared documents instead of starting Chromium."""
 
     def build(
         documents: list[FakeDocument | str], user_agent: str = HEADLESS_USER_AGENT
@@ -1494,3 +1560,13 @@ def fake_browser(tmp_path: Path) -> BrowserFactory:
         return FakeBrowser(service, context, page, waits)
 
     return build
+
+
+@pytest.fixture(autouse=True)
+def no_map_listings(monkeypatch: pytest.MonkeyPatch) -> None:
+    from radarauditor.collectors import run
+
+    async def none(context: object, notes: object) -> list[DirectoryHit]:
+        return []
+
+    monkeypatch.setattr(run, "_map_listings", none)

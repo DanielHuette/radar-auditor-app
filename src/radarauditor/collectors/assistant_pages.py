@@ -1,18 +1,18 @@
-"""Ask ChatGPT, Gemini and Perplexity on their websites in the shared browser and read the answer.
+"""Ask ChatGPT and the AI mode of the Google search on their websites in the shared browser.
 
 Context: First route of the assistant collector. Every question opens a fresh chat in the shared
 tab, types the question like a person, waits until the site marks the answer complete and reads
 answer text and cited sources from the page. Logins come from the persistent browser profile:
-ChatGPT and Gemini answer logged out, a logged-in profile is used when present; Perplexity asks
-for a login from server addresses. Web search is the default of all three sites.
+ChatGPT answers logged out, a logged-in profile is used when present. Web search is the default
+of both sites.
 Input: The shared BrowserService, an AssistantSite and a question.
 Output: PageAnswer, or LoginWallError, SearchBlockedError or TransientCollectionError.
 """
 
 import logging
 import math
-import re
 from dataclasses import dataclass
+from typing import Literal
 from urllib.parse import parse_qs, urlsplit
 
 from bs4 import BeautifulSoup, Tag
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 POLL_SECONDS = 3.0
 COMPOSER_POLLS = 5
 LOGIN_WALL_MAX_CHARS = 200
-LOGIN_HOSTS = ("auth.openai.com", "accounts.google.com", "auth.perplexity.ai")
+LOGIN_HOSTS = ("auth.openai.com", "accounts.google.com")
 LOGIN_PHRASES = (
     "melde dich an",
     "melden sie sich an",
@@ -44,13 +44,9 @@ CHALLENGE_MARKERS = (
     "<title>Just a moment",
     "<title>Einen Moment",
 )
+# Google sends a browser it takes for a robot to /sorry/ with a captcha.
+SORRY_PATH = "/sorry/"
 FAVICON_PATH = "/s2/favicons"
-DOMAIN_LABEL = re.compile(r"^(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}$", re.IGNORECASE)
-# Gemini labels each citation button "Genaue Quellenangaben für Zitate aus A und B ansehen. ...".
-CITATION_LABEL = re.compile(
-    r"(?:Zitaten? aus|citations? from) (.+?)(?: ansehen|\.\s|\.?$)", re.IGNORECASE
-)
-NAME_SEPARATOR = re.compile(r",\s*|\s+(?:und|and)\s+")
 SHARED_IGNORED_HOSTS = ("mapbox.com", "openstreetmap.org", "google.com", "gstatic.com")
 
 
@@ -59,18 +55,21 @@ class AssistantSite:
     """How one assistant website is asked and read.
 
     All selectors are CSS. composer is the question field; answer matches the answer container
-    (the last one is read); done matches anywhere on the page once the answer is complete;
-    source_labels matches citation labels that carry a source name instead of a link;
-    ignored_hosts are the site's own and map hosts, never counted as sources.
+    (the last one is read); done matches anywhere on the page once the answer is complete, None
+    for a site without such a mark, whose answer is complete once it stays the same between two
+    reads; ignored_hosts are the site's own and map hosts, never counted as sources; mode_button
+    is the name of a control that switches the page to its assistant before the question is
+    typed, mode_role its accessible role.
     """
 
     provider: str
     url: str
     composer: str
     answer: str
-    done: str
-    source_labels: str | None
+    done: str | None
     ignored_hosts: tuple[str, ...]
+    mode_button: str | None = None
+    mode_role: Literal["button", "link"] = "button"
 
 
 @dataclass(frozen=True)
@@ -96,28 +95,22 @@ CHATGPT = AssistantSite(
     composer='textarea[name="prompt"], #prompt-textarea',
     answer='[data-message-role="assistant"][id], [data-message-author-role="assistant"]',
     done='[data-message-role="assistant"][data-message-complete]',
-    source_labels=None,
     ignored_hosts=("chatgpt.com", "openai.com", "oaistatic.com", "oaiusercontent.com"),
 )
-GEMINI = AssistantSite(
-    provider="gemini",
-    url="https://gemini.google.com/app",
-    composer='div.ql-editor[contenteditable="true"], rich-textarea [role="textbox"]',
-    answer="model-response message-content",
-    done="model-response message-actions",
-    source_labels='button[aria-label*="Quellenangaben"], button[aria-label*="citation"]',
-    ignored_hosts=("gemini.google.com", "googleusercontent.com"),
+# The AI mode of the Google search, the Google channel ordinary users see; started from the
+# Google home page with its button, as a person would.
+GOOGLE_AI = AssistantSite(
+    provider="google_ai",
+    url="https://www.google.de/",
+    composer='textarea[name="q"]',
+    answer='div[role="main"]',
+    done=None,
+    ignored_hosts=("google.de", "googleusercontent.com"),
+    mode_button="KI\u2011Modus",
+    # Google marks it up as a button with the role of a link.
+    mode_role="link",
 )
-PERPLEXITY = AssistantSite(
-    provider="perplexity",
-    url="https://www.perplexity.ai/",
-    composer="#ask-input, textarea[placeholder]",
-    answer='[data-renderer="lm"]',
-    done='button[aria-label="Kopieren"], button[aria-label="Copy"]',
-    source_labels=None,
-    ignored_hosts=("perplexity.ai", "pplx.ai"),
-)
-SITES: dict[str, AssistantSite] = {site.provider: site for site in (CHATGPT, GEMINI, PERPLEXITY)}
+SITES: dict[str, AssistantSite] = {site.provider: site for site in (CHATGPT, GOOGLE_AI)}
 
 
 async def ask_on_site(
@@ -141,14 +134,37 @@ async def ask_on_site(
         playwright.async_api.Error: On a navigation or browser failure.
     """
     async with browser.page() as page:
-        html = await browser.open(page, site.url)
+        await browser.open(page, site.url)
+        html = await settle(browser, page)
         await _wait_for_composer(browser, page, site, html)
+        await switch_mode(browser, page, site)
         composer = page.locator(site.composer).first
         await browser.type_text(composer, question)
         await composer.press("Enter")
         answer = await _wait_for_answer(browser, page, site, timeout_seconds)
         await browser.linger(page)
     return answer
+
+
+async def switch_mode(browser: BrowserService, page: Page, site: AssistantSite) -> None:
+    """Click the site's mode button, if it has one, and give the page a moment to switch."""
+    if site.mode_button is None:
+        return
+    await page.get_by_role(site.mode_role, name=site.mode_button).first.click()
+    await browser.pacing.sleep(POLL_SECONDS)
+
+
+async def settle(browser: BrowserService, page: Page) -> str:
+    """Give the site a moment for dialogs it lays over the page after loading.
+
+    A site may show its cookie dialog only after the page loaded, over the question field; it is
+    answered with the most data-saving choice, as a person would.
+    """
+    await browser.pacing.sleep(POLL_SECONDS)
+    html = await page.content()
+    if await browser.answer_consent(page, html):
+        html = await page.content()
+    return html
 
 
 async def _wait_for_composer(
@@ -168,6 +184,7 @@ async def _wait_for_answer(
     browser: BrowserService, page: Page, site: AssistantSite, timeout_seconds: int
 ) -> PageAnswer:
     reading = AnswerReading("", [], complete=False)
+    previous = ""
     for _ in range(max(1, math.ceil(timeout_seconds / POLL_SECONDS))):
         await browser.pacing.sleep(POLL_SECONDS)
         html = await page.content()
@@ -175,10 +192,22 @@ async def _wait_for_answer(
         reading = read_answer(html, site)
         if is_login_request(reading.text):
             raise LoginWallError(f"{site.provider} asks to sign in: {reading.text[:80]}")
-        if reading.complete and reading.text:
+        if is_finished(reading, site, previous):
             return PageAnswer(reading.text, reading.sources)
+        previous = reading.text
     detail = "no answer" if not reading.text else "the answer did not finish"
     raise TransientCollectionError(f"{site.provider}: {detail} within {timeout_seconds} s")
+
+
+def is_finished(reading: AnswerReading, site: AssistantSite, previous: str) -> bool:
+    """True once the answer is complete.
+
+    Complete means marked so by the site, or unchanged since the last read on a site without a
+    completion mark.
+    """
+    if not reading.text:
+        return False
+    return reading.complete or (site.done is None and reading.text == previous)
 
 
 def ensure_answerable(url: str, html: str) -> None:
@@ -191,12 +220,12 @@ def ensure_answerable(url: str, html: str) -> None:
     host = _host(url)
     if host in LOGIN_HOSTS:
         raise LoginWallError(f"redirected to the sign-in page {host}")
-    if any(marker in html for marker in CHALLENGE_MARKERS):
+    if SORRY_PATH in urlsplit(url).path or any(marker in html for marker in CHALLENGE_MARKERS):
         raise SearchBlockedError(f"{host or 'page'} shows a bot check", url)
 
 
 def is_login_request(text: str) -> bool:
-    """True for a short answer that only asks to sign in, as Perplexity gives logged out."""
+    """True for a short answer that only asks to sign in, as a site gives logged out."""
     folded = text.casefold()
     return len(folded) <= LOGIN_WALL_MAX_CHARS and any(phrase in folded for phrase in LOGIN_PHRASES)
 
@@ -204,9 +233,8 @@ def is_login_request(text: str) -> bool:
 def read_answer(html: str, site: AssistantSite) -> AnswerReading:
     """Read the last answer on an assistant page.
 
-    Sources are, in page order: links in the answer, the domains of favicon images (ChatGPT shows
-    citations as favicon pills) and citation labels (Gemini names sources without links; labels
-    that are domains become https addresses, other names are kept as written).
+    Sources are, in page order: links in the answer and the domains of favicon images (ChatGPT
+    shows citations as favicon pills).
 
     Args:
         html: Page source.
@@ -227,13 +255,12 @@ def read_answer(html: str, site: AssistantSite) -> AnswerReading:
         [
             *_link_sources(answer, ignored),
             *_favicon_sources(answer, ignored),
-            *_label_sources(answer, site.source_labels),
         ]
     )
     return AnswerReading(
         text=collapse_whitespace(answer.get_text(" ")),
         sources=sources,
-        complete=soup.select_one(site.done) is not None,
+        complete=site.done is not None and soup.select_one(site.done) is not None,
     )
 
 
@@ -253,23 +280,6 @@ def _favicon_sources(answer: Tag, ignored: tuple[str, ...]) -> list[str]:
         if domain and not _is_ignored(site, ignored):
             found.append(site)
     return found
-
-
-def _label_sources(answer: Tag, selector: str | None) -> list[str]:
-    if selector is None:
-        return []
-    names = [name for element in answer.select(selector) for name in _citation_names(element)]
-    return [f"https://{name.lower()}" if DOMAIN_LABEL.match(name) else name for name in names]
-
-
-def _citation_names(element: Tag) -> list[str]:
-    """Source names of one citation button; its label names every source, the text only one."""
-    label = collapse_whitespace(str(element.get("aria-label", "")))
-    match = CITATION_LABEL.search(label)
-    if match is None:
-        text = collapse_whitespace(element.get_text(" "))
-        return [text] if text else []
-    return [name.strip() for name in NAME_SEPARATOR.split(match.group(1)) if name.strip()]
 
 
 def _is_ignored(url: str, ignored: tuple[str, ...]) -> bool:

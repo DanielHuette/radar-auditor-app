@@ -4,7 +4,6 @@ import { TextsFormatError, isMissingObject, parseAuditTexts } from "./texts";
 const REPORT_PROSE = {
   introduction: "Einleitung",
   summary: "Zusammenfassung",
-  forecast_note: "Schätzung",
   subscription_reason: "Pflege",
   offer_text: "Angebot",
 };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barLength, labelledPositions, positionFromBar, rankingMatrix } from "./rankings";
+import { barLength, keywordLabel, labelledPositions, positionFromBar, rankingMatrix } from "./rankings";
 import { keyword, ranking } from "./testRows";
 
 const keywords = [keyword("k1", "Dachdecker"), keyword("k2", "Dachsanierung"), keyword("k3", "Flachdach")];
@@ -63,5 +63,22 @@ describe("labelledPositions", () => {
 
   it("does not repeat a position on a very short scale", () => {
     expect(labelledPositions(2, true)).toEqual([1, 2]);
+  });
+});
+
+describe("nationwide keywords", () => {
+  it("labels a nationwide keyword as such and a local keyword by its phrase", () => {
+    expect(keywordLabel(keyword("k1", "abstrakte kunst", "nationwide"))).toBe("abstrakte kunst (bundesweit)");
+    expect(keywordLabel(keyword("k1", "kunst", "local"))).toBe("kunst");
+  });
+
+  it("shows the label in the ranking matrix", () => {
+    const mixed = [keyword("k1", "Dachdecker"), keyword("k2", "Dachsanierung", "nationwide")];
+    const measured = [
+      ranking({ keyword_id: "k1", subject: "Dachdecker Muster", organic_position: 2 }),
+      ranking({ keyword_id: "k2", subject: "Dachdecker Muster", organic_position: 4 }),
+    ];
+    const matrix = rankingMatrix(measured, mixed, "Dachdecker Muster", "organic");
+    expect(matrix.keywords).toEqual(["Dachdecker", "Dachsanierung (bundesweit)"]);
   });
 });

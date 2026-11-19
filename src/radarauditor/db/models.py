@@ -1,10 +1,3 @@
-"""Typed rows of every table, mirroring the tables in supabase/migrations/.
-
-Context: Shared by collectors, scoring, reporting and the app contract.
-Input: Database rows as dictionaries.
-Output: Validated pydantic models.
-"""
-
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -14,8 +7,6 @@ from pydantic import BaseModel, Field, HttpUrl
 
 
 class Customer(BaseModel):
-    """A business the operator audits; whether it buys is tracked in the CRM."""
-
     id: UUID
     name: str
     website: HttpUrl | None
@@ -26,8 +17,6 @@ class Customer(BaseModel):
 
 
 class Location(BaseModel):
-    """One physical or service location of a customer (name, address, phone as written)."""
-
     id: UUID
     customer_id: UUID
     name: str
@@ -41,8 +30,6 @@ class Location(BaseModel):
 
 
 class Contact(BaseModel):
-    """A person at the customer."""
-
     id: UUID
     customer_id: UUID
     name: str
@@ -52,8 +39,6 @@ class Contact(BaseModel):
 
 
 class Competitor(BaseModel):
-    """A competing business used for comparison."""
-
     id: UUID
     customer_id: UUID
     name: str
@@ -61,24 +46,46 @@ class Competitor(BaseModel):
     website: HttpUrl | None
 
 
-class Keyword(BaseModel):
-    """A search phrase tracked for a customer, with the city attached."""
+class KeywordScope(StrEnum):
+    LOCAL = "local"
+    NATIONWIDE = "nationwide"
 
+
+class Keyword(BaseModel):
     id: UUID
     customer_id: UUID
     phrase: str
     city: str
     monthly_volume: int | None
     is_primary: bool
+    scope: KeywordScope = KeywordScope.LOCAL
+
+    @property
+    def search_phrase(self) -> str:
+        if self.scope is KeywordScope.LOCAL:
+            return f"{self.phrase} {self.city}"
+        return self.phrase
+
+
+class AuditCost(BaseModel):
+    audit_id: UUID
+    source: str
+    service: str
+    calls: int
+    cost: Decimal
+    tokens_in: int
+    tokens_out: int
+
+
+class AuditEstimate(BaseModel):
+    source: str
+    service: str
+    calls: int
+    unit_cost: Decimal
+    cost: Decimal
 
 
 class CustomerAccess(BaseModel):
-    """What the customer granted the operator's Google account; the WordPress password stays out.
-
-    google_location_name is the Business Profile location ("locations/<id>"),
-    analytics_property_id the numeric Google Analytics 4 property id.
-    """
-
     customer_id: UUID
     google_business_profile_granted: bool
     search_console_property: str | None
@@ -90,40 +97,29 @@ class CustomerAccess(BaseModel):
 
 
 class AuditKind(StrEnum):
-    """Remote audit from public data, or extended audit with customer access."""
-
     REMOTE = "remote"
     WITH_ACCESS = "with_access"
 
 
 class AuditPurpose(StrEnum):
-    """Why an audit runs: to win the business, or as the monthly check of a subscription."""
-
     SALES = "sales"
     MONTHLY = "monthly"
 
 
 class AuditStatus(StrEnum):
-    """Lifecycle of an audit."""
-
     REQUESTED = "requested"
     COLLECTING = "collecting"
     COLLECTED = "collected"
     SCORED = "scored"
+    CONTROLLING = "controlling"
     AWAITING_ANALYSIS = "awaiting_analysis"
     ANALYSED = "analysed"
     REPORTED = "reported"
     FAILED = "failed"
+    HALTED = "halted"
 
 
 class Audit(BaseModel):
-    """One audit run; raw data lives in storage, scores and findings in tables.
-
-    disabled_checks holds the check ids switched off for this audit (migration 011); empty means
-    every check runs. purpose (migration 013) is monthly for audits the CRM queues for a
-    subscription.
-    """
-
     id: UUID
     customer_id: UUID
     kind: AuditKind
@@ -138,22 +134,26 @@ class Audit(BaseModel):
 
 
 class CheckOutcome(StrEnum):
-    """Result of one catalogue check."""
-
     PASSED = "passed"
     PARTIAL = "partial"
     FAILED = "failed"
     NOT_MEASURABLE = "not_measurable"
     SKIPPED = "skipped"
+    NOT_APPLICABLE = "not_applicable"
+
+
+class ControlState(StrEnum):
+    OPEN = "open"
+    DONE = "done"
+
+
+class Verdict(BaseModel):
+    ok: bool
+    reason: str | None = None
+    evidence: str | None = None
 
 
 class CheckResult(BaseModel):
-    """Outcome of one catalogue check within an audit.
-
-    potential_points is the weight share the check would add when passed; uplift_low and
-    uplift_high are the expected extra enquiries per month.
-    """
-
     id: UUID
     audit_id: UUID
     check_id: str
@@ -164,11 +164,34 @@ class CheckResult(BaseModel):
     potential_points: Decimal | None = None
     uplift_low: Decimal | None = None
     uplift_high: Decimal | None = None
+    provider: str | None = None
+    control_state: ControlState = ControlState.OPEN
+    control_attempt: int = 0
+    control_last_error: str | None = None
+    verdict_collected_ok: bool | None = None
+    verdict_collected_reason: str | None = None
+    verdict_collected_evidence: str | None = None
+    verdict_data_ok: bool | None = None
+    verdict_data_reason: str | None = None
+    verdict_data_evidence: str | None = None
+    verdict_evaluation_ok: bool | None = None
+    verdict_evaluation_reason: str | None = None
+    verdict_evaluation_evidence: str | None = None
+
+    @property
+    def verdict_flags(self) -> tuple[bool | None, bool | None, bool | None]:
+        return (self.verdict_collected_ok, self.verdict_data_ok, self.verdict_evaluation_ok)
+
+    @property
+    def control_failed(self) -> bool:
+        return any(flag is False for flag in self.verdict_flags)
+
+    @property
+    def verdicts_all_ok(self) -> bool:
+        return all(flag is True for flag in self.verdict_flags)
 
 
 class Finding(BaseModel):
-    """Plain-language finding plus concrete fix, written by the analyser."""
-
     id: UUID
     audit_id: UUID
     check_id: str
@@ -181,8 +204,6 @@ class Finding(BaseModel):
 
 
 class Ranking(BaseModel):
-    """Position of a customer or competitor for a keyword at a point in time."""
-
     id: UUID
     audit_id: UUID
     keyword_id: UUID
@@ -194,20 +215,17 @@ class Ranking(BaseModel):
 
 
 class JobKind(StrEnum):
-    """Work items in the queue."""
-
     COLLECT = "collect"
     SCORE = "score"
     ANALYSE = "analyse"
     REPORT = "report"
     SERP_RETRY = "serp_retry"
+    REPAIR = "repair"
     OPTIMIZE = "optimize"
     APPLY = "apply"
 
 
 class JobStatus(StrEnum):
-    """Lifecycle of a queued job."""
-
     QUEUED = "queued"
     RUNNING = "running"
     DONE = "done"
@@ -215,8 +233,6 @@ class JobStatus(StrEnum):
 
 
 class Job(BaseModel):
-    """A unit of work for the worker or for Claude Code; not claimed before run_after."""
-
     id: UUID
     kind: JobKind
     status: JobStatus
@@ -231,8 +247,6 @@ class Job(BaseModel):
 
 
 class DocumentKind(StrEnum):
-    """Business documents generated from templates."""
-
     QUOTE = "quote"
     SERVICE_DESCRIPTION = "service_description"
     CONTRACT = "contract"
@@ -242,8 +256,6 @@ class DocumentKind(StrEnum):
 
 
 class Document(BaseModel):
-    """A generated PDF with its data snapshot."""
-
     id: UUID
     customer_id: UUID
     kind: DocumentKind
@@ -257,8 +269,6 @@ class Document(BaseModel):
 
 
 class Event(BaseModel):
-    """Outbox row for the later customer-management system (webhooks)."""
-
     id: UUID
     kind: str
     payload: dict[str, object]
@@ -267,12 +277,6 @@ class Event(BaseModel):
 
 
 class OptimizationChangeStatus(StrEnum):
-    """Lifecycle of a prepared change: nothing is applied before the operator approves it.
-
-    An approved change without an automatic way becomes manual, a to-do for the operator, who ticks
-    it off as manual_done in the app (migration 010).
-    """
-
     DRAFT = "draft"
     APPROVED = "approved"
     REJECTED = "rejected"
@@ -283,8 +287,6 @@ class OptimizationChangeStatus(StrEnum):
 
 
 class OptimizationChange(BaseModel):
-    """One change the optimiser prepared for a CRM order, with the text before and after."""
-
     id: UUID
     order_id: UUID
     audit_id: UUID | None
@@ -300,8 +302,6 @@ class OptimizationChange(BaseModel):
 
 
 class ProspectSearchStatus(StrEnum):
-    """Lifecycle of a customer search (migration 016)."""
-
     QUEUED = "queued"
     RUNNING = "running"
     DONE = "done"
@@ -310,8 +310,6 @@ class ProspectSearchStatus(StrEnum):
 
 
 class ProspectSearch(BaseModel):
-    """A customer search for one trade in one city."""
-
     id: UUID
     trade: str
     city: str

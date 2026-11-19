@@ -52,7 +52,7 @@ export async function loadOfferBasis(auditId: string): Promise<OfferBasis | null
   if (audit === null) return null;
   const [customer, checks, products, settings] = await Promise.all([
     supabase.from("customers").select("*").eq("id", audit.customer_id).single(),
-    supabase.from("check_results").select("check_id, area, outcome").eq("audit_id", auditId),
+    supabase.from("check_results").select("check_id, area, outcome, verdict_collected_ok, verdict_data_ok, verdict_evaluation_ok").eq("audit_id", auditId),
     crm().from("products").select("*").eq("active", true).order("name"),
     crm().from("settings").select("small_business").eq("id", 1).maybeSingle(),
   ]);

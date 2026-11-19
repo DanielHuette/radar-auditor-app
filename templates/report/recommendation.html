@@ -1,0 +1,22 @@
+{% extends "_layout.html" %}
+{% block title %}Empfehlung {{ report.customer_name }}{% endblock %}
+{% block kind %}Empfehlung{% endblock %}
+{% block meta %}{{ report.customer_address }} · Stand {{ report.report_date|date }}{% endblock %}
+{% block cover_body %}
+<p class="introduction">Das sollten Sie als Nächstes tun. Jede Empfehlung gehört zu einer Prüfung, deren Messung in drei Schritten kontrolliert wurde: geholt, Daten stimmig, richtig bewertet.</p>
+{% endblock %}
+
+{% block content %}
+<section>
+  <h2>Ihre nächsten Schritte</h2>
+  {% for action in report.actions %}
+  <div class="finding severity-{{ action.severity }}">
+    <h3>{{ action.title }}</h3>
+    <p><span class="label">Gemessen:</span> {{ action.explanation }}</p>
+    <p><span class="label">Was zu tun ist:</span> {{ action.fix }}</p>
+  </div>
+  {% else %}
+  <p>Aus den kontrollierten Messungen ergibt sich keine Empfehlung.</p>
+  {% endfor %}
+</section>
+{% endblock %}

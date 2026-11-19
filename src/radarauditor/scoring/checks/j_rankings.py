@@ -1,12 +1,5 @@
-"""Checks of area j: rankings (ids j1..).
-
-Context: One pure function per catalogue check; each returns outcome and measured values.
-Input: RawAudit and thresholds.
-Output: (CheckOutcome, measured dict).
-"""
-
-from radarauditor.collectors.patterns import host_of
-from radarauditor.collectors.snapshot import RawAudit, SerpResult
+from radarauditor.collectors.identity import Identity, fold, identity, is_name_search, same_business
+from radarauditor.collectors.snapshot import PositionChange, RawAudit, SerpResult
 from radarauditor.db.models import CheckOutcome
 from radarauditor.scoring.checks.common import (
     NO_PAID_DATA,
@@ -19,46 +12,50 @@ from radarauditor.scoring.checks.common import (
     combine,
     customer_host,
     dispatch,
-    fold,
     google_web_serps,
-    listed,
-    names_match,
     not_measurable,
     number,
+    own_identity,
     route_entry,
     same_site,
+    serp_coverage,
     share_of_best,
+    usable,
 )
 
 GRID_TOP = 3
-GRID_PASS_SHARE = 0.7
-GRID_PARTIAL_SHARE = 0.4
 RANKED_PASS_SHARE = 0.8
 RANKED_PARTIAL_SHARE = 0.4
 
 
 def organic_position(serp: SerpResult, host: str) -> int | None:
-    """Best organic position of any URL on the customer's host."""
     positions = [position for position, url in serp.organic if same_site(url, host)]
     return min(positions) if positions else None
 
 
-def local_pack_position(serp: SerpResult, name: str) -> int | None:
-    """Best local pack position of an entry whose name matches the business."""
-    positions = [position for position, entry in serp.local_pack if names_match(entry, name)]
+def local_pack_position(serp: SerpResult, own: Identity) -> int | None:
+    positions = [
+        position for position, entry in serp.local_pack if same_business(own, identity(name=entry))
+    ]
     return min(positions) if positions else None
 
 
 def _non_brand_serps(raw: RawAudit) -> list[SerpResult]:
-    """Google web searches for services, excluding searches for the business name itself."""
     name = business_name(raw)
     return [
-        serp for serp in google_web_serps(raw) if name is None or not names_match(serp.phrase, name)
+        serp
+        for serp in google_web_serps(raw)
+        if name is None or not is_name_search(serp.phrase, name)
     ]
 
 
+def _no_valid_list(considered: list[SerpResult], used: list[SerpResult]) -> CheckReturn | None:
+    if used:
+        return None
+    return not_measurable("no_valid_result_lists", **serp_coverage(considered, used))
+
+
 def _ranked_everywhere(positions: dict[str, int | None], limit: float) -> CheckOutcome:
-    """PASSED if every phrase ranks within limit, FAILED if none does, PARTIAL otherwise."""
     return combine(
         CheckOutcome.PASSED if position is not None and position <= limit else CheckOutcome.FAILED
         for position in positions.values()
@@ -66,13 +63,15 @@ def _ranked_everywhere(positions: dict[str, int | None], limit: float) -> CheckO
 
 
 def organic_rankings(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """j1: all phrases rank within good; any phrase within visible is partial."""
-    serps = _non_brand_serps(raw)
-    if not serps:
+    considered = _non_brand_serps(raw)
+    if not considered:
         return not_measurable("no_serps")
     host = customer_host(raw)
     if host is None:
         return not_measurable("no_website")
+    serps = usable(considered)
+    if (empty := _no_valid_list(considered, serps)) is not None:
+        return empty
     top, good, visible = (number(thresholds, key) for key in ("top", "good", "visible"))
     positions = {serp.phrase: organic_position(serp, host) for serp in serps}
     ranked = [position for position in positions.values() if position is not None]
@@ -84,7 +83,7 @@ def organic_rankings(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
         outcome = CheckOutcome.PARTIAL
     else:
         outcome = CheckOutcome.FAILED
-    return outcome, {
+    measured: dict[str, object] = {
         "positions": positions,
         "in_top": sum(1 for position in ranked if position <= top),
         "in_good": in_good,
@@ -93,20 +92,18 @@ def organic_rankings(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
         "top": top,
         "good": good,
         "visible": visible,
+        **serp_coverage(considered, serps),
     }
+    return outcome, measured
 
 
 def map_pack(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """j2: the business is in the top map results for every phrase that shows a map block.
-
-    A phrase whose Google search shows no map block, or was not searched, takes the position in
-    the Google Maps result list instead; maps_phrases lists those phrases.
-    """
     name = business_name(raw)
     if name is None:
         return not_measurable("no_business_name")
     serps = [serp for serp in _non_brand_serps(raw) if serp.local_pack]
-    positions = {serp.phrase: local_pack_position(serp, name) for serp in serps}
+    own = own_identity(raw)
+    positions = {serp.phrase: local_pack_position(serp, own) for serp in serps}
     from_maps = [ranking for ranking in raw.map_rankings if ranking.phrase not in positions]
     positions.update({ranking.phrase: ranking.position for ranking in from_maps})
     if not positions:
@@ -129,66 +126,61 @@ def _optional_number(thresholds: Thresholds, key: str, default: float) -> float:
 
 
 def grid_visibility(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """j3: share of grid points where the business is in the top map results.
-
-    Passed from GRID_PASS_SHARE of the points, partial from GRID_PARTIAL_SHARE; the catalogue may
-    override them with the thresholds top, pass_share and partial_share.
-    """
     if not raw.grid:
         return not_measurable("no_grid")
     top = _optional_number(thresholds, "top", GRID_TOP)
-    pass_share = _optional_number(thresholds, "pass_share", GRID_PASS_SHARE)
-    partial_share = _optional_number(thresholds, "partial_share", GRID_PARTIAL_SHARE)
     in_top = [p.key for p in raw.grid if p.position is not None and p.position <= top]
     share = len(in_top) / len(raw.grid)
-    if share >= pass_share:
-        outcome = CheckOutcome.PASSED
-    elif share >= partial_share:
-        outcome = CheckOutcome.PARTIAL
-    else:
-        outcome = CheckOutcome.FAILED
-    return outcome, {
+    return CheckOutcome.PASSED, {
         "points_total": len(raw.grid),
         "points_in_top": len(in_top),
         "share_in_top": round(share, 2),
         "positions": {point.key: point.position for point in raw.grid},
         "top": top,
+        "competitor_values": None,
         **route_entry(point.route for point in raw.grid),
     }
 
 
 def brand_search(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """j4: the own website is first for the brand search with a knowledge panel beside it.
-
-    First place without a panel is partial; any lower place fails.
-    """
     host = customer_host(raw)
     if business_name(raw) is None or host is None:
         return not_measurable("no_business_name")
-    serps = brand_serps(raw)
-    if not serps:
+    considered = brand_serps(raw)
+    if not considered:
         return not_measurable("no_brand_search")
+    serps = usable(considered)
+    if (empty := _no_valid_list(considered, serps)) is not None:
+        return empty
     positions = [organic_position(serp, host) for serp in serps]
     best = min((position for position in positions if position is not None), default=None)
     panel = any(serp.knowledge_panel for serp in serps)
-    if best == 1:
-        outcome = CheckOutcome.PASSED if panel else CheckOutcome.PARTIAL
-    else:
-        outcome = CheckOutcome.FAILED
-    return outcome, {"brand_phrase": serps[0].phrase, "position": best, "knowledge_panel": panel}
+    panel_readable = any(serp.route != "apify" for serp in serps)
+    outcome = CheckOutcome.PASSED if best == 1 else CheckOutcome.FAILED
+    measured: dict[str, object] = {
+        "brand_phrase": serps[0].phrase,
+        "position": best,
+        **serp_coverage(considered, serps),
+    }
+    if panel or panel_readable:
+        measured["knowledge_panel"] = panel
+    return outcome, measured
 
 
 def ai_overviews(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """j6: every Google AI overview shown for a phrase names the business or its website."""
-    overviews = [serp for serp in google_web_serps(raw) if serp.ai_overview_present]
-    if not overviews:
+    shown = [serp for serp in google_web_serps(raw) if serp.ai_overview_present]
+    if not shown:
         return not_measurable("no_ai_overview")
+    overviews = usable(shown)
+    if (empty := _no_valid_list(shown, overviews)) is not None:
+        return empty
     name = business_name(raw)
+    own = own_identity(raw)
     host = customer_host(raw)
 
     def mentions_business(serp: SerpResult) -> bool:
         return any(
-            (name is not None and names_match(mention, name))
+            (name is not None and same_business(own, identity(name=mention)))
             or (host is not None and host in fold(mention))
             for mention in serp.ai_overview_mentions
         )
@@ -201,11 +193,11 @@ def ai_overviews(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
     return outcome, {
         "phrases_with_overview": len(overviews),
         "phrases_mentioning_business": mentioned,
+        **serp_coverage(shown, overviews),
     }
 
 
 def bing_rankings(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """j7: the website ranks within good on Bing for every phrase searched there."""
     serps = [serp for serp in raw.serps if serp.engine == "bing"]
     if not serps:
         return not_measurable("no_bing_serp")
@@ -222,7 +214,6 @@ def bing_rankings(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
 
 
 def image_search(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """j8: the website is a source among the first image results for every phrase."""
     serps = [serp for serp in raw.serps if serp.vertical == "images"]
     if not serps:
         return not_measurable("no_image_serp")
@@ -241,30 +232,7 @@ def image_search(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
     }
 
 
-def is_own_ad(advertiser: str, host: str | None, name: str | None) -> bool:
-    """True if an ad entry is the customer's domain or, for a name, the business name."""
-    if host_of(advertiser) is not None:
-        return host is not None and same_site(advertiser, host)
-    return names_match(advertiser, name)
-
-
-def competitor_ads(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """j10: no ad shown on the brand search belongs to anyone but the customer."""
-    name = business_name(raw)
-    if name is None:
-        return not_measurable("no_business_name")
-    serps = brand_serps(raw)
-    if not serps:
-        return not_measurable("no_brand_search")
-    host = customer_host(raw)
-    ads = [advertiser for serp in serps for advertiser in serp.ads]
-    foreign = sorted({advertiser for advertiser in ads if not is_own_ad(advertiser, host, name)})
-    outcome = CheckOutcome.FAILED if foreign else CheckOutcome.PASSED
-    return outcome, {"foreign_ads": listed(foreign), "ads_seen": len(ads)}
-
-
 def ranked_keywords(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-    """j5: keywords the site ranks for reach 80 % of the best competitor; partial from 40 %."""
     if raw.paid is None:
         return not_measurable(NO_PAID_DATA)
     customer = raw.paid.customer_domain
@@ -283,13 +251,41 @@ def ranked_keywords(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
     }
 
 
-def _not_collected(reason: str) -> CheckFunction:
-    """Check function for data the search collector does not record."""
+def _moved_up(change: PositionChange) -> bool:
+    if change.after is None:
+        return False
+    return change.before is None or change.after < change.before
 
-    def check(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
-        return not_measurable(reason)
 
-    return check
+def _moved_down(change: PositionChange) -> bool:
+    if change.before is None:
+        return False
+    return change.after is None or change.after > change.before
+
+
+def development(raw: RawAudit, thresholds: Thresholds) -> CheckReturn:
+    history = raw.ranking_history
+    if history is None:
+        return not_measurable("needs_history")
+    if not history.changes:
+        return not_measurable("no_shared_rankings")
+    improved = [change for change in history.changes if _moved_up(change)]
+    worsened = [change for change in history.changes if _moved_down(change)]
+    visible = any(change.after is not None for change in history.changes)
+    if len(improved) > len(worsened):
+        outcome = CheckOutcome.PASSED
+    elif len(improved) == len(worsened) and visible:
+        outcome = CheckOutcome.PARTIAL
+    else:
+        outcome = CheckOutcome.FAILED
+    return outcome, {
+        "previous_audit_id": str(history.previous_audit_id),
+        "previous_requested_at": history.previous_requested_at.isoformat(),
+        "improved": len(improved),
+        "worsened": len(worsened),
+        "unchanged": len(history.changes) - len(improved) - len(worsened),
+        "changes": [change.model_dump() for change in history.changes],
+    }
 
 
 CHECKS: dict[str, CheckFunction] = {
@@ -301,11 +297,9 @@ CHECKS: dict[str, CheckFunction] = {
     "j6": ai_overviews,
     "j7": bing_rankings,
     "j8": image_search,
-    "j9": _not_collected("needs_history"),
-    "j10": competitor_ads,
+    "j9": development,
 }
 
 
 def run(check_id: str, raw: RawAudit, thresholds: dict[str, float | int | str]) -> CheckReturn:
-    """Dispatch to the function for check_id within this area."""
     return dispatch(CHECKS, check_id, raw, thresholds)

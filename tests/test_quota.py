@@ -4,6 +4,7 @@ Context: Unit tests with an in-memory quota counter. | Input: SourcesSettings. |
 """
 
 from decimal import Decimal
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -64,13 +65,13 @@ def test_exhausted_source_is_refused_without_asking_again() -> None:
     counter = Counter(allowed=1)
     gate = SourceGate(SourcesSettings(), counter.consume)
 
-    assert gate.try_acquire(Source.GEMINI) is True
+    assert gate.try_acquire(Source.CLAUDE) is True
     with pytest.raises(DailyCapReachedError, match="daily cap of 200 reached"):
-        gate.acquire(Source.GEMINI)
-    assert gate.try_acquire(Source.GEMINI) is False
+        gate.acquire(Source.CLAUDE)
+    assert gate.try_acquire(Source.CLAUDE) is False
 
     assert len(counter.calls) == 2
-    assert gate.exhausted == {Source.GEMINI}
+    assert gate.exhausted == {Source.CLAUDE}
 
 
 def test_acquire_up_to_grants_until_the_cap() -> None:
@@ -106,11 +107,25 @@ class Ledger:
         self.spent = spent
         self.reads = 0
         self.added: list[tuple[str, Decimal]] = []
+        self.audited: list[tuple[UUID, str, str, int, Decimal, int, int]] = []
 
     def month_source_cost(self, source: str) -> Decimal:
         """Return the month's spend."""
         self.reads += 1
         return self.spent
+
+    def add_audit_cost(
+        self,
+        audit_id: UUID,
+        source: str,
+        service: str,
+        *,
+        calls: int,
+        cost: Decimal,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+    ) -> None:
+        self.audited.append((audit_id, source, service, calls, cost, tokens_in, tokens_out))
 
     def add_source_cost(self, source: str, cost: Decimal) -> Decimal:
         """Add one request's cost and return the month's spend."""
@@ -129,9 +144,9 @@ def test_cost_cap_reads_the_spend_once_and_follows_the_recorded_costs() -> None:
     gate = SourceGate(_capped_sources("1"), counter.consume, ledger)
 
     gate.acquire(Source.DATAFORSEO)
-    gate.record_cost(Source.DATAFORSEO, Decimal("0.05"))
+    gate.record_cost(Source.DATAFORSEO, Decimal("0.05"), service="serp")
     gate.acquire(Source.DATAFORSEO)
-    gate.record_cost(Source.DATAFORSEO, Decimal("0.05"))
+    gate.record_cost(Source.DATAFORSEO, Decimal("0.05"), service="serp")
 
     with pytest.raises(MonthlyCostCapReachedError, match="monthly cost cap of 1 EUR reached"):
         gate.acquire(Source.DATAFORSEO)
@@ -157,11 +172,81 @@ def test_sources_without_cost_cap_or_ledger_ignore_costs() -> None:
     gate = SourceGate(SourcesSettings(), Counter(allowed=10).consume, ledger)
 
     gate.acquire(Source.GOOGLE_SEARCH)
-    gate.record_cost(Source.DATAFORSEO, Decimal(0))
+    gate.record_cost(Source.DATAFORSEO, Decimal(0), service="serp")
     without_ledger = SourceGate(_capped_sources("0"), Counter(allowed=10).consume)
     without_ledger.acquire(Source.DATAFORSEO)
-    without_ledger.record_cost(Source.DATAFORSEO, Decimal(5))
+    without_ledger.record_cost(Source.DATAFORSEO, Decimal(5), service="serp")
 
     assert ledger.reads == 0
     assert ledger.added == []
     assert without_ledger.cost_capped == frozenset()
+
+
+AUDIT = uuid4()
+
+
+def test_a_recorded_cost_goes_to_the_month_and_to_the_statement_of_the_audit() -> None:
+    ledger = Ledger(Decimal(0))
+    gate = SourceGate(SourcesSettings(), Counter(allowed=10).consume, ledger, AUDIT)
+
+    gate.record_cost(Source.APIFY, Decimal("0.02"), service="instagram", calls=3)
+
+    assert ledger.added == [("apify", Decimal("0.02"))]
+    assert ledger.audited == [(AUDIT, "apify", "instagram", 3, Decimal("0.02"), 0, 0)]
+
+
+def test_a_free_request_is_counted_in_the_statement_but_not_in_the_month() -> None:
+    ledger = Ledger(Decimal(0))
+    gate = SourceGate(SourcesSettings(), Counter(allowed=10).consume, ledger, AUDIT)
+
+    gate.record_cost(Source.PLACES, Decimal(0), service="find_place")
+
+    assert ledger.added == []
+    assert ledger.audited == [(AUDIT, "places", "find_place", 1, Decimal(0), 0, 0)]
+
+
+def test_without_an_audit_the_statement_stays_empty_and_the_month_still_grows() -> None:
+    ledger = Ledger(Decimal(0))
+    gate = SourceGate(SourcesSettings(), Counter(allowed=10).consume, ledger)
+
+    gate.record_cost(Source.APIFY, Decimal("0.02"), service="instagram")
+
+    assert ledger.added == [("apify", Decimal("0.02"))]
+    assert ledger.audited == []
+
+
+def test_usage_adds_calls_and_tokens_without_a_price() -> None:
+    ledger = Ledger(Decimal(0))
+    gate = SourceGate(SourcesSettings(), Counter(allowed=10).consume, ledger, AUDIT)
+
+    gate.record_usage(Source.CLAUDE, "assistants", tokens_in=120, tokens_out=30)
+
+    assert ledger.added == []
+    assert ledger.audited == [(AUDIT, "claude", "assistants", 1, Decimal(0), 120, 30)]
+
+
+def test_without_a_ledger_nothing_is_recorded_anywhere() -> None:
+    gate = SourceGate(SourcesSettings(), Counter(allowed=10).consume, None, AUDIT)
+
+    gate.record_cost(Source.APIFY, Decimal("0.02"), service="instagram")
+    gate.record_usage(Source.CLAUDE, "assistants")
+
+
+def test_remaining_cost_is_the_cap_minus_the_month_spend() -> None:
+    gate = SourceGate(_capped_sources("1"), Counter(allowed=1).consume, Ledger(Decimal("0.90")))
+
+    assert gate.remaining_cost(Source.DATAFORSEO) == Decimal("0.10")
+
+
+def test_remaining_cost_never_goes_below_zero() -> None:
+    gate = SourceGate(_capped_sources("1"), Counter(allowed=1).consume, Ledger(Decimal("1.50")))
+
+    assert gate.remaining_cost(Source.DATAFORSEO) == Decimal(0)
+
+
+def test_remaining_cost_is_unknown_without_a_cap_or_a_ledger() -> None:
+    uncapped = SourceGate(SourcesSettings(), Counter(allowed=1).consume, Ledger(Decimal(0)))
+    unledgered = SourceGate(_capped_sources("1"), Counter(allowed=1).consume)
+
+    assert uncapped.remaining_cost(Source.GOOGLE_SEARCH) is None
+    assert unledgered.remaining_cost(Source.DATAFORSEO) is None

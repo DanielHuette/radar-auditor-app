@@ -61,6 +61,7 @@ RUN uv sync --frozen --no-dev --no-editable
 COPY config ./config
 COPY templates ./templates
 COPY skills ./skills
+COPY SKILL.md ./
 COPY .claude/commands ./.claude/commands
 COPY --chmod=755 scripts/browser_login.sh /usr/local/bin/browser-login
 

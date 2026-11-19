@@ -1,4 +1,3 @@
-// The checks of a new audit, area by area: one checkbox per area and per check, areas open on demand.
 import { useId, useState } from "preact/hooks";
 import type { CatalogueArea, CatalogueCheck } from "../lib/catalogue";
 import {
@@ -40,7 +39,7 @@ function Tags({ tags }: { tags: readonly Tag[] }) {
   return (
     <span class="tags">
       {tags.map((tag) => (
-        <span key={tag.label} class={tag.isNew ? "tag tag--new" : "tag"}>
+        <span key={tag.label} class="tag">
           {tag.label}
         </span>
       ))}
@@ -145,7 +144,6 @@ function AllChecksRow({ areas, disabled, onChange }: CheckSelectionProps) {
   );
 }
 
-/** Ids of the areas shown open, and the toggle for one of them. */
 function useOpenAreas(): [ReadonlySet<string>, (areaId: string) => void] {
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const toggle = (areaId: string) => {

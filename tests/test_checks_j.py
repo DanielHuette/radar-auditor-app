@@ -1,13 +1,18 @@
-"""Tests for the checks of area j (rankings).
-
-Context: Pure rule tests on RawAudit fixtures. | Input: Fixtures. | Output: Assertions.
-"""
+from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 
-from radarauditor.collectors.snapshot import GridPoint, MapRanking, RawAudit, SerpResult
+from radarauditor.collectors.snapshot import (
+    GridPoint,
+    MapRanking,
+    PositionChange,
+    RankingHistory,
+    RawAudit,
+    SerpResult,
+)
 from radarauditor.db.models import CheckOutcome
-from radarauditor.scoring.checks.j_rankings import is_own_ad, run
+from radarauditor.scoring.checks.j_rankings import run
 
 THRESHOLDS: dict[str, dict[str, float | int | str]] = {
     "j1": {"top": 3, "good": 10, "visible": 20},
@@ -16,7 +21,6 @@ THRESHOLDS: dict[str, dict[str, float | int | str]] = {
     "j6": {},
     "j7": {"good": 10},
     "j8": {},
-    "j10": {},
 }
 SITE = "https://www.dachdeckerei-muster.de"
 
@@ -109,29 +113,31 @@ def _with_grid(raw: RawAudit, positions: list[int | None]) -> RawAudit:
 
 
 @pytest.mark.parametrize(
-    ("positions", "expected"),
+    "positions",
     [
-        ([1, 2, 3, 1, 2, 3, 3, 4, None, None], CheckOutcome.PASSED),
-        ([1, 2, 3, 1, 2, 3, 4, 4, None, None], CheckOutcome.PARTIAL),
-        ([1, 2, 3, 1, 4, 4, 4, 4, None, None], CheckOutcome.PARTIAL),
-        ([1, 2, 3, 4, 4, 4, 4, 4, None, None], CheckOutcome.FAILED),
+        [1, 2, 3, 1, 2, 3, 3, 4, None, None],
+        [1, 2, 3, 4, 4, 4, 4, 4, None, None],
+        [None] * 10,
     ],
 )
-def test_j3_share_of_grid_points_in_top_three(
-    raw_audit_full: RawAudit, positions: list[int | None], expected: CheckOutcome
+def test_j3_gives_the_measured_value_without_a_verdict(
+    raw_audit_full: RawAudit, positions: list[int | None]
 ) -> None:
     outcome, measured = run("j3", _with_grid(raw_audit_full, positions), {"grid": 5})
-    assert outcome is expected
+    assert outcome is CheckOutcome.PASSED
     assert measured["points_total"] == 10
+    assert measured["points_in_top"] == sum(
+        1 for position in positions if position is not None and position <= 3
+    )
+    assert measured["competitor_values"] is None
     assert measured["positions"] == {
         f"r1c{index}": position for index, position in enumerate(positions, start=1)
     }
 
 
-def test_j3_thresholds_from_catalogue_override_defaults(raw_audit_full: RawAudit) -> None:
+def test_j3_counts_the_top_positions_from_the_catalogue(raw_audit_full: RawAudit) -> None:
     raw = _with_grid(raw_audit_full, [1, 5, None, None])
-    thresholds: dict[str, float | int | str] = {"top": 5, "pass_share": 0.5}
-    outcome, measured = run("j3", raw, thresholds)
+    outcome, measured = run("j3", raw, {"top": 5})
     assert outcome is CheckOutcome.PASSED
     assert (measured["points_in_top"], measured["share_in_top"]) == (2, 0.5)
 
@@ -165,6 +171,56 @@ def test_j1_subdomain_counts_and_nothing_visible_fails(raw_audit_full: RawAudit)
     )
 
 
+def test_j1_a_list_of_only_the_search_engine_does_not_count_as_checked(
+    raw_audit_full: RawAudit,
+) -> None:
+    serps = [
+        _serp("Dachdecker Münster", [(2, f"{SITE}/")], []),
+        _serp("Dachfenster Münster", [(1, "google.de")], []),
+        _serp("Dachsanierung Münster", [(1, "www.google.com"), (2, "google.de")], []),
+    ]
+    outcome, measured = run("j1", _with_serps(raw_audit_full, serps), THRESHOLDS["j1"])
+    assert outcome is CheckOutcome.PASSED
+    assert measured["positions"] == {"Dachdecker Münster": 2}
+    assert measured["phrases_total"] == 1
+    assert measured["phrases_evaluated"] == 1
+    assert measured["phrases_missing"] == ["Dachfenster Münster", "Dachsanierung Münster"]
+
+
+def test_j1_35_of_40_valid_lists_are_evaluated_and_the_five_are_named(
+    raw_audit_full: RawAudit,
+) -> None:
+    serps = [_serp(f"Dachdecker Ort{number}", [(2, f"{SITE}/")], []) for number in range(35)] + [
+        _serp(f"Dachfenster Ort{number}", [(1, "maps.google.com")], []) for number in range(5)
+    ]
+    outcome, measured = run("j1", _with_serps(raw_audit_full, serps), THRESHOLDS["j1"])
+    assert outcome is CheckOutcome.PASSED
+    assert measured["phrases_evaluated"] == 35
+    assert len(measured["phrases_missing"]) == 5
+    assert measured["in_top"] == 35
+
+
+def test_j1_without_any_valid_list_is_not_measured(raw_audit_full: RawAudit) -> None:
+    serps = [_serp("Dachdecker Münster", [(1, "google.de")], [])]
+    assert run("j1", _with_serps(raw_audit_full, serps), THRESHOLDS["j1"]) == (
+        CheckOutcome.NOT_MEASURABLE,
+        {
+            "reason": "no_valid_result_lists",
+            "phrases_evaluated": 0,
+            "phrases_missing": ["Dachdecker Münster"],
+        },
+    )
+
+
+def test_j1_a_search_engine_page_among_real_results_is_still_a_list(
+    raw_audit_full: RawAudit,
+) -> None:
+    serps = [_serp("Dachdecker Münster", [(1, "google.de"), (2, f"{SITE}/")], [])]
+    measured = run("j1", _with_serps(raw_audit_full, serps), THRESHOLDS["j1"])[1]
+    assert measured["positions"] == {"Dachdecker Münster": 2}
+    assert measured["phrases_missing"] == []
+
+
 def test_j2_local_pack_matching(raw_audit_full: RawAudit) -> None:
     serps = [
         _serp("Dachdecker Münster", [], [(2, "Dachdeckerei Muster e.K.")]),
@@ -176,6 +232,23 @@ def test_j2_local_pack_matching(raw_audit_full: RawAudit) -> None:
     assert measured["positions"] == {"Dachdecker Münster": 2, "Dachsanierung Münster": 4}
     assert measured["in_top"] == 1
     assert measured["phrases_with_map"] == 2
+
+
+@pytest.mark.parametrize("entry", ["Dachdeckerei", "Muster", "Dach"])
+def test_j2_a_business_whose_name_is_only_part_of_ours_is_not_us(
+    raw_audit_full: RawAudit, entry: str
+) -> None:
+    serps = [_serp("Dachdecker Münster", [], [(1, entry)])]
+    outcome, measured = run("j2", _with_serps(raw_audit_full, serps), THRESHOLDS["j2"])
+    assert outcome is CheckOutcome.FAILED
+    assert measured["positions"] == {"Dachdecker Münster": None}
+
+
+def test_j2_our_whole_name_with_further_words_is_us(raw_audit_full: RawAudit) -> None:
+    serps = [_serp("Dachdecker Münster", [], [(2, "Dachdeckerei Muster Münster-Mitte")])]
+    outcome, measured = run("j2", _with_serps(raw_audit_full, serps), THRESHOLDS["j2"])
+    assert measured["positions"] == {"Dachdecker Münster": 2}
+    assert outcome is not CheckOutcome.FAILED
 
 
 def test_j2_not_in_pack_fails_and_no_pack_not_measurable(raw_audit_full: RawAudit) -> None:
@@ -193,7 +266,7 @@ def test_j2_not_in_pack_fails_and_no_pack_not_measurable(raw_audit_full: RawAudi
     ("position", "panel", "expected"),
     [
         (1, True, CheckOutcome.PASSED),
-        (1, False, CheckOutcome.PARTIAL),
+        (1, False, CheckOutcome.PASSED),
         (2, True, CheckOutcome.FAILED),
         (4, False, CheckOutcome.FAILED),
     ],
@@ -207,6 +280,24 @@ def test_j4_brand_position_and_panel(
     assert outcome is expected
     assert measured["position"] == position
     assert measured["knowledge_panel"] is panel
+
+
+@pytest.mark.parametrize(
+    ("position", "expected"), [(1, CheckOutcome.PASSED), (2, CheckOutcome.FAILED)]
+)
+def test_j4_leaves_the_panel_out_when_the_search_was_read_through_apify(
+    raw_audit_full: RawAudit, position: int, expected: CheckOutcome
+) -> None:
+    organic = [(position, f"{SITE}/")] if position == 1 else [(1, "facebook.com"), (position, SITE)]
+    serps = [_serp("Dachdeckerei Muster", organic, [], route="apify")]
+    outcome, measured = run("j4", _with_serps(raw_audit_full, serps), {})
+    assert outcome is expected
+    assert measured == {
+        "brand_phrase": "Dachdeckerei Muster",
+        "position": position,
+        "phrases_evaluated": 1,
+        "phrases_missing": [],
+    }
 
 
 def test_j4_ignores_bing_brand_search(raw_audit_full: RawAudit) -> None:
@@ -283,34 +374,6 @@ def test_j8_image_sources(raw_audit_full: RawAudit) -> None:
     assert run("j8", _with_serps(raw_audit_full, []), {})[1] == {"reason": "no_image_serp"}
 
 
-@pytest.mark.parametrize(
-    ("ads", "expected", "foreign"),
-    [
-        ([], CheckOutcome.PASSED, []),
-        (["dachdeckerei-muster.de", "Dachdeckerei Muster GmbH"], CheckOutcome.PASSED, []),
-        (["dach-schmidt.de", "dachdeckerei-muster.de"], CheckOutcome.FAILED, ["dach-schmidt.de"]),
-        (["Dachprofi Nord"], CheckOutcome.FAILED, ["Dachprofi Nord"]),
-    ],
-)
-def test_j10_competitor_ads_on_brand_search(
-    raw_audit_full: RawAudit, ads: list[str], expected: CheckOutcome, foreign: list[str]
-) -> None:
-    serps = [_serp("Dachdeckerei Muster", [(1, f"{SITE}/")], [], ads=ads)]
-    outcome, measured = run("j10", _with_serps(raw_audit_full, serps), {})
-    assert outcome is expected
-    assert measured == {"foreign_ads": foreign, "ads_seen": len(ads)}
-
-
-def test_j10_without_brand_search(raw_audit_full: RawAudit) -> None:
-    raw = _with_serps(raw_audit_full, raw_audit_full.serps[:2])
-    assert run("j10", raw, {})[1] == {"reason": "no_brand_search"}
-
-
-def test_is_own_ad_without_customer_host() -> None:
-    assert is_own_ad("dachdeckerei-muster.de", None, "Dachdeckerei Muster") is False
-    assert is_own_ad("Dachdeckerei Muster", None, "Dachdeckerei Muster GmbH") is True
-
-
 def test_j2_takes_maps_positions_for_phrases_without_map_block(raw_audit_full: RawAudit) -> None:
     serps = [_serp("Dachdecker Münster", [], [(2, "Dachdeckerei Muster")])]
     rankings = [
@@ -348,3 +411,62 @@ def test_j3_names_the_routes_of_its_points(raw_audit_full: RawAudit) -> None:
     measured = run("j3", raw.model_copy(update={"grid": mixed}), {"grid": 5})[1]
     assert measured["routes"] == ["browser", "places_api"]
     assert "route" not in run("j3", raw, {"grid": 5})[1]
+
+
+PREVIOUS_AUDIT = UUID("00000000-0000-4000-8000-0000000000a9")
+PREVIOUS_AT = datetime(2026, 10, 13, 9, 0, tzinfo=UTC)
+
+
+def _with_history(raw: RawAudit, moves: list[tuple[int | None, int | None]]) -> RawAudit:
+    history = RankingHistory(
+        previous_audit_id=PREVIOUS_AUDIT,
+        previous_requested_at=PREVIOUS_AT,
+        changes=[
+            PositionChange(phrase=f"begriff {index}", kind="organic", before=before, after=after)
+            for index, (before, after) in enumerate(moves)
+        ],
+    )
+    return raw.model_copy(update={"ranking_history": history})
+
+
+@pytest.mark.parametrize(
+    ("moves", "expected"),
+    [
+        ([(5, 3)], CheckOutcome.PASSED),
+        ([(None, 8)], CheckOutcome.PASSED),
+        ([(5, 3), (9, 1), (2, 9)], CheckOutcome.PASSED),
+        ([(5, 3), (4, 6)], CheckOutcome.PARTIAL),
+        ([(4, 4)], CheckOutcome.PARTIAL),
+        ([(None, None)], CheckOutcome.FAILED),
+        ([(3, 5)], CheckOutcome.FAILED),
+        ([(3, None)], CheckOutcome.FAILED),
+        ([(5, 3), (4, 6), (2, 9)], CheckOutcome.FAILED),
+    ],
+)
+def test_development_compares_the_positions_with_the_previous_audit(
+    raw_audit_full: RawAudit,
+    moves: list[tuple[int | None, int | None]],
+    expected: CheckOutcome,
+) -> None:
+    assert run("j9", _with_history(raw_audit_full, moves), {})[0] is expected
+
+
+def test_development_records_what_moved(raw_audit_full: RawAudit) -> None:
+    outcome, measured = run("j9", _with_history(raw_audit_full, [(5, 3), (4, 6), (7, 7)]), {})
+
+    assert outcome is CheckOutcome.PARTIAL
+    assert measured["previous_audit_id"] == str(PREVIOUS_AUDIT)
+    assert measured["previous_requested_at"] == "2026-10-13T09:00:00+00:00"
+    assert (measured["improved"], measured["worsened"], measured["unchanged"]) == (1, 1, 1)
+    assert measured["changes"] == [
+        {"phrase": "begriff 0", "kind": "organic", "before": 5, "after": 3},
+        {"phrase": "begriff 1", "kind": "organic", "before": 4, "after": 6},
+        {"phrase": "begriff 2", "kind": "organic", "before": 7, "after": 7},
+    ]
+
+
+def test_development_without_shared_positions_is_not_measurable(raw_audit_full: RawAudit) -> None:
+    assert run("j9", _with_history(raw_audit_full, []), {}) == (
+        CheckOutcome.NOT_MEASURABLE,
+        {"reason": "no_shared_rankings"},
+    )

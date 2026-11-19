@@ -246,7 +246,7 @@ describe("Kunden finden, the results", () => {
     await click(button("Audit starten", withSite));
     expect(startFieldAudit).toHaveBeenCalledWith({
       p_website: "https://mit-seite.de/",
-      p_disabled_checks: ["m1", "m2", "m3", "m4"],
+      p_disabled_checks: ["m1", "m2", "p5", "p6"],
     });
     expect(window.location.search).toBe("?pruefung=audit-3");
   });

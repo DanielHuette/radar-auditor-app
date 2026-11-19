@@ -1,8 +1,8 @@
-// Router and shell: sign-in gate, bottom navigation on phones, side navigation on desktop.
 import { useEffect } from "preact/hooks";
 import { LocationProvider, Route, Router, lazy, useLocation } from "preact-iso";
 import { Logo } from "./components/Logo";
 import { Shell } from "./components/Shell";
+import { Szene } from "./components/Szene";
 import { usePasswordRecovery } from "./hooks/recovery";
 import { AdminContext, useAdminStatus } from "./hooks/role";
 import { useSession } from "./hooks/useSession";
@@ -13,14 +13,11 @@ import { SignIn } from "./pages/SignIn";
 
 const SIGN_IN_PATH = "/anmelden";
 
-// Prüfen is the start page and ships in the main bundle; the rest loads on first visit,
-// so phones fetch Chart.js only when an Auswertung is opened.
 const Auswertung = lazy(() => import("./pages/Auswertung").then((module) => module.Auswertung));
 const Angebot = lazy(() => import("./pages/Angebot").then((module) => module.Angebot));
 const Settings = lazy(() => import("./pages/Settings").then((module) => module.Settings));
 const Kundensuche = lazy(() => import("./pages/Kundensuche").then((module) => module.Kundensuche));
 
-/** The former Dokumente tab; old bookmarks land on Prüfen. */
 function ToStart() {
   const { route } = useLocation();
   useEffect(() => {
@@ -57,6 +54,20 @@ function SignedIn({ admin, email }: { admin: boolean | undefined; email: string 
   );
 }
 
+interface GateViewProps {
+  session: ReturnType<typeof useSession>;
+  recovery: ReturnType<typeof usePasswordRecovery>;
+  admin: boolean | undefined;
+  onSignIn: boolean;
+}
+
+function GateView({ session, recovery, admin, onSignIn }: GateViewProps) {
+  if (session === undefined || (session === null && !onSignIn) || (session && onSignIn)) return <Splash />;
+  if (session === null) return <SignIn />;
+  if (recovery.pending) return <SetPassword onDone={recovery.finish} />;
+  return <SignedIn admin={admin} email={session.user.email ?? ""} />;
+}
+
 function Gate() {
   const session = useSession();
   const recovery = usePasswordRecovery();
@@ -69,10 +80,12 @@ function Gate() {
     if (session && onSignIn) route("/", true);
   }, [session, onSignIn, route]);
 
-  if (session === undefined || (session === null && !onSignIn) || (session && onSignIn)) return <Splash />;
-  if (session === null) return <SignIn />;
-  if (recovery.pending) return <SetPassword onDone={recovery.finish} />;
-  return <SignedIn admin={admin} email={session.user.email ?? ""} />;
+  return (
+    <>
+      <Szene leise={session !== null && session !== undefined} />
+      <GateView session={session} recovery={recovery} admin={admin} onSignIn={onSignIn} />
+    </>
+  );
 }
 
 export function App() {

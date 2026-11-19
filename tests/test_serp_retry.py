@@ -1,18 +1,17 @@
-"""Tests for the deferred Google search retry: backoff, scheduling and merging.
-
-Context: Unit tests with fake repositories and a fake browser, no network. | Input: Fixtures. |
-Output: Assertions.
-"""
-
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 from unittest.mock import MagicMock
 
 import pytest
 from conftest import CAPTCHA_PAGE, BrowserFactory, JobFactory
+from pydantic import SecretStr
 
+from radarauditor.collectors import apify_serp
+from radarauditor.collectors.paid_rankings import PaidSearchBatch
 from radarauditor.collectors.quota import SourceGate
 from radarauditor.collectors.snapshot import DeferredSearch, RawAudit, SerpResult
+from radarauditor.config import Settings
 from radarauditor.db.app_settings import SourcesSettings
 from radarauditor.db.models import JobKind, JobStatus
 from radarauditor.errors import SourceDisabledError
@@ -25,11 +24,10 @@ IMAGES_HTML = '<div id="search"><div data-lpage="https://bilder.example.de/a"></
 
 @pytest.fixture
 def google_html() -> str:
-    """Saved Google result page."""
     return (FIXTURES / "google_dachdecker_muenster.html").read_text(encoding="utf-8")
 
 
-def _serp(phrase: str, vertical: str = "web") -> SerpResult:
+def _serp(phrase: str, vertical: Literal["web", "images"] = "web") -> SerpResult:
     return SerpResult(
         phrase=phrase,
         organic=[(1, "old.example.de")],
@@ -68,12 +66,10 @@ def _gate(allowed: int = 1000, enabled: bool = True) -> SourceGate:
     [(1, timedelta(hours=1)), (2, timedelta(hours=4)), (3, timedelta(hours=12))],
 )
 def test_next_run_follows_the_backoff(attempts: int, delay: timedelta) -> None:
-    """After the first three runs the job waits 1 h, 4 h and 12 h."""
     assert serp_retry.next_run_at(attempts, NOW) == NOW + delay
 
 
 def test_backoff_starts_after_fifteen_minutes_and_ends_after_four_runs() -> None:
-    """The first run waits 15 min; after the fourth run there is no further step."""
     assert serp_retry.first_run_at(NOW) == NOW + timedelta(minutes=15)
     assert serp_retry.next_run_at(4, NOW) is None
     assert serp_retry.next_run_at(0, NOW) is None
@@ -82,8 +78,8 @@ def test_backoff_starts_after_fifteen_minutes_and_ends_after_four_runs() -> None
 def test_schedule_queues_a_deferred_job_for_the_audit(
     fake_repositories: MagicMock, make_job: JobFactory
 ) -> None:
-    """The retry job carries audit and customer and waits for the first backoff step."""
     job = make_job(JobKind.SERP_RETRY)
+    assert job.audit_id is not None
 
     serp_retry.schedule(fake_repositories, job.customer_id, job.audit_id, NOW)
 
@@ -95,7 +91,6 @@ def test_schedule_queues_a_deferred_job_for_the_audit(
 def test_record_failure_requeues_for_the_next_step(
     fake_repositories: MagicMock, make_job: JobFactory
 ) -> None:
-    """An unsuccessful second run is requeued for four hours later; the audit is untouched."""
     job = make_job(JobKind.SERP_RETRY, attempts=2)
 
     serp_retry.record_failure(job, fake_repositories, "still blocked", NOW)
@@ -109,7 +104,6 @@ def test_record_failure_requeues_for_the_next_step(
 def test_record_failure_gives_up_after_the_last_step(
     fake_repositories: MagicMock, make_job: JobFactory
 ) -> None:
-    """The fourth unsuccessful run fails the job with the reason; the audit is untouched."""
     job = make_job(JobKind.SERP_RETRY, attempts=4)
 
     serp_retry.record_failure(job, fake_repositories, "still blocked", NOW)
@@ -123,9 +117,11 @@ def test_record_failure_gives_up_after_the_last_step(
 
 
 async def test_search_deferred_runs_everything_and_clears_the_deferral(
-    fake_browser: BrowserFactory, sample_raw_audit: RawAudit, google_html: str
+    fake_browser: BrowserFactory,
+    collector_settings: Settings,
+    sample_raw_audit: RawAudit,
+    google_html: str,
 ) -> None:
-    """Web and image searches run; results replace older ones and the deferral warning goes."""
     raw = _deferred_raw(
         sample_raw_audit,
         [
@@ -136,7 +132,7 @@ async def test_search_deferred_runs_everything_and_clears_the_deferral(
     fake = fake_browser([google_html, IMAGES_HTML])
 
     async with fake.service as service:
-        run = await serp_retry.search_deferred(raw, service, _gate())
+        run = await serp_retry.search_deferred(raw, service, _gate(), collector_settings)
 
     assert run.found == 2
     assert run.remaining == []
@@ -151,9 +147,11 @@ async def test_search_deferred_runs_everything_and_clears_the_deferral(
 
 
 async def test_search_deferred_keeps_what_google_still_blocks(
-    fake_browser: BrowserFactory, sample_raw_audit: RawAudit, google_html: str
+    fake_browser: BrowserFactory,
+    collector_settings: Settings,
+    sample_raw_audit: RawAudit,
+    google_html: str,
 ) -> None:
-    """A block keeps the results so far, skips the image searches and updates the warning."""
     raw = _deferred_raw(
         sample_raw_audit,
         [
@@ -165,7 +163,7 @@ async def test_search_deferred_keeps_what_google_still_blocks(
     fake = fake_browser([google_html, CAPTCHA_PAGE])
 
     async with fake.service as service:
-        run = await serp_retry.search_deferred(raw, service, _gate())
+        run = await serp_retry.search_deferred(raw, service, _gate(), collector_settings)
 
     assert run.found == 1
     assert run.remaining == [
@@ -182,9 +180,11 @@ async def test_search_deferred_keeps_what_google_still_blocks(
 
 
 async def test_search_deferred_leaves_searches_over_the_cap_deferred(
-    fake_browser: BrowserFactory, sample_raw_audit: RawAudit, google_html: str
+    fake_browser: BrowserFactory,
+    collector_settings: Settings,
+    sample_raw_audit: RawAudit,
+    google_html: str,
 ) -> None:
-    """Searches beyond the daily cap are not run and stay deferred with the cap as reason."""
     raw = _deferred_raw(
         sample_raw_audit,
         [DeferredSearch(phrase="Dachdecker Münster"), DeferredSearch(phrase="Flachdach Münster")],
@@ -192,7 +192,7 @@ async def test_search_deferred_leaves_searches_over_the_cap_deferred(
     fake = fake_browser([google_html])
 
     async with fake.service as service:
-        run = await serp_retry.search_deferred(raw, service, _gate(allowed=1))
+        run = await serp_retry.search_deferred(raw, service, _gate(allowed=1), collector_settings)
 
     assert run.found == 1
     assert run.remaining == [DeferredSearch(phrase="Flachdach Münster")]
@@ -200,21 +200,19 @@ async def test_search_deferred_leaves_searches_over_the_cap_deferred(
 
 
 async def test_search_deferred_refuses_when_google_search_is_switched_off(
-    fake_browser: BrowserFactory, sample_raw_audit: RawAudit
+    fake_browser: BrowserFactory, collector_settings: Settings, sample_raw_audit: RawAudit
 ) -> None:
-    """A switched-off source raises, so the job follows the backoff with that reason."""
     raw = _deferred_raw(sample_raw_audit, [DeferredSearch(phrase="Dachdecker Münster")])
     fake = fake_browser([])
 
     async with fake.service as service:
         with pytest.raises(SourceDisabledError):
-            await serp_retry.search_deferred(raw, service, _gate(enabled=False))
+            await serp_retry.search_deferred(raw, service, _gate(enabled=False), collector_settings)
 
     assert fake.context.opened_with == []
 
 
 def test_merge_keeps_other_engines_and_verticals(sample_raw_audit: RawAudit) -> None:
-    """Only results of the same engine, vertical and phrase are replaced."""
     bing = _serp("Dachdecker Münster").model_copy(update={"engine": "bing"})
     raw = sample_raw_audit.model_copy(update={"serps": [_serp("Dachdecker Münster"), bing]})
     fresh = _serp("Dachdecker Münster").model_copy(update={"organic": [(1, "new.example.de")]})
@@ -225,3 +223,84 @@ def test_merge_keeps_other_engines_and_verticals(sample_raw_audit: RawAudit) -> 
         ("bing", [(1, "old.example.de")]),
         ("google", [(1, "new.example.de")]),
     ]
+
+
+def _apify_result(phrase: str, vertical: Literal["web", "images"] = "web") -> SerpResult:
+    return _serp(phrase, vertical).model_copy(update={"route": "apify", "organic": [(1, "new.de")]})
+
+
+async def test_search_deferred_reads_through_apify_first_and_leaves_the_browser_unused(
+    fake_browser: BrowserFactory,
+    sample_raw_audit: RawAudit,
+    collector_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = _deferred_raw(
+        sample_raw_audit,
+        [
+            DeferredSearch(phrase="Dachdecker Münster"),
+            DeferredSearch(phrase="Dachdecker Münster", vertical="images"),
+        ],
+    )
+    asked: list[tuple[list[str], frozenset[str]]] = []
+
+    async def web(
+        settings: Settings, gate: SourceGate, phrases: list[str], ad_phrases: frozenset[str]
+    ) -> PaidSearchBatch:
+        asked.append((phrases, ad_phrases))
+        return PaidSearchBatch([_apify_result(phrase) for phrase in phrases], [])
+
+    async def images(settings: Settings, gate: SourceGate, phrases: list[str]) -> PaidSearchBatch:
+        return PaidSearchBatch([_apify_result(phrase, "images") for phrase in phrases], [])
+
+    monkeypatch.setattr(apify_serp, "search_web", web)
+    monkeypatch.setattr(apify_serp, "search_images", images)
+    settings = collector_settings.model_copy(update={"apify_token": SecretStr("token")})
+    fake = fake_browser([])
+
+    async with fake.service as service:
+        run = await serp_retry.search_deferred(raw, service, _gate(allowed=0), settings)
+
+    assert run.found == 2
+    assert run.remaining == []
+    assert run.raw.deferred_searches == []
+    assert [(serp.phrase, serp.vertical, serp.route) for serp in run.raw.serps] == [
+        ("Dachdecker Münster", "web", "apify"),
+        ("Dachdecker Münster", "images", "apify"),
+    ]
+    assert fake.context.opened_with == []
+    assert asked == [(["Dachdecker Münster"], frozenset())]
+
+
+async def test_search_deferred_sends_what_apify_could_not_answer_to_the_browser(
+    fake_browser: BrowserFactory,
+    sample_raw_audit: RawAudit,
+    collector_settings: Settings,
+    google_html: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = _deferred_raw(
+        sample_raw_audit,
+        [DeferredSearch(phrase="Dachdecker Münster"), DeferredSearch(phrase="Flachdach Münster")],
+    )
+
+    async def web(
+        settings: Settings, gate: SourceGate, phrases: list[str], ad_phrases: frozenset[str]
+    ) -> PaidSearchBatch:
+        return PaidSearchBatch([_apify_result(phrases[0])], phrases[1:], "Apify cap")
+
+    async def images(settings: Settings, gate: SourceGate, phrases: list[str]) -> PaidSearchBatch:
+        return PaidSearchBatch([], [])
+
+    monkeypatch.setattr(apify_serp, "search_web", web)
+    monkeypatch.setattr(apify_serp, "search_images", images)
+    settings = collector_settings.model_copy(update={"apify_token": SecretStr("token")})
+    fake = fake_browser([google_html])
+
+    async with fake.service as service:
+        run = await serp_retry.search_deferred(raw, service, _gate(), settings)
+
+    assert run.found == 2
+    assert run.remaining == []
+    assert len(fake.page.visited) == 1
+    assert "Flachdach" in fake.page.visited[0]

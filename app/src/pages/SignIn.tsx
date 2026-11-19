@@ -1,6 +1,6 @@
 import { useState } from "preact/hooks";
 import { supabase } from "../api/supabase";
-import { Logo } from "../components/Logo";
+import { Lockup } from "../components/Logo";
 import { ErrorAlert, Field } from "../components/ui";
 import { useAuthRequest, type AuthRequest } from "../hooks/authRequest";
 
@@ -41,11 +41,12 @@ function PasswordForm({ email, setEmail, password, setPassword, request, onShowR
     void request.send(() => supabase.auth.signInWithPassword({ email: email.trim(), password }));
   };
   return (
-    <form class="panel form" onSubmit={signIn}>
+    <form class="signin__card panel stack" onSubmit={signIn}>
       <div>
-        <h1>Anmelden</h1>
-        <p class="muted">RadarAuditor – Sichtbarkeit, Berichte, Angebote.</p>
+        <p class="kicker">RepoCity</p>
+        <h1 class="signin__title">RadarAuditor</h1>
       </div>
+      <p class="muted">Sichtbarkeit, Berichte, Angebote an einem Ort.</p>
       <Field label="E-Mail" type="email" autoComplete="username" inputMode="email" value={email} onInput={setEmail} required />
       <Field label="Passwort" type="password" autoComplete="current-password" value={password} onInput={setPassword} required />
       <ErrorAlert message={request.error} />
@@ -73,7 +74,7 @@ function ResetForm({ email, setEmail, sent, request, onSent, onShowReset }: Rese
     if (await request.send(sendLink)) onSent(true);
   };
   return (
-    <form class="panel form" onSubmit={(event) => void requestReset(event)}>
+    <form class="signin__card panel stack" onSubmit={(event) => void requestReset(event)}>
       <div>
         <h1>Passwort vergessen</h1>
         <p class="muted">Du bekommst eine E-Mail mit einem Link, über den du ein neues Passwort festlegst.</p>
@@ -111,21 +112,19 @@ export function SignIn() {
   const { email, setEmail, password, setPassword, forgot, sent, setSent, request, showReset } = useSignIn();
   return (
     <main class="signin">
-      <div class="signin__card">
-        <Logo size={56} />
-        {forgot ? (
-          <ResetForm email={email} setEmail={setEmail} sent={sent} request={request} onSent={setSent} onShowReset={showReset} />
-        ) : (
-          <PasswordForm
-            email={email}
-            setEmail={setEmail}
-            password={password}
-            setPassword={setPassword}
-            request={request}
-            onShowReset={showReset}
-          />
-        )}
-      </div>
+      <Lockup />
+      {forgot ? (
+        <ResetForm email={email} setEmail={setEmail} sent={sent} request={request} onSent={setSent} onShowReset={showReset} />
+      ) : (
+        <PasswordForm
+          email={email}
+          setEmail={setEmail}
+          password={password}
+          setPassword={setPassword}
+          request={request}
+          onShowReset={showReset}
+        />
+      )}
     </main>
   );
 }

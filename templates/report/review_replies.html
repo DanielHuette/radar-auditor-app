@@ -1,8 +1,8 @@
-{# Reply drafts to real unanswered reviews, shown to a business that wants to think the offer over. Nothing here is posted on Google. #}
 {% extends "_layout.html" %}
 {% block title %}Antwortentwürfe {{ report.customer_name }}{% endblock %}
 {% block kind %}Antwortentwürfe auf Ihre Bewertungen{% endblock %}
 {% block meta %}Aus der Prüfung vom {{ report.audit_date|date }}{% endblock %}
+{% block ai_notice %}Die Antwortentwürfe in diesem Dokument wurden mit künstlicher Intelligenz erstellt.{% endblock %}
 {% block cover_body %}
 <p class="introduction">Auf diese Bewertungen bei Google hat Ihr Betrieb noch nicht geantwortet. So könnten die Antworten klingen. Nichts davon ist veröffentlicht; jede Antwort geht erst online, wenn Sie zustimmen.</p>
 {% endblock %}

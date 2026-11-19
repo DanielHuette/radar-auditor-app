@@ -38,6 +38,14 @@ class LoginWallError(TransientCollectionError):
     """A consumer website asks to sign in before it answers."""
 
 
+class PreflightError(CollectionError):
+    """A measuring route without a fallback failed its probe; the audit stops with a message."""
+
+
+class AuditHalted(PreflightError):  # noqa: N818 - a state, not a fault
+    """A measuring route of a critical stage failed; the audit stops and waits for Daniel."""
+
+
 class ProfileNotFoundError(CollectionError):
     """Google lists no business profile matching the name and address that were searched."""
 
@@ -47,6 +55,10 @@ class IdentificationError(CollectionError):
 
     The message is German and shown in the app as it is; the job is not retried.
     """
+
+
+class MissingInputError(CollectionError):
+    pass
 
 
 class SourceUnavailableError(CollectionError):

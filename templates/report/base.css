@@ -1,9 +1,9 @@
-/* Print styles in the RepoCity palette: night blue cover, gold accents, Archivo where installed. */
 @page {
   size: A4;
   margin: 22mm 18mm 24mm 18mm;
   @bottom-left {
-    content: "RepoCity · Daniel Hütte · Münster · kontakt@speedofthespirit.dev";
+    content: "RepoCity · Daniel Hütte · Münster · repocity.speedofthespirit.dev" "\A" "{{ ai_footer_text }}";
+    white-space: pre;
     font-family: "Archivo", "DejaVu Sans", sans-serif;
     font-size: 7.5pt;
     color: #6b6a64;
@@ -72,6 +72,14 @@ body { margin: 0; }
 .score-number small { font-size: 18pt; color: #a9a79f; font-weight: normal; }
 .score-caption { color: #a9a79f; margin-top: 2mm; }
 .cover .introduction { margin-top: 16mm; max-width: 150mm; color: #f3f1ea; }
+.cover .ai-notice {
+  margin: 8mm 0 0 0;
+  max-width: 150mm;
+  padding: 2mm 4mm;
+  border-left: 1mm solid #dcb25c;
+  font-size: 8.5pt;
+  color: #f3f1ea;
+}
 
 h2 {
   font-size: 16pt;
@@ -89,6 +97,7 @@ p { margin: 0 0 3mm 0; }
 
 .chart { display: block; width: 100%; margin: 2mm 0 4mm 0; border-radius: 2mm; break-inside: avoid; }
 .chart.square { width: 48%; }
+.chart.tall { width: auto; max-width: 100%; max-height: 240mm; }
 
 .finding {
   break-inside: avoid;
@@ -133,9 +142,21 @@ tr { break-inside: avoid; }
 ul.assumptions { margin: 0; padding-left: 5mm; font-size: 9pt; color: #3a3935; }
 ul.assumptions li { margin-bottom: 1mm; }
 .offer {
+  break-inside: avoid;
   background: #04060b;
   color: #f3f1ea;
   padding: 6mm;
   border-radius: 2mm;
 }
 .offer h2 { color: #f3f1ea; }
+.draft-note { margin: 6mm 0 0 0; padding: 3mm 4mm; border: 1px solid #e0a83a; color: #f3f1ea; font-size: 10pt; }
+table.control { table-layout: fixed; font-size: 8pt; }
+table.control th, table.control td { overflow-wrap: break-word; hyphens: none; padding: 1mm 1.2mm; }
+table.control th:nth-child(1) { width: 22%; }
+table.control th:nth-child(2) { width: 12%; }
+table.control th:nth-child(3) { width: 22%; }
+table.control th:nth-child(4) { width: 26%; }
+table.control th:nth-child(5) { width: 18%; }
+table.control thead { display: table-header-group; }
+table.social .address { font-size: 8pt; color: #6b6a64; overflow-wrap: anywhere; }
+table.social th { white-space: nowrap; }

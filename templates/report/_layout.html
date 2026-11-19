@@ -1,9 +1,12 @@
-{# Shared frame of every report: print styles, cover with wordmark, legal footer via @page in base.css. #}
+{% set ai_metadata_value = "Erstellt mit künstlicher Intelligenz" %}
+{% set ai_footer_text = "Die Texte dieses Berichts wurden mit künstlicher Intelligenz erstellt." %}
 <!doctype html>
 <html lang="de">
 <head>
 <meta charset="utf-8">
 <title>{% block title %}{% endblock %}</title>
+<meta name="keywords" content="{{ ai_metadata_value }}">
+<meta name="description" content="{{ ai_footer_text }}">
 <style>
 {% include "base.css" %}
 </style>
@@ -14,6 +17,7 @@
   <div class="kind">{% block kind %}{% endblock %}</div>
   <h1>{{ report.customer_name }}</h1>
   <div class="meta">{% block meta %}{% endblock %}</div>
+  <p class="ai-notice"><strong>Hinweis zur künstlichen Intelligenz:</strong> {% block ai_notice %}Die Texte zu den Befunden, Auswertungen und Empfehlungen in diesem Bericht wurden mit künstlicher Intelligenz erstellt. Die Messwerte und Punkte berechnet ein Programm. Jede gemessene Prüfung wurde danach in einem eigenen Kontrollschritt, ebenfalls mit künstlicher Intelligenz, anhand der unveränderten Antworten der Anbieter geprüft.{% endblock %}</p>
   {% block cover_body %}{% endblock %}
 </div>
 {% block content %}{% endblock %}

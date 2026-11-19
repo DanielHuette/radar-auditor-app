@@ -75,12 +75,8 @@ Voraussetzungen auf dem PC: **Docker Desktop** (https://www.docker.com/products/
    | `DATAFORSEO_PASSWORD` | Passwort für die DataForSEO-Schnittstelle |
    | `DATAFORSEO_EUR_PER_USD` | Euro je US-Dollar für das Monatslimit; `1` rechnet vorsichtig |
    | `OPENAI_API_KEY` | freiwillig: bezahlter Ersatzweg, wenn chatgpt.com den Server-Browser sperrt; leer heißt, kein Ersatzweg |
-   | `GEMINI_API_KEY` | freiwillig: bezahlter Ersatzweg, wenn gemini.google.com den Server-Browser sperrt; leer heißt, kein Ersatzweg |
-   | `PERPLEXITY_API_KEY` | freiwillig: bezahlter Ersatzweg, wenn perplexity.ai den Server-Browser sperrt oder eine Anmeldung verlangt; leer heißt, kein Ersatzweg |
    | `OPENAI_MODEL` | Modell des ChatGPT-Ersatzwegs; Vorgabe lassen |
    | `CLAUDE_MODEL` | Modell, mit dem Claude Code die Assistenten-Fragen beantwortet; Vorgabe lassen |
-   | `GEMINI_MODEL` | Modell des Gemini-Ersatzwegs; Vorgabe lassen |
-   | `PERPLEXITY_MODEL` | Voreinstellung (preset) des Perplexity-Ersatzwegs: `fast`, `low` oder `high`; Vorgabe `fast` lassen |
    | `ASSISTANT_TIMEOUT_SECONDS` | Sekunden, die eine Assistenten-Antwort auf der Website oder in Claude Code dauern darf; Vorgabe `120` lassen |
    | `GOOGLE_OAUTH_CLIENT_ID` | nur für Audits mit Kundenzugang: Client-ID aus Abschnitt 9 |
    | `GOOGLE_OAUTH_CLIENT_SECRET` | nur für Audits mit Kundenzugang: Client-Secret aus Abschnitt 9 |
@@ -126,16 +122,14 @@ on conflict (key) do update set value = excluded.value;
 
 Die App bringt die Schrift Archivo selbst mit: `app/public/fonts/Archivo-Variable.woff2` mit der Lizenz `OFL.txt` (SIL Open Font License 1.1). Sie wird nicht von Google geladen, weil das die Adresse jedes Besuchers an Google überträgt und in Deutschland abmahnfähig ist. Die PDF-Berichte im Container nutzen DejaVu Sans, solange Archivo dort nicht installiert ist.
 
-## 7. Freiwillig: Bezahldienste und weitere KI-Assistenten
+## 7. Freiwillig: Bezahldienste
 
 | Dienst | Wofür | Wo du den Schlüssel bekommst | Zeile in `.env` |
 |---|---|---|---|
 | DataForSEO | Suchvolumen, Linkdaten, rankende Begriffe (Prüfungen c2, c12, i1–i3, i5, j5) und die Google-Suchen, bei denen der Browser gesperrt wird; standardmäßig an, mit Monatslimit in den App-Einstellungen | https://app.dataforseo.com → **API Access** | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` |
 | OpenAI | fragt ChatGPT, wenn chatgpt.com den Server-Browser sperrt | https://platform.openai.com/api-keys → **Create new secret key** | `OPENAI_API_KEY` |
-| Google Gemini | fragt Gemini, wenn gemini.google.com den Server-Browser sperrt | https://aistudio.google.com → **Get API key** | `GEMINI_API_KEY` |
-| Perplexity | fragt Perplexity, wenn perplexity.ai den Server-Browser sperrt oder eine Anmeldung verlangt | https://www.perplexity.ai/settings/api → **Generate** | `PERPLEXITY_API_KEY` |
 
-ChatGPT, Gemini und Perplexity werden zuerst auf ihren Websites im Server-Browser gefragt; Claude immer über Claude Code. Alle vier Dienste oben kosten je Abfrage Geld. Nach einer Änderung an `.env`: `docker compose up -d` startet den Sammler mit den neuen Werten neu.
+ChatGPT und der Google KI-Modus werden zuerst auf ihren Websites im Server-Browser gefragt; Claude immer über Claude Code. Beide Dienste oben kosten je Abfrage Geld. Nach einer Änderung an `.env`: `docker compose up -d` startet den Sammler mit den neuen Werten neu.
 
 ## 8. Mails lesen
 

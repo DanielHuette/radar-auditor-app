@@ -1,5 +1,3 @@
-// Plain-German lines for the `measured` JSON the scorer stores per check
-// (src/radarauditor/scoring/checks/*.py); measured.test.ts keeps both in step.
 import { formatDate } from "./format";
 
 export interface MeasuredLine {
@@ -9,11 +7,12 @@ export interface MeasuredLine {
 }
 
 type Kind =
-  | "yesno" | "manual" | "found" | "count" | "number" | "words" | "chars" | "searches" | "clicks" | "place"
-  | "ms" | "decimal" | "score" | "share" | "change" | "rating" | "days" | "perMonth" | "date" | "year"
+  | "yesno" | "found" | "count" | "number" | "words" | "chars" | "searches" | "clicks" | "place"
+  | "ms" | "decimal" | "score" | "share" | "change" | "rating" | "days" | "perMonth" | "date"
   | "month" | "url" | "text" | "term" | "urls" | "hosts" | "terms" | "quotes" | "positions" | "counts"
-  | "shares" | "changes" | "metrics" | "searchTotals" | "urlTerms" | "urlCounts" | "urlShares"
-  | "listings" | "pairs" | "gaps" | "nap" | "schemaErrors" | "reason" | "sources" | "businesses" | "hidden";
+  | "shares" | "changes" | "metrics" | "searchTotals" | "urlCounts" | "urlReasons" | "urlDays" | "urlGroups"
+  | "listings" | "gaps" | "reason" | "sources" | "businesses" | "hidden" | "note" | "rankChanges"
+  | "ratings" | "examples" | "agentStates" | "phraseBreakdown" | "adPhrases" | "hours";
 
 interface Field {
   label: string;
@@ -27,236 +26,170 @@ const integer = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 });
 const oneDecimal = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 const twoDecimals = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
 
-/** Every key the scorer writes, in the order the lines appear. */
 const FIELDS: Readonly<Record<string, Field>> = {
   reason: { label: "Grund", kind: "reason" },
   sources: { label: "Ausgeschöpft", kind: "sources" },
   capped_sources: { label: "Ohne Antworten von (Tageslimit)", kind: "sources" },
-  // Shown as the small route note of the check (routes.ts), not as a line.
   route: { label: "Datenweg", kind: "hidden" },
   routes: { label: "Datenwege", kind: "hidden" },
   pages_total: { label: "Seiten geprüft", kind: "count" },
-  uses_https: { label: "Verschlüsselt (HTTPS)", kind: "yesno" },
-  redirects_to_single_host: { label: "Alle Varianten führen auf eine Adresse", kind: "yesno" },
   lcp_ms: { label: "Hauptinhalt sichtbar nach", kind: "ms" },
-  lcp_ms_max: { label: "Ziel: Hauptinhalt nach höchstens", kind: "ms" },
+  lcp_source: { label: "Hauptinhalt gemessen bei", kind: "term" },
+  lcp_rating: { label: "Hauptinhalt bewertet als", kind: "term" },
   cls: { label: "Verrutschen beim Laden (CLS)", kind: "decimal" },
-  cls_max: { label: "Ziel: Verrutschen höchstens", kind: "decimal" },
+  cls_source: { label: "Verrutschen gemessen bei", kind: "term" },
+  cls_rating: { label: "Verrutschen bewertet als", kind: "term" },
   inp_ms: { label: "Reaktion auf Tippen", kind: "ms" },
-  inp_ms_max: { label: "Ziel: Reaktion nach höchstens", kind: "ms" },
+  inp_source: { label: "Reaktion gemessen bei", kind: "term" },
+  inp_rating: { label: "Reaktion bewertet als", kind: "term" },
+  tbt_ms: { label: "Blockierte Zeit beim Laden (TBT)", kind: "ms" },
+  tbt_source: { label: "Blockierte Zeit gemessen bei", kind: "term" },
+  tbt_rating: { label: "Blockierte Zeit bewertet als", kind: "term" },
+  lab_runs: { label: "Labormessungen am Handy", kind: "count" },
   mobile_performance: { label: "Tempo-Wertung Handy", kind: "score" },
   desktop_performance: { label: "Tempo-Wertung Computer", kind: "score" },
-  mobile_score_min: { label: "Ziel: Tempo-Wertung Handy mindestens", kind: "score" },
-  pages_without_viewport: { label: "Seiten ohne Handy-Darstellung", kind: "urls" },
-  pages_without_viewport_count: { label: "Anzahl Seiten ohne Handy-Darstellung", kind: "count" },
-  has_robots_txt: { label: "robots.txt vorhanden", kind: "yesno" },
-  sitemap_count: { label: "Sitemaps", kind: "count" },
-  blocks_google: { label: "Sperrt Google aus", kind: "yesno" },
-  broken_urls: { label: "Tote Links", kind: "urls" },
-  broken_count: { label: "Anzahl toter Links", kind: "count" },
-  crawl_errors: { label: "Nicht abrufbar", kind: "urls" },
-  max_broken: { label: "Ziel: tote Links höchstens", kind: "count" },
-  pages_missing_canonical: { label: "Seiten ohne Canonical-Angabe", kind: "urls" },
-  pages_missing_count: { label: "Anzahl Seiten ohne Canonical-Angabe", kind: "count" },
+  start_page_affected: { label: "Startseite betroffen", kind: "yesno" },
+  robots_txt_present: { label: "robots.txt vorhanden", kind: "yesno" },
+  robots_status: { label: "Antwortstatus der robots.txt", kind: "count" },
+  pages_affected: { label: "Betroffene Seiten", kind: "urls" },
+  pages_affected_count: { label: "Anzahl betroffener Seiten", kind: "count" },
+  pages_affected_reasons: { label: "Grund je Seite", kind: "urlReasons" },
+  agent: { label: "Kennung des Abrufers", kind: "text" },
+  agents: { label: "Abrufer", kind: "agentStates" },
+  site_blocked: { label: "Ganze Website gesperrt", kind: "yesno" },
+  pages_blocked: { label: "Gesperrte Seiten", kind: "urls" },
+  pages_blocked_count: { label: "Anzahl gesperrter Seiten", kind: "count" },
+  changes_take_effect_hours: { label: "Änderungen wirken nach etwa", kind: "hours" },
+  bot_status: { label: "Antwort an den Abrufer (Statuscode)", kind: "number" },
+  reason_blocked: { label: "Grund der Sperre", kind: "text" },
+  similarity: { label: "Übereinstimmung mit der Besucheransicht", kind: "share" },
+  min_similarity: { label: "Ziel: Übereinstimmung mindestens", kind: "share" },
+  visitor_words: { label: "Wörter in der Besucheransicht", kind: "count" },
+  bot_words: { label: "Wörter in der Ansicht des Abrufers", kind: "count" },
+  images_total: { label: "Inhaltsbilder", kind: "count" },
+  images_described: { label: "Davon beschrieben", kind: "count" },
+  missing_by_page: { label: "Bilder ohne Beschreibung je Seite", kind: "urlCounts" },
+  missing_files: { label: "Dateien ohne Beschreibung", kind: "urls" },
+  blocked_by_robots: { label: "Für Google gesperrt (robots.txt)", kind: "urls" },
+  wrong_status: { label: "Öffnen sich mit Fehler", kind: "urls" },
+  noindex_pages: { label: "Mit „nicht aufnehmen“ gekennzeichnet", kind: "urls" },
+  other_canonical_pages: { label: "Verweisen auf eine andere Adresse (Canonical)", kind: "urls" },
   images_without_alt: { label: "Bilder ohne Beschreibung (Alt-Text)", kind: "count" },
-  oversized_images: { label: "Zu große Bilder", kind: "count" },
   pages_with_issues: { label: "Seiten mit Bildproblemen", kind: "urls" },
-  max_image_kb: { label: "Ziel: Bilder höchstens (Kilobyte)", kind: "count" },
-  max_missing_alt: { label: "Ziel: Bilder ohne Beschreibung höchstens", kind: "count" },
-  pages_without_text: { label: "Seiten ohne lesbaren Text", kind: "urls" },
-  pages_without_text_count: { label: "Anzahl Seiten ohne lesbaren Text", kind: "count" },
-  pages_without_german_lang: { label: "Seiten nicht als deutsch gekennzeichnet", kind: "urls" },
-  open_admin_pages: { label: "Offene Verwaltungsseiten", kind: "urls" },
-  insecure_links: { label: "Unverschlüsselte Links (http)", kind: "urls" },
-  insecure_link_count: { label: "Anzahl unverschlüsselter Links", kind: "count" },
-  pages_without_single_h1: { label: "Seiten ohne genau eine Hauptüberschrift", kind: "urls" },
-  pages_without_single_h1_count: { label: "Anzahl Seiten ohne genau eine Hauptüberschrift", kind: "count" },
-  start_page_h1: { label: "Hauptüberschrift der Startseite", kind: "text" },
-  start_page_h1_has_city: { label: "Hauptüberschrift nennt den Ort", kind: "yesno" },
-  pages_ok: { label: "Seiten in Ordnung", kind: "count" },
-  pages_missing: { label: "Seiten ohne Angabe", kind: "urls" },
-  pages_too_short: { label: "Zu kurz", kind: "urls" },
-  pages_too_long: { label: "Zu lang", kind: "urls" },
-  pages_duplicate: { label: "Doppelt vergeben", kind: "urls" },
-  min_chars: { label: "Ziel: mindestens", kind: "chars" },
-  max_chars: { label: "Ziel: höchstens", kind: "chars" },
-  pages_with_jumps: { label: "Seiten mit Sprüngen in der Gliederung", kind: "urls" },
-  pages_too_deep: { label: "Seiten zu tief versteckt", kind: "urls" },
-  pages_too_deep_count: { label: "Anzahl zu tief versteckter Seiten", kind: "count" },
-  deepest_click_depth: { label: "Tiefste Seite (Klicks ab Startseite)", kind: "count" },
-  max_depth: { label: "Ziel: Klicks höchstens", kind: "count" },
-  cryptic_urls: { label: "Unverständliche Adressen", kind: "urls" },
-  pages_incomplete: { label: "Seiten mit unvollständiger Link-Vorschau", kind: "urlTerms" },
-  pages_incomplete_count: { label: "Anzahl Seiten mit unvollständiger Link-Vorschau", kind: "count" },
-  duplicate_pairs: { label: "Fast gleiche Seiten", kind: "pairs" },
-  pages_involved: { label: "Seiten mit doppeltem Text", kind: "count" },
-  max_similarity: { label: "Ziel: Ähnlichkeit höchstens", kind: "share" },
-  pages_without_breadcrumb: { label: "Seiten ohne Brotkrümelpfad", kind: "urls" },
-  subpages_total: { label: "Unterseiten geprüft", kind: "count" },
-  error_page_url: { label: "Getestete tote Adresse", kind: "url" },
-  links_on_error_page: { label: "Links auf der Fehlerseite", kind: "count" },
-  services_without_page: { label: "Leistungen ohne eigene Seite", kind: "terms" },
-  services_total: { label: "Leistungen geprüft", kind: "count" },
-  phrases_with_demand: { label: "Suchbegriffe mit Nachfrage", kind: "terms" },
-  phrases_without_page: { label: "Suchbegriffe ohne eigene Seite", kind: "terms" },
   min_volume: { label: "Ziel: Nachfrage ab", kind: "searches" },
-  pages_below_min_words: { label: "Zu kurze Leistungsseiten", kind: "urlCounts" },
-  lowest_word_count: { label: "Kürzeste Leistungsseite", kind: "words" },
   min_words: { label: "Ziel: mindestens", kind: "words" },
-  phrases_missing_in_text: { label: "Suchbegriffe fehlen im Text", kind: "terms" },
-  pages_over_density: { label: "Seiten mit zu vielen Wiederholungen", kind: "urlShares" },
-  max_density: { label: "Ziel: Anteil eines Begriffs höchstens", kind: "share" },
-  unanswered_questions: { label: "Unbeantwortete Fragen", kind: "quotes" },
-  questions_total: { label: "Fragen geprüft", kind: "count" },
-  pages_without_city: { label: "Seiten ohne Ort im Text", kind: "urls" },
+  navigation_measured: { label: "Menü ausgewertet", kind: "yesno" },
+  navigation_items: { label: "Menüpunkte", kind: "count" },
+  navigation_without_href: { label: "Menüpunkte ohne lesbaren Link", kind: "terms" },
+  navigation_without_href_count: { label: "Anzahl Menüpunkte ohne lesbaren Link", kind: "count" },
+  pages_not_linked: { label: "Seiten ohne Link von einer anderen Seite", kind: "urls" },
+  pages_only_in_sitemap: { label: "Nur in der Sitemap, ohne Link", kind: "urls" },
+  pages_unreachable_count: { label: "Anzahl nicht verlinkter Seiten", kind: "count" },
   city: { label: "Ort", kind: "text" },
-  latest_year_on_site: { label: "Neuestes Jahr auf der Website", kind: "year" },
-  audit_year: { label: "Jahr der Prüfung", kind: "year" },
-  about_page: { label: "Über-uns-Seite", kind: "url" },
-  mentions_qualification: { label: "Nennt Qualifikationen", kind: "yesno" },
-  contact_page: { label: "Kontaktseite", kind: "url" },
-  has_tel_link: { label: "Telefonnummer antippbar", kind: "yesno" },
-  guide_posts: { label: "Ratgeber-Artikel", kind: "count" },
-  guide_posts_with_city: { label: "davon mit Ortsbezug", kind: "count" },
-  min_posts: { label: "Ziel: Artikel mindestens", kind: "count" },
-  thin_pages: { label: "Seiten mit wenig Text", kind: "urlCounts" },
-  thin_page_count: { label: "Anzahl Seiten mit wenig Text", kind: "count" },
+  sitemap_found: { label: "Sitemap gefunden", kind: "yesno" },
+  entries_total: { label: "Einträge in der Sitemap", kind: "count" },
+  entries_checked: { label: "Davon geprüft", kind: "count" },
+  entries_with_problem: { label: "Einträge mit Mangel", kind: "urlReasons" },
+  entries_with_problem_count: { label: "Anzahl Einträge mit Mangel", kind: "count" },
+  entries_with_lastmod: { label: "Einträge mit Änderungsdatum", kind: "count" },
+  links_total: { label: "Links geprüft", kind: "count" },
+  links_without_href: { label: "Links ohne lesbare Adresse", kind: "terms" },
+  links_without_href_count: { label: "Anzahl Links ohne lesbare Adresse", kind: "count" },
+  links_without_label: { label: "Links ohne Beschriftung", kind: "terms" },
+  links_without_label_count: { label: "Anzahl Links ohne Beschriftung", kind: "count" },
+  variants_checked: { label: "Adress-Varianten geprüft", kind: "count" },
+  duplicate_addresses: { label: "Doppelt erreichbar unter", kind: "urls" },
+  temporary_redirects: { label: "Nur vorübergehend weitergeleitet", kind: "terms" },
+  unreachable_variants: { label: "Nicht erreichbar", kind: "urls" },
+  pages_without_text: { label: "Seiten ohne Text im Seitencode", kind: "urls" },
+  pages_without_text_count: { label: "Anzahl Seiten ohne Text im Seitencode", kind: "count" },
+  system_paths_blocked: { label: "Gesperrte Systempfade", kind: "terms" },
+  system_paths_blocked_count: { label: "Anzahl gesperrter Systempfade", kind: "count" },
+  min_overlap: { label: "Mindestübereinstimmung für den Vergleich", kind: "hidden" },
+  compare_from_words: { label: "Vergleich ab Wörtern", kind: "hidden" },
+  difference: { label: "Unterschied", kind: "term" },
+  href: { label: "Link", kind: "hidden" },
+  entries_without_lastmod: { label: "Einträge ohne Änderungsdatum", kind: "urls" },
+  entries_without_lastmod_count: { label: "Anzahl Einträge ohne Änderungsdatum", kind: "count" },
+  newest_change_date: { label: "Neueste Änderung am", kind: "date" },
+  change_dates: { label: "Änderungsdaten", kind: "hidden" },
+  ignored_without_offer_link: { label: "Ignoriert, weil ein Link zum Angebot fehlt", kind: "count" },
+  delivered: { label: "Daten geliefert", kind: "yesno" },
+  search_text: { label: "Suchtext", kind: "text" },
+  competitor_median: { label: "Mittelwert der Wettbewerber", kind: "number" },
+  words_in_html: { label: "Wörter im Seitencode", kind: "urlCounts" },
+  pages_with_problem: { label: "Seiten mit Mangel", kind: "urls" },
+  problems_by_page: { label: "Mangel je Seite", kind: "urlReasons" },
+  duplicate_titles: { label: "Gleiche Titel", kind: "urlGroups" },
+  images_with_generic_name: { label: "Bilder mit nichtssagendem Dateinamen", kind: "count" },
+  generic_names: { label: "Beispiele für Dateinamen", kind: "terms" },
+  pages_without_service_and_city: { label: "Seiten ohne Leistung und Ort oben", kind: "urls" },
+  pages_dated: { label: "Seiten mit Änderungsdatum", kind: "count" },
+  pages_stale: { label: "Seiten über der Altersgrenze", kind: "urlDays" },
+  newest_age_days: { label: "Neueste Änderung vor", kind: "days" },
+  values_checked: { label: "Angaben verglichen", kind: "count" },
+  mismatch_count: { label: "Anzahl Abweichungen", kind: "count" },
+  mismatching_sources: { label: "Abweichend geschrieben in", kind: "terms" },
+  phrases_with_own_ad: { label: "Suchbegriffe mit eigener Anzeige", kind: "count" },
+  phrases: { label: "Anzeigen je Suchbegriff", kind: "adPhrases" },
+  competitors_on_brand: { label: "Wettbewerber mit Anzeige auf den Firmennamen", kind: "hosts" },
+  competitors_on_brand_count: { label: "Anzahl Wettbewerber mit Anzeige", kind: "count" },
+  by_phrase: { label: "Fundstellen je Suchbegriff", kind: "phraseBreakdown" },
+  pages_without_title: { label: "Seiten ohne Titel", kind: "urls" },
+  pages_with_same_title: { label: "Seiten mit gleichem Titel", kind: "urlGroups" },
+  title_problem_count: { label: "Anzahl Seiten mit Titelmangel", kind: "count" },
+  note: { label: "Hinweis", kind: "note" },
+  previous_audit_id: { label: "Vorherige Prüfung", kind: "hidden" },
+  previous_requested_at: { label: "Verglichen mit der Prüfung vom", kind: "date" },
+  improved: { label: "Verbesserte Plätze", kind: "count" },
+  worsened: { label: "Verschlechterte Plätze", kind: "count" },
+  unchanged: { label: "Unveränderte Plätze", kind: "count" },
+  changes: { label: "Veränderungen je Suchbegriff", kind: "rankChanges" },
   gap_keywords: { label: "Suchbegriffe nur bei Wettbewerbern", kind: "count" },
   top_gap_keywords: { label: "Wichtigste davon", kind: "gaps" },
-  footer_nap: { label: "Firmendaten im Fußbereich", kind: "nap" },
-  missing_fields: { label: "Fehlt im Fußbereich", kind: "terms" },
-  website: { label: "Auf der Website", kind: "nap" },
-  google: { label: "Im Google-Profil", kind: "nap" },
   mismatches: { label: "Abweichungen", kind: "terms" },
-  hours_on_website: { label: "Öffnungszeiten auf der Website", kind: "yesno" },
-  hours_on_google: { label: "Öffnungszeiten im Google-Profil", kind: "yesno" },
-  hours_text_compared: { label: "Öffnungszeiten verglichen", kind: "manual" },
-  location_pages: { label: "Seiten mit der Adresse", kind: "urls" },
   postal_code: { label: "Postleitzahl", kind: "text" },
-  google_profile_links: { label: "Links zum Google-Profil", kind: "urls" },
-  tel_links: { label: "Telefon-Links", kind: "urls" },
-  mailto_links: { label: "E-Mail-Links", kind: "urls" },
-  local_business_type: { label: "Eingetragener Firmentyp", kind: "terms" },
-  missing_properties: { label: "Fehlende Angaben", kind: "terms" },
-  organization_found: { label: "Firmenangabe vorhanden", kind: "yesno" },
-  logo_found: { label: "Logo angegeben", kind: "yesno" },
-  pages_without_service_schema: { label: "Leistungsseiten ohne Leistungs-Markup", kind: "urls" },
-  service_pages_total: { label: "Leistungsseiten geprüft", kind: "count" },
-  faq_pages_without_schema: { label: "Fragen-Seiten ohne FAQ-Markup", kind: "urls" },
-  faq_pages_total: { label: "Seiten mit Fragen und Antworten", kind: "count" },
-  pages_without_breadcrumb_schema: { label: "Seiten ohne Brotkrümel-Markup", kind: "urls" },
-  pages_with_rating_markup: { label: "Seiten mit Sterne-Markup", kind: "count" },
-  pages_without_visible_reviews: { label: "Sterne-Markup ohne sichtbare Bewertungen", kind: "urls" },
-  errors: { label: "Fehler im Markup", kind: "schemaErrors" },
-  pages_with_errors: { label: "Seiten mit Fehlern", kind: "count" },
-  pages_with_structured_data: { label: "Seiten mit strukturierten Daten", kind: "count" },
-  same_as: { label: "Verknüpfte Profile", kind: "urls" },
-  missing_targets: { label: "Fehlende Verknüpfungen", kind: "terms" },
   profile_found: { label: "Google-Profil gefunden", kind: "yesno" },
   business_status: { label: "Status", kind: "term" },
-  ownership_checked: { label: "Inhaberschaft bestätigt", kind: "manual" },
   primary_type: { label: "Hauptkategorie", kind: "text" },
   competitor_types: { label: "Hauptkategorien der Wettbewerber", kind: "terms" },
-  secondary_categories: { label: "Weitere Kategorien", kind: "terms" },
-  count: { label: "Anzahl weiterer Kategorien", kind: "count" },
-  min: { label: "Ziel: mindestens", kind: "count" },
-  max: { label: "Ziel: höchstens", kind: "count" },
   has_opening_hours: { label: "Öffnungszeiten eingetragen", kind: "yesno" },
-  holiday_hours_checked: { label: "Feiertagszeiten geprüft", kind: "manual" },
   photo_count: { label: "Fotos", kind: "count" },
-  min_photos: { label: "Ziel: Fotos mindestens", kind: "count" },
-  photo_age_checked: { label: "Alter der Fotos geprüft", kind: "manual" },
-  logo_and_cover_checked: { label: "Logo und Titelbild geprüft", kind: "manual" },
-  newest_photo_date: { label: "Neuestes Foto aufgenommen am", kind: "date" },
-  newest_photo_days: { label: "Neuestes Foto ist alt", kind: "days" },
-  photos_with_date: { label: "Fotos mit Aufnahmedatum", kind: "count" },
-  profile_website: { label: "Website im Profil", kind: "url" },
-  website_host: { label: "Eigene Website", kind: "text" },
-  booking_and_messages_checked: { label: "Buchung und Nachrichten geprüft", kind: "manual" },
-  profile_name: { label: "Name im Profil", kind: "text" },
-  website_name: { label: "Name auf der Website", kind: "text" },
-  keywords_in_name: { label: "Zusatzwörter im Profilnamen", kind: "terms" },
-  description_chars: { label: "Länge der Beschreibung", kind: "chars" },
-  city_in_front: { label: "Ort in den ersten 250 Zeichen", kind: "yesno" },
-  service_in_front: { label: "Leistung in den ersten 250 Zeichen", kind: "yesno" },
   services: { label: "Eingetragene Leistungen", kind: "terms" },
-  service_count: { label: "Anzahl Leistungen", kind: "count" },
-  phrases_covered: { label: "Suchbegriffe unter den Leistungen", kind: "terms" },
-  services_order_checked: { label: "Reihenfolge nach Nachfrage geprüft", kind: "manual" },
-  products: { label: "Eingetragene Produkte", kind: "terms" },
-  product_count: { label: "Anzahl Produkte", kind: "count" },
-  post_count: { label: "Sichtbare Beiträge", kind: "count" },
-  newest_post_days: { label: "Neuester Beitrag vor", kind: "days" },
+  description_length: { label: "Länge der Beschreibung", kind: "chars" },
+  entries: { label: "Anzahl Einträge", kind: "count" },
+  examples: { label: "Beispiele", kind: "examples" },
+  special_hours: { label: "Sonderöffnungszeiten", kind: "term" },
   max_age_days: { label: "Ziel: höchstens so alt", kind: "days" },
-  question_count: { label: "Fragen im Profil", kind: "count" },
-  owner_answers_checked: { label: "Antworten des Inhabers geprüft", kind: "manual" },
-  service_areas: { label: "Einzugsgebiet", kind: "terms" },
-  service_area_count: { label: "Anzahl Orte im Einzugsgebiet", kind: "count" },
   attributes: { label: "Eingetragene Merkmale", kind: "terms" },
-  attribute_count: { label: "Anzahl Merkmale", kind: "count" },
   customer_reviews: { label: "Eigene Bewertungen", kind: "count" },
   competitors: { label: "Wettbewerber", kind: "counts" },
   competitor_average: { label: "Schnitt der Wettbewerber", kind: "number" },
   compared_businesses: { label: "Verglichene Betriebe", kind: "businesses" },
   comparison_source: { label: "Verglichen mit", kind: "term" },
+  median_rating: { label: "Mittlerer Wert der verglichenen Betriebe", kind: "rating" },
+  partial_margin_stars: { label: "Teilweise bis höchstens so weit darunter", kind: "rating" },
+  peers: { label: "Bewertung der verglichenen Betriebe", kind: "ratings" },
   phrase: { label: "Suchbegriff der Kartenliste", kind: "text" },
   without_review_count: { label: "Ohne lesbare Bewertungszahl", kind: "terms" },
   rating: { label: "Durchschnitt", kind: "rating" },
   review_count: { label: "Bewertungen", kind: "count" },
-  min_rating: { label: "Ziel: mindestens", kind: "rating" },
-  reviews_in_sample: { label: "Bewertungen in der Stichprobe", kind: "count" },
-  oldest_review: { label: "Älteste davon", kind: "date" },
-  newest_review: { label: "Neueste davon", kind: "date" },
-  reviews_per_month: { label: "Neue Bewertungen pro Monat", kind: "perMonth" },
-  min_per_month: { label: "Ziel: mindestens", kind: "perMonth" },
-  replied: { label: "Beantwortet", kind: "count" },
-  reply_rate: { label: "Antwortquote", kind: "share" },
-  average_reply_days: { label: "Antwortzeit im Schnitt", kind: "days" },
-  reply_data_available: { label: "Antworten öffentlich sichtbar", kind: "manual" },
-  // Shown as small review cards below the lines (unansweredReviews), not as a line.
-  unanswered_examples: { label: "Unbeantwortete Bewertungen", kind: "hidden" },
-  min_reply_rate: { label: "Ziel: Antwortquote mindestens", kind: "share" },
-  max_reply_days: { label: "Ziel: Antwortzeit höchstens", kind: "days" },
   review_source: { label: "Quelle der Bewertungen", kind: "term" },
-  negative_reviews: { label: "Kritische Bewertungen", kind: "count" },
-  tone_checked: { label: "Ton der Antworten geprüft", kind: "manual" },
-  reviews_with_keywords: { label: "Bewertungen mit Leistung oder Ort", kind: "count" },
-  reviews_with_text: { label: "Bewertungen mit Text", kind: "count" },
-  keywords: { label: "Gesuchte Wörter", kind: "terms" },
-  found_on: { label: "Gefunden auf", kind: "terms" },
-  checked: { label: "Geprüfte Portale", kind: "terms" },
-  flags: { label: "Auffälligkeiten", kind: "terms" },
   listings: { label: "Einträge", kind: "listings" },
   found: { label: "Gefunden", kind: "found" },
-  missing: { label: "Fehlt in", kind: "terms" },
-  found_ratio: { label: "Gefunden in", kind: "share" },
-  phone_variants: { label: "Schreibweisen der Telefonnummer", kind: "quotes" },
-  address_variants: { label: "Schreibweisen der Adresse", kind: "quotes" },
-  listings_compared: { label: "Einträge verglichen", kind: "count" },
-  max_variants: { label: "Ziel: Schreibweisen höchstens", kind: "count" },
   listing_url: { label: "Eintrag", kind: "url" },
   referring_domains: { label: "Verweisende Websites", kind: "count" },
   best_competitor: { label: "Stärkster Wettbewerber", kind: "text" },
   share_of_best: { label: "Anteil am Stärksten", kind: "share" },
-  local_share: { label: "Anteil örtlicher Links", kind: "share" },
-  spam_share: { label: "Anteil verdächtiger Links", kind: "share" },
-  spam_score: { label: "Spam-Wert", kind: "score" },
-  domain_first_capture: { label: "Erstmals im Webarchiv", kind: "date" },
-  domain_age_years: { label: "Alter der Domain in Jahren", kind: "decimal" },
-  first_month: { label: "Vor zwölf Monaten", kind: "month" },
-  first_value: { label: "Begriffe unter den ersten zehn damals", kind: "count" },
-  last_month: { label: "Zuletzt", kind: "month" },
-  last_value: { label: "Begriffe unter den ersten zehn heute", kind: "count" },
-  history: { label: "Verlauf", kind: "hidden" },
-  mentions: { label: "Fundstellen", kind: "urls" },
-  mention_count: { label: "Anzahl Fundstellen", kind: "count" },
-  partner_hosts: { label: "Verlinkte Partner", kind: "hosts" },
-  partner_host_count: { label: "Anzahl verlinkter Partner", kind: "count" },
   positions: { label: "Platz je Suchbegriff", kind: "positions" },
   in_top: { label: "Suchbegriffe ganz oben", kind: "count" },
   in_good: { label: "Suchbegriffe auf Seite 1", kind: "count" },
   in_visible: { label: "Suchbegriffe sichtbar", kind: "count" },
   phrases_total: { label: "Suchbegriffe geprüft", kind: "count" },
+  phrases_evaluated: { label: "Suchbegriffe mit gültiger Ergebnisliste", kind: "count" },
+  phrases_missing: { label: "Suchbegriffe ohne gültige Ergebnisliste", kind: "terms" },
+  competitor_values: { label: "Wettbewerberwerte", kind: "hidden" },
+  strongest_competitor: { label: "Stärkster Wettbewerber", kind: "hidden" },
   top: { label: "Ganz oben heißt bis", kind: "place" },
   good: { label: "Seite 1 heißt bis", kind: "place" },
   visible: { label: "Sichtbar heißt bis", kind: "place" },
@@ -273,33 +206,13 @@ const FIELDS: Readonly<Record<string, Field>> = {
   phrases_mentioning_business: { label: "davon mit Nennung", kind: "count" },
   source_positions: { label: "Platz in der Bildersuche", kind: "positions" },
   sources_seen: { label: "Bildquellen je Suchbegriff", kind: "counts" },
-  foreign_ads: { label: "Anzeigen fremder Betriebe", kind: "hosts" },
-  ads_seen: { label: "Anzeigen gesehen", kind: "count" },
   ranked_keywords: { label: "Suchbegriffe mit Platzierung", kind: "count" },
   mention_rate: { label: "Genannt in", kind: "share" },
   mentioned: { label: "Antworten mit Nennung", kind: "count" },
   answers: { label: "Antworten", kind: "count" },
+  answers_by_provider: { label: "Antworten je Assistent", kind: "counts" },
   by_provider: { label: "Genannt je Assistent", kind: "shares" },
   min_rate: { label: "Ziel: genannt in mindestens", kind: "share" },
-  answers_checked: { label: "Antworten geprüft", kind: "count" },
-  answers_with_wrong_facts: { label: "Antworten mit falschen Angaben", kind: "count" },
-  wrong_examples: { label: "Beispiele", kind: "quotes" },
-  top_cited_hosts: { label: "Meistzitierte Quellen", kind: "counts" },
-  missing_on: { label: "Fehlt auf", kind: "hosts" },
-  blocked_crawlers: { label: "Ausgesperrte KI-Crawler", kind: "terms" },
-  legal_notice_url: { label: "Impressum", kind: "url" },
-  click_depth: { label: "Klicks bis zum Impressum", kind: "count" },
-  max_clicks: { label: "Ziel: Klicks höchstens", kind: "count" },
-  missing_elements: { label: "Fehlt im Impressum", kind: "terms" },
-  privacy_url: { label: "Datenschutzerklärung", kind: "url" },
-  services_in_use: { label: "Eingebundene Dienste", kind: "terms" },
-  services_not_named: { label: "Nicht in der Datenschutzerklärung", kind: "terms" },
-  font_hosts: { label: "Schriften geladen von", kind: "hosts" },
-  tracking_hosts: { label: "Messdienste", kind: "hosts" },
-  consent_hint: { label: "Hinweis auf Einwilligung", kind: "yesno" },
-  third_party_hosts: { label: "Fremde Server", kind: "hosts" },
-  accessibility_score: { label: "Wertung Barrierefreiheit", kind: "score" },
-  min_score: { label: "Ziel: mindestens", kind: "score" },
   metrics: { label: "Google-Profil, letzte 28 Tage", kind: "metrics" },
   metrics_previous: { label: "Google-Profil, 28 Tage davor", kind: "metrics" },
   change_percent: { label: "Veränderung", kind: "changes" },
@@ -311,25 +224,25 @@ const FIELDS: Readonly<Record<string, Field>> = {
   queries_total: { label: "Suchanfragen", kind: "count" },
   totals: { label: "Search Console gesamt", kind: "searchTotals" },
   tracked_phrases: { label: "Verfolgte Suchbegriffe", kind: "terms" },
-  sessions: { label: "Besuche", kind: "count" },
-  engaged_sessions: { label: "Besuche mit Interaktion", kind: "count" },
-  key_events: { label: "Anfragen (Zielereignisse)", kind: "count" },
-  reviews: { label: "Bewertungen", kind: "count" },
-  replied_within_days: { label: "Rechtzeitig beantwortet", kind: "count" },
-  reply_share_in_time: { label: "Anteil rechtzeitig", kind: "share" },
-  reply_days: { label: "Frist", kind: "days" },
-  chat_tools: { label: "Chatfenster", kind: "terms" },
-  messenger_links: { label: "Links zu Messengern", kind: "terms" },
-  analytics_tools: { label: "Besucherzählung", kind: "terms" },
-  tag_ids: { label: "Kennungen der Google-Einbindung", kind: "terms" },
-  ads_found: { label: "Google-Werbung eingebunden", kind: "yesno" },
-  ads_ids: { label: "Kennungen der Google-Werbung", kind: "terms" },
-  conversion_tracking: { label: "Anfragen aus Werbung werden gezählt", kind: "yesno" },
-  conversions: { label: "Gezählte Anfragen aus Werbung", kind: "terms" },
-  start_page: { label: "Geprüfte Startseite", kind: "url" },
+  visitor_status: { label: "Antwort an den Besucher (Statuscode)", kind: "number" },
+  bot_error: { label: "Fehler beim Abruf als Suchroboter", kind: "text" },
+  sitemap_urls: { label: "Adressen der Sitemap", kind: "urls" },
+  target: { label: "Geprüfte Adresse", kind: "text" },
+  window_days: { label: "Zeitraum der Anzeigen in Tagen", kind: "count" },
+  shows_ads: { label: "Schaltet Anzeigen", kind: "yesno" },
+  ads_found: { label: "Gefundene Anzeigen", kind: "count" },
+  advertisers: { label: "Werbetreibende", kind: "terms" },
+  formats: { label: "Anzeigenformate", kind: "terms" },
+  first_shown: { label: "Zuerst gezeigt", kind: "date" },
+  last_shown: { label: "Zuletzt gezeigt", kind: "date" },
+  searched_name: { label: "Gesuchter Name", kind: "text" },
+  own_ads: { label: "Eigene Anzeigen", kind: "count" },
+  own_pages: { label: "Beworbene Seiten", kind: "urls" },
+  competitor_ad_counts: { label: "Anzeigen je Wettbewerber", kind: "counts" },
+  step: { label: "Messschritt", kind: "hidden" },
+  invalid_reason: { label: "Grund der ungültigen Messung", kind: "text" },
 };
 
-/** Words the scorer writes as values: missing fields, flags, statuses, providers, metrics. */
 const TERMS: Readonly<Record<string, string>> = {
   name: "Name",
   street: "Straße",
@@ -341,6 +254,11 @@ const TERMS: Readonly<Record<string, string>> = {
   phone_or_email: "Telefon oder E-Mail",
   responsible: "Verantwortliche Person",
   title: "Titel",
+  main_heading: "Hauptüberschrift",
+  image_description: "Bildbeschreibung",
+  link_text: "Linktext",
+  title_or_heading_with_city: "Titel oder Überschrift mit Ort",
+  text_with_city: "Text mit Ort",
   description: "Beschreibung",
   image: "Bild",
   telephone: "Telefon",
@@ -348,13 +266,7 @@ const TERMS: Readonly<Record<string, string>> = {
   geo: "Koordinaten",
   openingHours: "Öffnungszeiten",
   openingHoursSpecification: "Öffnungszeiten",
-  "@context": "Angabe schema.org",
-  "@type": "Typangabe",
-  google: "Google-Profil",
-  directories: "Verzeichnis oder Netzwerk",
-  wikidata: "Wikidata",
-  perfect_rating_many_reviews: "glatte 5,0 bei vielen Bewertungen",
-  empty_five_star_reviews: "auffällig viele Fünf-Sterne-Bewertungen ohne Text",
+  not_determinable: "von außen nicht feststellbar",
   OPERATIONAL: "geöffnet",
   CLOSED_TEMPORARILY: "vorübergehend geschlossen",
   CLOSED_PERMANENTLY: "dauerhaft geschlossen",
@@ -362,12 +274,12 @@ const TERMS: Readonly<Record<string, string>> = {
   profile: "eigenes Google-Profil",
   browser: "neueste Bewertungen auf Google Maps",
   places_api: "Stichprobe der Google-Schnittstelle",
+  dataforseo: "neueste Bewertungen mit Antworten des Inhabers über DataForSEO",
   maps_result_list: "allen Betrieben der Kartenliste bei Google Maps",
   competitor_profiles: "den drei stärksten hinterlegten Wettbewerbern",
+  google_ai: "Google KI-Modus",
   chatgpt: "ChatGPT",
   claude: "Claude",
-  gemini: "Gemini",
-  perplexity: "Perplexity",
   BUSINESS_IMPRESSIONS_DESKTOP_MAPS: "Aufrufe Karte am Computer",
   BUSINESS_IMPRESSIONS_MOBILE_MAPS: "Aufrufe Karte am Handy",
   BUSINESS_IMPRESSIONS_DESKTOP_SEARCH: "Aufrufe Suche am Computer",
@@ -377,33 +289,89 @@ const TERMS: Readonly<Record<string, string>> = {
   BUSINESS_DIRECTION_REQUESTS: "Routenanfragen",
   BUSINESS_CONVERSATIONS: "Nachrichten",
   BUSINESS_BOOKINGS: "Buchungen",
+  field_url: "echten Besuchern dieser Seite (Google-Felddaten)",
+  field_origin: "echten Besuchern der ganzen Website (Google-Felddaten)",
+  lab: "Google-Labormessung, mittlerer Wert der Läufe",
+  good: "gut",
+  needs_improvement: "mittel",
+  poor: "schlecht",
 };
 
-/** Sources with a switch and a daily cap, as named on the settings page. */
 const SOURCES: Readonly<Record<string, string>> = {
   places: "Google Places API",
   google_search: "Google-Suche",
   google_maps: "Google Maps",
   dataforseo: "DataForSEO",
+  apify: "Apify",
+  google_ai: "Google KI-Modus",
   chatgpt: "ChatGPT",
   claude: "Claude",
-  gemini: "Gemini",
-  perplexity: "Perplexity",
 };
 
-/** Why a check could not be measured, by the reason code of the scorer. */
 const REASONS: Readonly<Record<string, string>> = {
   no_website: "Keine Website gefunden oder nicht erreichbar.",
   no_pagespeed: "Google PageSpeed hat keine Werte geliefert.",
   no_place: "Kein Google-Unternehmensprofil gefunden.",
   collector_failed: "Der Abruf ist fehlgeschlagen.",
-  manual: "Nicht öffentlich abrufbar, bitte von Hand prüfen.",
   no_competitors: "Keine Wettbewerber hinterlegt.",
-  no_access: "Ohne Kundenzugang nicht messbar.",
+  no_location: "Der Betrieb hat keinen Standort.",
+  measurement_invalid: "Die Messung war ungültig.",
+  visitor_fetch_not_200: "Die Seite antwortet Besuchern nicht mit Erfolg.",
+  no_agent_fetches: "Es liegt kein Abruf mit den Kennungen der Suchdienste und KI-Assistenten vor.",
+  robots_txt_server_error:
+    "Die robots.txt antwortete mit einem Serverfehler (Status 5xx); wie Google damit umgeht, hängt vom Zeitpunkt ab, ein einzelner Abruf kann das nicht feststellen.",
+  robots_txt_rate_limited:
+    "Die robots.txt antwortete mit Status 429 (zu viele Anfragen); ein einzelner Abruf kann nicht feststellen, was Google daraus macht.",
+  robots_txt_no_answer:
+    "Die robots.txt konnte nicht abgerufen werden (keine Antwort oder kein gespeicherter Status).",
+  profile_not_provable:
+    "Die Suche hat kein Google-Profil gefunden; das beweist nicht, dass keines existiert.",
+  directory_search_not_documented:
+    "Die Suche im Verzeichnis ist nicht belegt (Suchtext oder Trefferzahl fehlen).",
+  no_valid_result_lists:
+    "Die Trefferlisten der Suche bestanden nur aus Adressen der Suchmaschine und sind unbrauchbar.",
+  pagespeed_data_outdated:
+    "Die PageSpeed-Daten stammen aus einer älteren Messung ohne Laborwerte aus mehreren Läufen; bitte neu messen.",
+  bot_fetch_failed: "Der Abruf als Suchroboter ist fehlgeschlagen.",
+  bot_fetch_unavailable: "Der Abruf als Suchroboter war nicht möglich.",
+  service_delivered_nothing: "Der Dienst hat keine Daten geliefert.",
+  bot_fetch_not_200: "Der Suchroboter bekam statt der Seite eine Fehlermeldung.",
+  social_not_measured: "Die sozialen Netzwerke wurden nicht gemessen.",
+  social_search_failed: "Die Suche nach den Konten ist fehlgeschlagen.",
+  no_post_data: "Die Beiträge des Kontos wurden nicht gelesen.",
+  no_follower_data: "Die Zahl der Follower wurde nicht gelesen.",
+  no_interaction_data: "Die Reaktionen auf Beiträge wurden nicht gelesen.",
+  no_faq_sections: "Es wurde keine Seite mit Fragen und Antworten gefunden.",
+  legal_notice_not_crawled: "Das Impressum war nicht abrufbar.",
+  privacy_not_crawled: "Die Datenschutzerklärung war nicht abrufbar.",
+  no_comparable_text: "Es gab keinen Text zum Vergleichen.",
+  bot_status_unclear: "Die Antwort an den Suchroboter war nicht eindeutig.",
+  no_content_images: "Die Seiten haben keine Inhaltsbilder.",
+  sitemap_not_readable: "Die Sitemap ließ sich nicht lesen.",
+  no_sitemap_probes: "Es wurden keine Sitemap-Einträge abgerufen.",
+  not_verifiable_from_outside: "Von außen nicht feststellbar.",
+  no_variant_probes: "Die Adress-Varianten wurden nicht abgerufen.",
+  no_variant_answered: "Keine Adress-Variante hat geantwortet.",
+  no_topic_pages: "Keine Seiten zu den Leistungen gefunden.",
+  no_dates: "Auf den Seiten steht kein Änderungsdatum.",
+  no_name_sources: "Es gibt keine Quellen für die Schreibweise des Namens.",
+  no_links: "Auf den Seiten wurden keine Links gefunden.",
+  no_structured_data: "Keine strukturierten Angaben gefunden.",
+  crawl_data_outdated: "Die Website-Daten stammen aus einer älteren Messung; bitte neu prüfen.",
+  ownership_not_verifiable: "Die Inhaberschaft lässt sich von außen nicht prüfen.",
+  field_not_delivered: "Google hat keine Felddaten geliefert.",
+  no_peer_ratings: "Keine Bewertungen der Vergleichsbetriebe verfügbar.",
+  ads_google_not_measured: "Die Google-Anzeigen wurden nicht gemessen.",
+  ads_meta_not_measured: "Die Meta-Anzeigen wurden nicht gemessen.",
+  ads_account_not_connected: "Das Anzeigenkonto ist nicht verbunden.",
+  no_access: "Nur mit Zugang zu Ihren Konten bei den Anbietern (zum Beispiel Google, Meta) messbar.",
+  no_profile: "Kein Google-Unternehmensprofil vorhanden.",
   no_paid_data: "Braucht den Bezahldienst, der ausgeschaltet ist.",
   paid_disabled: "Braucht den Bezahldienst, der ausgeschaltet ist.",
   needs_error_page: "Die Fehlerseite ließ sich nicht testen.",
-  needs_history: "Braucht den Verlauf mehrerer Prüfungen.",
+  needs_history: "Erst ab der zweiten Prüfung messbar.",
+  agent_judgement: "Der Audit-Agent beurteilt das beim Lesen der Seiten.",
+  no_shared_rankings: "Die beiden Prüfungen haben keine gemeinsamen Platzierungen.",
   too_few_pages: "Zu wenige Seiten zum Vergleichen.",
   no_subpages: "Keine Unterseiten gefunden.",
   no_search_phrases: "Keine Suchbegriffe hinterlegt.",
@@ -416,8 +384,6 @@ const REASONS: Readonly<Record<string, string>> = {
   no_profile_nap: "Im Google-Profil fehlen Telefon und Adresse.",
   no_address: "Die Adresse ist unbekannt.",
   no_start_page: "Die Startseite war nicht erreichbar.",
-  no_faq_sections: "Keine Seite mit Fragen und Antworten gefunden.",
-  no_structured_data: "Keine strukturierten Daten gefunden.",
   no_reviews: "Keine Bewertungen vorhanden.",
   no_review_dates: "Die Bewertungen haben kein Datum.",
   no_negative_reviews: "Keine kritischen Bewertungen vorhanden.",
@@ -454,8 +420,6 @@ const REASONS: Readonly<Record<string, string>> = {
   no_reference_facts: "Telefon und Postleitzahl sind unbekannt.",
   no_checkable_answers: "Keine Antwort nannte Telefon oder Postleitzahl.",
   no_cited_sources: "Die Assistenten haben keine Quellen genannt.",
-  legal_notice_not_crawled: "Das Impressum war nicht abrufbar.",
-  privacy_not_crawled: "Die Datenschutzerklärung war nicht abrufbar.",
   no_analytics: "Kein Zugang zu Google Analytics.",
   no_search_console: "Kein Zugang zur Search Console.",
   no_profile_metrics: "Keine Kennzahlen aus dem Google-Profil.",
@@ -492,12 +456,10 @@ function term(value: string): string {
   return TERMS[value] ?? value;
 }
 
-/** A known reason code in German; text the worker already wrote in German is kept as it is. */
 export function reasonText(reason: string): string {
   return REASONS[reason] ?? (/^[a-z0-9_]+$/.test(reason) ? "Nicht messbar." : reason);
 }
 
-/** Address without scheme and "www.", the start page as its host, any other page as its path. */
 export function shortUrl(value: string): string {
   const scheme = /^(tel|mailto):/i.exec(value);
   if (scheme !== null) return decodeURIComponent(value.slice(scheme[0].length));
@@ -520,7 +482,6 @@ function fullUrl(value: string): string {
   }
 }
 
-/** "a, b, c, d und 3 weitere"; null for an empty list. */
 export function joinListed(items: readonly string[], separator = ", "): string | null {
   if (items.length === 0) return null;
   const shown = items.slice(0, LISTED).join(separator);
@@ -559,14 +520,6 @@ function business(value: unknown): string | null {
   return `${value.name}: ${integer.format(count)} ${count === 1 ? "Bewertung" : "Bewertungen"}`;
 }
 
-function pair(value: unknown): string | null {
-  if (!Array.isArray(value)) return null;
-  const [first, second, similarity] = value as unknown[];
-  if (typeof first !== "string" || typeof second !== "string") return null;
-  const share = isNumber(similarity) ? ` (${percent(similarity)} gleich)` : "";
-  return `${shortUrl(first)} und ${shortUrl(second)}${share}`;
-}
-
 function gap(value: unknown): string | null {
   if (!isRecord(value) || typeof value.phrase !== "string") return null;
   const details = [isNumber(value.volume) ? `${integer.format(value.volume)} Suchen im Monat` : ""];
@@ -578,12 +531,57 @@ function gap(value: unknown): string | null {
   return shown === "" ? value.phrase : `${value.phrase} (${shown})`;
 }
 
-function schemaError(value: unknown): string | null {
-  if (!isRecord(value) || typeof value.problem !== "string") return null;
-  const page = typeof value.url === "string" ? `${shortUrl(value.url)}: ` : "";
-  const type = typeof value.type === "string" && value.type !== "" ? `${value.type} ohne ` : "fehlt ";
-  return `${page}${type}${term(value.problem)}`;
+function rankChange(value: unknown): string | null {
+  if (!isRecord(value) || typeof value.phrase !== "string") return null;
+  const where = value.kind === "local_pack" ? "Kartenliste" : "Suche";
+  return `${value.phrase} (${where}): ${place(value.before)} → ${place(value.after)}`;
 }
+
+function reasonOf(code: unknown): string {
+  return typeof code === "string" ? reasonText(code) : "";
+}
+
+function withReason(url: string, code: unknown): string {
+  const reason = reasonOf(code);
+  return reason === "" ? shortUrl(url) : `${shortUrl(url)}: ${reason}`;
+}
+
+function example(item: unknown): string | null {
+  if (typeof item === "string") return item === "" ? null : item;
+  if (!isRecord(item) || typeof item.excerpt !== "string") return null;
+  const who = typeof item.provider === "string" ? `${term(item.provider)}: ` : "";
+  const verdict = item.mentioned === true ? " (genannt)" : " (nicht genannt)";
+  return `${who}„${item.excerpt}“${verdict}`;
+}
+
+function agentState(agent: string, value: unknown): string {
+  if (!isRecord(value)) return agent;
+  if (value.site_blocked === true) return `${agent}: ganze Website gesperrt`;
+  const blocked = value.pages_blocked_count;
+  if (isNumber(blocked) && blocked > 0) return `${agent}: ${integer.format(blocked)} Seiten gesperrt`;
+  return `${agent}: erlaubt`;
+}
+
+function breakdown(phrase: string, value: unknown): string | null {
+  const parts = entries(value).flatMap(([where, found]) => {
+    if (Array.isArray(found)) return found.length === 0 ? [] : [`${term(where)}: ${integer.format(found.length)}`];
+    return typeof found === "string" && found !== "" ? [`${term(where)}: ${found}`] : [];
+  });
+  return parts.length === 0 ? `${phrase}: nirgends` : `${phrase}: ${parts.join(", ")}`;
+}
+
+function adPhrase(phrase: string, value: unknown): string | null {
+  if (!isRecord(value)) return null;
+  const own = value.customer_shown === true
+    ? `eigene Anzeige${isNumber(value.customer_position) ? ` auf Platz ${integer.format(value.customer_position)}` : ""}`
+    : "keine eigene Anzeige";
+  const rivals = strings(value.competitors);
+  return rivals.length === 0 ? `${phrase}: ${own}` : `${phrase}: ${own}, Wettbewerber ${joinListed(rivals.map(shortUrl)) ?? ""}`;
+}
+
+const NOTES: Readonly<Record<string, string>> = {
+  no_account: "Kein Konto gefunden.",
+};
 
 function mapped(value: unknown, show: (entry: [string, unknown]) => string | null): string | null {
   return joinListed(entries(value).flatMap((entry) => show(entry) ?? []), " · ");
@@ -606,7 +604,7 @@ const SCALAR: Partial<Record<Kind, (value: number) => string>> = {
   rating: (value) => `${oneDecimal.format(value)} Sterne`,
   days: (value) => `${oneDecimal.format(value)} ${value === 1 ? "Tag" : "Tage"}`,
   perMonth: (value) => twoDecimals.format(value),
-  year: (value) => String(Math.round(value)),
+  hours: (value) => `${integer.format(value)} ${value === 1 ? "Stunde" : "Stunden"}`,
 };
 
 function formatScalar(kind: Kind, value: unknown): string | null {
@@ -626,6 +624,8 @@ function formatText(kind: Kind, value: unknown): string | null {
       return fullUrl(value);
     case "reason":
       return reasonText(value);
+    case "note":
+      return NOTES[value] ?? value;
     case "date":
       return formatDate(value.slice(0, 10));
     case "month":
@@ -647,12 +647,12 @@ function formatList(kind: Kind, value: unknown): string | null {
       return joinListed(strings(value).map((source) => SOURCES[source] ?? source));
     case "quotes":
       return joinListed(strings(value).map((text) => `„${text}“`), " · ");
-    case "pairs":
-      return listed(value, pair, " · ");
+    case "examples":
+      return listed(value, example, " · ");
     case "gaps":
       return listed(value, gap, " · ");
-    case "schemaErrors":
-      return listed(value, schemaError, " · ");
+    case "rankChanges":
+      return listed(value, rankChange, " · ");
     default:
       return null;
   }
@@ -665,11 +665,15 @@ const MAP_ENTRIES: Partial<Record<Kind, (entry: [string, unknown]) => string | n
   shares: ([key, share]) => (isNumber(share) ? `${term(key)}: ${percent(share)}` : null),
   changes: ([key, change]) => `${term(key)}: ${signed(change)}`,
   metrics: ([key, count]) => (isNumber(count) ? `${term(key)}: ${integer.format(count)}` : null),
-  nap: ([key, text]) => (typeof text === "string" && text !== "" ? `${term(key)}: ${text}` : null),
-  urlTerms: ([url, missing]) => `${shortUrl(url)}: ${strings(missing).map(term).join(", ")} fehlt`,
-  urlCounts: ([url, words]) => (isNumber(words) ? `${shortUrl(url)}: ${integer.format(words)} Wörter` : null),
-  urlShares: ([url, share]) => (isNumber(share) ? `${shortUrl(url)}: ${percent(share)}` : null),
+  urlCounts: ([url, words]) => (isNumber(words) ? `${shortUrl(url)}: ${integer.format(words)}` : null),
+  urlReasons: ([url, code]) => withReason(url, code),
+  urlDays: ([url, days]) => (isNumber(days) ? `${shortUrl(url)}: ${integer.format(days)} Tage alt` : null),
+  urlGroups: ([title, urls]) => `„${title}“: ${joinListed(strings(urls).map(shortUrl)) ?? ""}`,
   listings: ([name, details]) => listing(name, details),
+  ratings: ([name, stars]) => (isNumber(stars) ? `${name}: ${oneDecimal.format(stars)} Sterne` : null),
+  agentStates: ([agent, state]) => agentState(agent, state),
+  phraseBreakdown: ([phrase, where]) => breakdown(phrase, where),
+  adPhrases: ([phrase, details]) => adPhrase(phrase, details),
 };
 
 function formatSearchTotals(value: unknown): string | null {
@@ -694,8 +698,6 @@ function formatValue(kind: Kind, value: unknown): string | null {
       return null;
     case "yesno":
       return typeof value === "boolean" ? (value ? "ja" : "nein") : null;
-    case "manual":
-      return typeof value === "boolean" ? (value ? "ja" : "nein, bitte von Hand prüfen") : null;
     case "found":
       if (typeof value === "boolean") return value ? "ja" : "nein";
       return joinListed(strings(value).map(term)) ?? "nirgends";
@@ -710,7 +712,6 @@ function formatValue(kind: Kind, value: unknown): string | null {
   }
 }
 
-/** Lines for the known keys with a value worth showing, in catalogue order of FIELDS. */
 export function formatMeasured(measured: Readonly<Record<string, unknown>>): MeasuredLine[] {
   return Object.entries(FIELDS).flatMap(([key, field]) => {
     if (!(key in measured)) return [];
@@ -720,9 +721,7 @@ export function formatMeasured(measured: Readonly<Record<string, unknown>>): Mea
 }
 
 export interface ReviewExample {
-  /** Day of the review as TT.MM.JJJJ, or Google's wording such as "vor 2 Wochen"; null if neither. */
   when: string | null;
-  /** Star rating 1 to 5; null when the review carries none. */
   stars: number | null;
   text: string;
 }
@@ -736,12 +735,10 @@ function reviewStars(value: unknown): number | null {
   return isNumber(value) && value >= 0 && value <= 5 ? value : null;
 }
 
-/** "2 von 5 Sternen", for screen readers next to the gold stars. */
 export function starsLabel(stars: number): string {
   return `${oneDecimal.format(stars)} von 5 Sternen`;
 }
 
-/** The newest reviews without an owner reply that g4 lists, ready for small cards. */
 export function unansweredReviews(measured: Readonly<Record<string, unknown>>): ReviewExample[] {
   const examples = measured.unanswered_examples;
   if (!Array.isArray(examples)) return [];

@@ -1,0 +1,18 @@
+invalid_reason: measurement_invalid
+planned_checks:
+  - b12
+  - j9
+  - m1
+  - m2
+  - p5
+  - p6
+planned_reasons:
+  - agent_judgement
+  - ads_account_not_connected
+  - needs_history
+  - no_access
+  - no_location
+  - not_built
+  - not_verifiable_from_outside
+  - ownership_not_verifiable
+  - paid_disabled

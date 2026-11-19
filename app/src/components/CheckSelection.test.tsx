@@ -6,8 +6,8 @@ import type { CatalogueArea } from "../lib/catalogue";
 import { catalogueCheck } from "../lib/testRows";
 import { CheckSelection } from "./CheckSelection";
 
-const google: CatalogueArea = { id: "g", name: "Bewertungen", weight: 10, checks: [catalogueCheck("g1"), catalogueCheck("g2", { requiresPaid: true })] };
-const access: CatalogueArea = { id: "m", name: "Wirkung mit Kundenzugang", weight: 0, checks: [catalogueCheck("m1", { requiresAccess: true })] };
+const google: CatalogueArea = { id: "google", name: "Google", weight: 10, checks: [catalogueCheck("g1"), catalogueCheck("g2", { requiresPaid: true })] };
+const access: CatalogueArea = { id: "ads", name: "Bezahlte Sichtbarkeit", weight: 0, checks: [catalogueCheck("m1", { requiresAccess: true })] };
 const AREAS = [access, google];
 
 const onChange = vi.fn<(next: string[]) => void>();
@@ -48,9 +48,9 @@ describe("CheckSelection", () => {
     await mount(["m1"]);
     expect(root.querySelector(".sel-row--all .sel-row__count")?.textContent).toBe("2 von 3");
     const names = [...root.querySelectorAll(".sel-area .sel-row__name")].map((element) => element.textContent);
-    expect(names).toEqual(["Bewertungen", "Wirkung mit Kundenzugang"]);
-    expect(areaRow("Bewertungen").querySelector(".tag")?.textContent).toBe("1 kostet Geld");
-    expect(areaRow("Wirkung mit Kundenzugang").querySelector<HTMLInputElement>(".cb")?.checked).toBe(false);
+    expect(names).toEqual(["Google", "Bezahlte Sichtbarkeit"]);
+    expect(areaRow("Google").querySelector(".tag")?.textContent).toBe("1 kostet Geld");
+    expect(areaRow("Bezahlte Sichtbarkeit").querySelector<HTMLInputElement>(".cb")?.checked).toBe(false);
   });
 
   it("marks the whole selection as partly on", async () => {
@@ -64,16 +64,16 @@ describe("CheckSelection", () => {
     await toggle(root.querySelector<HTMLInputElement>(".sel-row--all .cb"));
     expect(onChange).toHaveBeenLastCalledWith([]);
 
-    await toggle(areaRow("Bewertungen").querySelector<HTMLInputElement>(".cb"));
+    await toggle(areaRow("Google").querySelector<HTMLInputElement>(".cb"));
     expect(onChange).toHaveBeenLastCalledWith(["g1", "g2", "m1"]);
 
-    const open = areaRow("Bewertungen").querySelector<HTMLButtonElement>(".sel-row__open");
+    const open = areaRow("Google").querySelector<HTMLButtonElement>(".sel-row__open");
     expect(open?.getAttribute("aria-expanded")).toBe("false");
     await act(() => {
       open?.click();
     });
     expect(open?.getAttribute("aria-expanded")).toBe("true");
-    const lines = [...areaRow("Bewertungen").querySelectorAll<HTMLInputElement>(".sel-check .cb")];
+    const lines = [...areaRow("Google").querySelectorAll<HTMLInputElement>(".sel-check .cb")];
     expect(lines).toHaveLength(2);
     await toggle(lines[1] ?? null);
     expect(onChange).toHaveBeenLastCalledWith(["g2", "m1"]);

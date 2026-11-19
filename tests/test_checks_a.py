@@ -1,8 +1,3 @@
-"""Tests for the checks of area a (technik).
-
-Context: Pure rule tests on RawAudit fixtures. | Input: Fixtures. | Output: Assertions.
-"""
-
 from collections.abc import Callable
 from typing import Any
 
@@ -14,16 +9,18 @@ from radarauditor.errors import ScoringError
 from radarauditor.scoring.checks.a_technik import run
 
 THRESHOLDS: dict[str, dict[str, float | int | str]] = {
-    "a1": {},
-    "a2": {"lcp_ms_max": 2500, "cls_max": 0.1, "inp_ms_max": 200, "mobile_score_min": 70},
-    "a3": {},
+    "a2": {
+        "lcp_good_ms": 2500,
+        "lcp_poor_ms": 4000,
+        "cls_good": 0.1,
+        "cls_poor": 0.25,
+        "inp_good_ms": 200,
+        "inp_poor_ms": 500,
+        "tbt_good_ms": 200,
+        "tbt_poor_ms": 600,
+    },
     "a4": {},
-    "a5": {"max_broken": 0, "max_redirect_hops": 2},
-    "a6": {},
-    "a7": {"max_image_kb": 300, "max_missing_alt": 0},
-    "a8": {},
-    "a9": {},
-    "a10": {},
+    "a7": {},
 }
 Edit = Callable[..., RawAudit]
 
@@ -52,152 +49,302 @@ def test_unknown_check_raises(raw_audit_full: RawAudit) -> None:
 
 
 def test_missing_threshold_raises(raw_audit_full: RawAudit) -> None:
-    with pytest.raises(ScoringError, match="lcp_ms_max"):
+    with pytest.raises(ScoringError, match="lcp_good_ms"):
         run("a2", raw_audit_full, {})
 
 
-def test_a1_partial_and_failed(raw_audit_full: RawAudit, with_website: Edit) -> None:
-    partial = with_website(raw_audit_full, redirects_to_single_host=False)
-    assert run("a1", partial, {})[0] is CheckOutcome.PARTIAL
-    failed = with_website(raw_audit_full, redirects_to_single_host=False, uses_https=False)
-    assert run("a1", failed, {})[0] is CheckOutcome.FAILED
+def _lab_only(raw: RawAudit, **lab: Any) -> RawAudit:
+    assert raw.pagespeed is not None and raw.pagespeed.lab is not None
+    return _speed(raw, field_data=None, lab=raw.pagespeed.lab.model_copy(update=lab))
 
 
-def test_a2_slow_lcp_within_tolerance_is_partial(raw_audit_full: RawAudit) -> None:
-    outcome, measured = run("a2", _speed(raw_audit_full, lcp_ms=2900), THRESHOLDS["a2"])
-    assert outcome is CheckOutcome.PARTIAL
-    assert measured["lcp_ms"] == 2900
-    assert measured["lcp_ms_max"] == 2500
+def _visitors(raw: RawAudit, **values: Any) -> RawAudit:
+    assert raw.pagespeed is not None and raw.pagespeed.field_data is not None
+    return _speed(raw, field_data=raw.pagespeed.field_data.model_copy(update=values))
 
 
-def test_a2_one_metric_far_off_among_good_ones_is_partial(raw_audit_full: RawAudit) -> None:
-    outcome, _ = run("a2", _speed(raw_audit_full, lcp_ms=6000), THRESHOLDS["a2"])
-    assert outcome is CheckOutcome.PARTIAL
-
-
-def test_a2_all_metrics_far_off_fail(raw_audit_full: RawAudit) -> None:
-    slow = _speed(raw_audit_full, lcp_ms=6000, cls=0.4, inp_ms=600, mobile_performance=30)
-    assert run("a2", slow, THRESHOLDS["a2"])[0] is CheckOutcome.FAILED
-
-
-def test_a2_missing_inp_is_ignored(raw_audit_full: RawAudit) -> None:
-    outcome, measured = run("a2", _speed(raw_audit_full, inp_ms=None), THRESHOLDS["a2"])
+def test_a2_reports_every_metric_with_source_and_rating(raw_audit_full: RawAudit) -> None:
+    outcome, measured = run("a2", raw_audit_full, THRESHOLDS["a2"])
     assert outcome is CheckOutcome.PASSED
-    assert measured["inp_ms"] is None
+    assert measured == {
+        "lcp_ms": 2100,
+        "lcp_source": "field_url",
+        "lcp_rating": "good",
+        "cls": 0.05,
+        "cls_source": "field_url",
+        "cls_rating": "good",
+        "inp_ms": 150,
+        "inp_source": "field_url",
+        "inp_rating": "good",
+        "lab_runs": 5,
+        "mobile_performance": 85,
+        "desktop_performance": 97,
+    }
 
 
-def _without_viewport(raw: RawAudit, count: int) -> RawAudit:
+def test_a2_prefers_visitor_values_over_the_lab(raw_audit_full: RawAudit) -> None:
+    assert raw_audit_full.pagespeed is not None and raw_audit_full.pagespeed.lab is not None
+    slow_lab = raw_audit_full.pagespeed.lab.model_copy(update={"lcp_ms": 6000, "cls": 0.4})
+    outcome, measured = run("a2", _speed(raw_audit_full, lab=slow_lab), THRESHOLDS["a2"])
+    assert outcome is CheckOutcome.PASSED
+    assert measured["lcp_ms"] == 2100
+
+
+def test_a2_names_domain_visitor_data(raw_audit_full: RawAudit) -> None:
+    _, measured = run("a2", _visitors(raw_audit_full, scope="origin"), THRESHOLDS["a2"])
+    assert measured["lcp_source"] == "field_origin"
+
+
+def test_a2_fills_missing_visitor_metrics_from_the_lab(raw_audit_full: RawAudit) -> None:
+    raw = _visitors(raw_audit_full, cls=None, inp_ms=None)
+    outcome, measured = run("a2", raw, THRESHOLDS["a2"])
+    assert outcome is CheckOutcome.PASSED
+    assert (measured["lcp_source"], measured["cls_source"]) == ("field_url", "lab")
+    assert (measured["tbt_ms"], measured["tbt_source"]) == (150, "lab")
+    assert "inp_ms" not in measured
+
+
+def test_a2_without_visitor_data_judges_the_lab(raw_audit_full: RawAudit) -> None:
+    outcome, measured = run("a2", _lab_only(raw_audit_full), THRESHOLDS["a2"])
+    assert outcome is CheckOutcome.PASSED
+    assert {measured["lcp_source"], measured["cls_source"], measured["tbt_source"]} == {"lab"}
+
+
+def test_a2_ignores_the_overall_mobile_score(raw_audit_full: RawAudit) -> None:
+    raw = _speed(raw_audit_full, mobile_performance=10)
+    assert run("a2", raw, THRESHOLDS["a2"])[0] is CheckOutcome.PASSED
+
+
+def test_a2_without_lab_runs_is_not_measurable(raw_audit_full: RawAudit) -> None:
+    outcome, measured = run("a2", _speed(raw_audit_full, lab=None), THRESHOLDS["a2"])
+    assert outcome is CheckOutcome.NOT_MEASURABLE
+    assert measured["reason"] == "no_pagespeed"
+
+
+@pytest.mark.parametrize(
+    ("metric", "value", "expected"),
+    [
+        ("lcp_ms", 2500, CheckOutcome.PASSED),
+        ("lcp_ms", 2501, CheckOutcome.PARTIAL),
+        ("lcp_ms", 4000, CheckOutcome.PARTIAL),
+        ("lcp_ms", 4001, CheckOutcome.FAILED),
+        ("cls", 0.1, CheckOutcome.PASSED),
+        ("cls", 0.101, CheckOutcome.PARTIAL),
+        ("cls", 0.25, CheckOutcome.PARTIAL),
+        ("cls", 0.251, CheckOutcome.FAILED),
+        ("tbt_ms", 200, CheckOutcome.PASSED),
+        ("tbt_ms", 201, CheckOutcome.PARTIAL),
+        ("tbt_ms", 600, CheckOutcome.PARTIAL),
+        ("tbt_ms", 601, CheckOutcome.FAILED),
+    ],
+)
+def test_a2_lab_limits(
+    raw_audit_full: RawAudit, metric: str, value: float, expected: CheckOutcome
+) -> None:
+    assert run("a2", _lab_only(raw_audit_full, **{metric: value}), THRESHOLDS["a2"])[0] is expected
+
+
+@pytest.mark.parametrize(
+    ("metric", "value", "expected"),
+    [
+        ("lcp_ms", 2501, CheckOutcome.PARTIAL),
+        ("lcp_ms", 4001, CheckOutcome.FAILED),
+        ("cls", 0.101, CheckOutcome.PARTIAL),
+        ("cls", 0.251, CheckOutcome.FAILED),
+        ("inp_ms", 200, CheckOutcome.PASSED),
+        ("inp_ms", 201, CheckOutcome.PARTIAL),
+        ("inp_ms", 500, CheckOutcome.PARTIAL),
+        ("inp_ms", 501, CheckOutcome.FAILED),
+    ],
+)
+def test_a2_visitor_limits(
+    raw_audit_full: RawAudit, metric: str, value: float, expected: CheckOutcome
+) -> None:
+    raw = _visitors(raw_audit_full, **{metric: value})
+    assert run("a2", raw, THRESHOLDS["a2"])[0] is expected
+
+
+def test_a2_rates_each_metric(raw_audit_full: RawAudit) -> None:
+    raw = _visitors(raw_audit_full, lcp_ms=3000, inp_ms=600)
+    outcome, measured = run("a2", raw, THRESHOLDS["a2"])
+    assert outcome is CheckOutcome.FAILED
+    ratings = (measured["lcp_rating"], measured["cls_rating"], measured["inp_rating"])
+    assert ratings == ("needs_improvement", "good", "poor")
+
+
+def _with_page(raw: RawAudit, with_website: Edit, index: int, **updates: Any) -> RawAudit:
     assert raw.website is not None
-    pages = [
-        page.model_copy(update={"has_viewport_meta": False}) if index < count else page
-        for index, page in enumerate(raw.website.pages)
-    ]
-    return raw.model_copy(update={"website": raw.website.model_copy(update={"pages": pages})})
+    pages = list(raw.website.pages)
+    pages[index] = pages[index].model_copy(update=updates)
+    return with_website(raw, pages=pages)
 
 
-def test_a3_missing_viewport_on_some_pages_is_partial(raw_audit_full: RawAudit) -> None:
-    outcome, measured = run("a3", _without_viewport(raw_audit_full, 2), {})
-    assert outcome is CheckOutcome.PARTIAL
-    assert measured["pages_without_viewport_count"] == 2
-    assert measured["mobile_performance"] == 85
-
-
-def test_a3_no_viewport_and_poor_mobile_score_fails(raw_audit_full: RawAudit) -> None:
-    raw = _speed(_without_viewport(raw_audit_full, 99), mobile_performance=20)
-    assert run("a3", raw, {})[0] is CheckOutcome.FAILED
-
-
-def test_a3_poor_mobile_score_with_viewport_is_partial(raw_audit_full: RawAudit) -> None:
-    outcome, measured = run("a3", _speed(raw_audit_full, mobile_performance=20), {})
-    assert outcome is CheckOutcome.PARTIAL
-    assert measured["mobile_score_min"] == 50
-
-
-def test_a3_catalogue_minimum_overrides_default(raw_audit_full: RawAudit) -> None:
-    raw = _speed(raw_audit_full, mobile_performance=60)
-    assert run("a3", raw, {"mobile_score_min": 90})[0] is CheckOutcome.PARTIAL
-
-
-def test_a3_without_pagespeed_judges_viewport_only(raw_audit_full: RawAudit) -> None:
-    outcome, measured = run("a3", raw_audit_full.model_copy(update={"pagespeed": None}), {})
-    assert outcome is CheckOutcome.PASSED
-    assert measured["mobile_performance"] is None
+START, SUBPAGE, LINKED_LEGAL_PAGE = 0, 3, 4
 
 
 def test_a4_robots_blocking_everything_fails(raw_audit_full: RawAudit, with_website: Edit) -> None:
     blocked = with_website(raw_audit_full, robots_txt="User-agent: *\nDisallow: /\n")
     outcome, measured = run("a4", blocked, {})
     assert outcome is CheckOutcome.FAILED
-    assert measured["blocks_google"] is True
+    assert measured["start_page_affected"] is True
 
 
-def test_a4_without_sitemap_is_partial(raw_audit_full: RawAudit, with_website: Edit) -> None:
-    assert run("a4", with_website(raw_audit_full, sitemap_urls=[]), {})[0] is CheckOutcome.PARTIAL
+@pytest.mark.parametrize(
+    ("robots", "expected"),
+    [
+        ("User-agent: *\nDisallow: /ueber-uns/\n", CheckOutcome.PARTIAL),
+        ("User-agent: Googlebot\nDisallow: /ueber-uns/\n", CheckOutcome.PARTIAL),
+        ("User-agent: Bingbot\nDisallow: /\n", CheckOutcome.PASSED),
+        ("User-agent: *\nDisallow:\n", CheckOutcome.PASSED),
+        (None, CheckOutcome.NOT_MEASURABLE),
+    ],
+)
+def test_a4_robots_rules_count_for_googlebot_only(
+    raw_audit_full: RawAudit, with_website: Edit, robots: str | None, expected: CheckOutcome
+) -> None:
+    raw = with_website(raw_audit_full, robots_txt=robots)
+    assert run("a4", raw, {})[0] is expected
 
 
-def test_a5_linked_error_page_fails_threshold(raw_audit_full: RawAudit, with_website: Edit) -> None:
-    assert raw_audit_full.website is not None
-    pages = list(raw_audit_full.website.pages)
-    pages[1] = pages[1].model_copy(update={"status_code": 500})
-    outcome, measured = run("a5", with_website(raw_audit_full, pages=pages), THRESHOLDS["a5"])
-    assert outcome is CheckOutcome.PARTIAL
-    assert measured["broken_count"] == 1
-    assert measured["broken_urls"] == [str(pages[1].url)]
+def test_a4_a_blocked_subpage_is_listed(raw_audit_full: RawAudit, with_website: Edit) -> None:
+    raw = with_website(raw_audit_full, robots_txt="User-agent: *\nDisallow: /ueber-uns/\n")
+    measured = run("a4", raw, {})[1]
+    assert measured["blocked_by_robots"] == ["https://www.dachdeckerei-muster.de/ueber-uns/"]
+    assert measured["start_page_affected"] is False
 
 
-def test_a5_mostly_broken_fails(raw_audit_full: RawAudit, with_website: Edit) -> None:
-    errors = [f"timeout {index}" for index in range(20)]
-    outcome, _ = run("a5", with_website(raw_audit_full, crawl_errors=errors), THRESHOLDS["a5"])
+def test_a4_without_sitemap_is_no_defect(raw_audit_full: RawAudit, with_website: Edit) -> None:
+    assert run("a4", with_website(raw_audit_full, sitemap_urls=[]), {})[0] is CheckOutcome.PASSED
+
+
+@pytest.mark.parametrize(
+    ("meta", "header", "expected"),
+    [
+        ("noindex", None, CheckOutcome.PARTIAL),
+        ("none", None, CheckOutcome.PARTIAL),
+        (None, "noindex", CheckOutcome.PARTIAL),
+        ("googlebot: noindex", None, CheckOutcome.PARTIAL),
+        ("bingbot: noindex", None, CheckOutcome.PASSED),
+        ("index, follow", None, CheckOutcome.PASSED),
+        ("max-snippet:0", None, CheckOutcome.PASSED),
+    ],
+)
+def test_a4_noindex_on_a_subpage(
+    raw_audit_full: RawAudit,
+    with_website: Edit,
+    meta: str | None,
+    header: str | None,
+    expected: CheckOutcome,
+) -> None:
+    raw = _with_page(raw_audit_full, with_website, SUBPAGE, meta_robots=meta, x_robots_tag=header)
+    assert run("a4", raw, {})[0] is expected
+
+
+def test_a4_noindex_on_the_start_page_fails(raw_audit_full: RawAudit, with_website: Edit) -> None:
+    raw = _with_page(raw_audit_full, with_website, START, meta_robots="noindex")
+    outcome, measured = run("a4", raw, {})
     assert outcome is CheckOutcome.FAILED
+    assert measured["start_page_affected"] is True
 
 
-def test_a6_missing_canonical_on_most_pages_fails(
+@pytest.mark.parametrize(
+    ("canonical", "expected"),
+    [
+        ("https://www.dachdeckerei-muster.de/ueber-uns/", CheckOutcome.PASSED),
+        ("https://www.dachdeckerei-muster.de/ueber-uns", CheckOutcome.PASSED),
+        ("https://www.dachdeckerei-muster.de/ueber-uns/#team", CheckOutcome.PASSED),
+        ("https://www.dachdeckerei-muster.de/team/", CheckOutcome.PARTIAL),
+    ],
+)
+def test_a4_canonical_pointing_elsewhere(
+    raw_audit_full: RawAudit, with_website: Edit, canonical: str, expected: CheckOutcome
+) -> None:
+    raw = _with_page(raw_audit_full, with_website, SUBPAGE, canonical=canonical)
+    assert run("a4", raw, {})[0] is expected
+
+
+def test_a4_a_linked_page_with_an_error_status_is_partial(
     raw_audit_full: RawAudit, with_website: Edit
 ) -> None:
-    assert raw_audit_full.website is not None
-    pages = [page.model_copy(update={"canonical": None}) for page in raw_audit_full.website.pages]
-    outcome, measured = run("a6", with_website(raw_audit_full, pages=pages), {})
-    assert outcome is CheckOutcome.FAILED
-    assert measured["pages_missing_count"] == measured["pages_total"]
-
-
-def test_a7_one_page_with_missing_alt_is_partial(
-    raw_audit_full: RawAudit, with_website: Edit
-) -> None:
-    assert raw_audit_full.website is not None
-    pages = list(raw_audit_full.website.pages)
-    pages[0] = pages[0].model_copy(update={"images_without_alt": 3, "oversized_images": 1})
-    outcome, measured = run("a7", with_website(raw_audit_full, pages=pages), THRESHOLDS["a7"])
+    raw = _with_page(raw_audit_full, with_website, LINKED_LEGAL_PAGE, status_code=404)
+    outcome, measured = run("a4", raw, {})
     assert outcome is CheckOutcome.PARTIAL
-    assert measured["images_without_alt"] == 3
-    assert measured["oversized_images"] == 1
+    assert measured["wrong_status"] == ["https://www.dachdeckerei-muster.de/impressum/"]
 
 
-def test_a8_script_only_pages_fail(raw_audit_full: RawAudit, with_website: Edit) -> None:
-    assert raw_audit_full.website is not None
-    pages = [
-        page.model_copy(update={"word_count": 0, "headings": []})
-        for page in raw_audit_full.website.pages
-    ]
-    assert run("a8", with_website(raw_audit_full, pages=pages), {})[0] is CheckOutcome.FAILED
-
-
-def test_a9_english_lang_fails(raw_audit_full: RawAudit, with_website: Edit) -> None:
-    assert raw_audit_full.website is not None
-    pages = [page.model_copy(update={"lang": "en"}) for page in raw_audit_full.website.pages]
-    assert run("a9", with_website(raw_audit_full, pages=pages), {})[0] is CheckOutcome.FAILED
-
-
-def test_a10_open_admin_fails_and_http_links_partial(
+def test_a4_an_unlinked_page_with_an_error_status_is_no_defect(
     raw_audit_full: RawAudit, with_website: Edit, make_page: Callable[..., Any]
 ) -> None:
     assert raw_audit_full.website is not None
-    pages = list(raw_audit_full.website.pages)
-    admin = make_page(url="https://www.dachdeckerei-muster.de/wp-admin/")
-    outcome, measured = run("a10", with_website(raw_audit_full, pages=[*pages, admin]), {})
-    assert outcome is CheckOutcome.FAILED
-    assert measured["open_admin_pages"] == ["https://www.dachdeckerei-muster.de/wp-admin/"]
-    insecure = make_page(internal_links=["http://www.dachdeckerei-muster.de/kontakt/"])
-    outcome, measured = run("a10", with_website(raw_audit_full, pages=[*pages, insecure]), {})
-    assert outcome is CheckOutcome.PARTIAL
-    assert measured["insecure_link_count"] == 1
+    orphan = make_page(url="https://www.dachdeckerei-muster.de/versteckt/", status_code=404)
+    raw = with_website(raw_audit_full, pages=[*raw_audit_full.website.pages, orphan])
+    assert run("a4", raw, {})[0] is CheckOutcome.PASSED
+
+
+def test_a4_an_error_status_on_the_start_page_fails(
+    raw_audit_full: RawAudit, with_website: Edit
+) -> None:
+    raw = _with_page(raw_audit_full, with_website, START, status_code=500)
+    assert run("a4", raw, {})[0] is CheckOutcome.FAILED
+
+
+CONTENT_PAGES = 12
+
+
+def _missing_alt_on(raw: RawAudit, with_website: Edit, pages_hit: int) -> RawAudit:
+    assert raw.website is not None
+    pages = [
+        page.model_copy(
+            update={
+                "images": [
+                    image.model_copy(
+                        update={"alt": "" if CONTENT_PAGES - pages_hit <= index else image.alt}
+                    )
+                    for image in page.images or []
+                ]
+            }
+        )
+        for index, page in enumerate(raw.website.pages)
+    ]
+    return with_website(raw, pages=pages)
+
+
+@pytest.mark.parametrize(
+    ("pages_hit", "expected"),
+    [
+        (0, CheckOutcome.PASSED),
+        (1, CheckOutcome.PARTIAL),
+        (6, CheckOutcome.PARTIAL),
+        (7, CheckOutcome.PARTIAL),
+        (11, CheckOutcome.PARTIAL),
+        (12, CheckOutcome.FAILED),
+    ],
+)
+def test_a7_the_start_page_decides_between_partial_and_failed(
+    raw_audit_full: RawAudit, with_website: Edit, pages_hit: int, expected: CheckOutcome
+) -> None:
+    raw = _missing_alt_on(raw_audit_full, with_website, pages_hit)
+    outcome, measured = run("a7", raw, THRESHOLDS["a7"])
+    assert outcome is expected
+    assert measured["images_without_alt"] == pages_hit
+    assert measured["images_total"] == 12
+
+
+def test_a2_marks_the_older_flat_pagespeed_format_as_outdated(raw_audit_full: RawAudit) -> None:
+    assert raw_audit_full.pagespeed is not None
+    older = raw_audit_full.pagespeed.model_dump(mode="json", exclude={"lab", "field_data"})
+    older.update({"lcp_ms": 2300, "cls": 0.06, "inp_ms": 150})
+    raw = raw_audit_full.model_copy(
+        update={"pagespeed": type(raw_audit_full.pagespeed).model_validate(older)}
+    )
+    outcome, measured = run("a2", raw, THRESHOLDS["a2"])
+    assert outcome is CheckOutcome.NOT_MEASURABLE
+    assert measured["reason"] == "pagespeed_data_outdated"
+
+
+def test_a2_without_lab_values_in_the_new_format_stays_no_pagespeed(
+    raw_audit_full: RawAudit,
+) -> None:
+    outcome, measured = run("a2", _speed(raw_audit_full, lab=None), THRESHOLDS["a2"])
+    assert outcome is CheckOutcome.NOT_MEASURABLE
+    assert measured["reason"] == "no_pagespeed"

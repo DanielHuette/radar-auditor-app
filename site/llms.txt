@@ -1,43 +1,48 @@
 # RepoCity RadarAuditor
 
-> Visibility audit for local businesses in Germany (roofers, dentists, kitchen studios and similar). RadarAuditor measures how visible a business is on Google, on Google Maps, in directories and in AI assistants (ChatGPT, Claude, Gemini, Perplexity), and what is missing. Built by Daniel Hütte, AI engineer from Münster, as part of the RepoCity portfolio.
+> Visibility audit for the websites of local businesses in Germany (roofers, dentists, kitchen studios and similar), for the businesses themselves and for agencies and consultants who offer audits to their own clients. RadarAuditor measures how visible the website of a business is on Google, Bing and Copilot, Apple Maps, ChatGPT and Claude, and what is missing. Built by Daniel Hütte, AI engineer from Münster, as part of the RepoCity portfolio.
 
-## What the customer gets
-- A score from 0 to 100 with a traffic light per area (green from 75, amber from 50, red below).
-- Findings in plain German, each with what was measured, what it costs and a ready-to-copy fix (text, code or profile entry).
-- A forecast of additional enquiries as a low-to-high range, always labelled as an estimate.
+## What an audit delivers
+- A score from 0 to 100 with a traffic light per provider (green from 70, amber from 40, red below).
+- An evaluation and an action plan as two PDF files. The evaluation shows the result of every check and, where there is one, the provider's source. The action plan names for each measure what was measured and what to do, sorted by impact in three priorities.
+- Every check is controlled: three ticks (data collected correctly, data correct, evaluation correct), each with evidence from the unchanged responses. A tick without evidence counts as a cross, and a cross takes the check out of the score.
+- Price for businesses: the audit with an action plan costs 350 euros net.
 
 ## How an audit runs
-1. The operator enters only the website address in an installable web app, picks the checks and starts a remote audit.
-2. The job is queued in Supabase.
-3. A collector in a Docker container on the RepoCity server identifies the business, town, industry and search terms, finds up to three competitors on the map and fetches the website, load time, Google profile, Google and Bing search positions, directories and the answers of AI assistants.
-4. Scoring evaluates 108 checks from one check catalogue by fixed rules; no language model computes points.
-5. Claude Code, running in the collector container on the Claude subscription, writes findings and report texts; its output is validated against the data model.
-6. The collector builds the report as a PDF file, which appears in the app.
+1. You enter the website address in an installable web app (phone, tablet, PC), pick the checks and start the audit. The app reads business, address and phone number from the legal notice of the website. Progress appears live.
+2. The app reads the website (up to 60 pages), calculates the cost estimate and makes one trial request to every paid data service. If the balance does not cover the estimate, the audit does not start.
+3. The app measures provider by provider: Google (with AI Overviews, AI Mode and Gemini), Bing and Copilot, Apple Maps, ChatGPT, Claude and paid visibility (Google Ads, Meta Ads). Order of routes: the provider's official interface, then a paid data service, the browser last. If a route fails, the check reads "not measured" with the reason and the audit goes on.
+4. Each of the 62 checks is passed, partly passed, failed or not measured. Passed counts 1, partly passed 0.5, failed 0; checks that were not measured or deselected do not count. Checks without a proven threshold show the measured value and the comparison with the competitors instead of a verdict.
+5. A separate control step controls every check. Programs print the two PDF files and send a phone notification with a link to the evaluation.
+
+## Check catalogue
+62 checks in six sections (Google, Bing and Copilot, Apple Maps, ChatGPT, Claude, paid visibility), 38 of them criteria with the provider's source, 13 results and 11 facts that only state something. 53 checks are measured from the outside without access, 5 need a paid data service and 4 need access to the business's accounts. The score weighs the five scored providers (weights add up to 100): Google 56.2, Bing and Copilot 29.2, ChatGPT 6.5, Claude 6.5, Apple Maps 1.6. Paid visibility has weight 0.
+
+## Operation and data protection
+RadarAuditor runs on its own secured server at Hostinger in the European Union. The data is protected: access rules apply to every table of the database. The service complies with the General Data Protection Regulation and with the artificial intelligence regulation of the European Union (EU AI Act).
+- The remote audit needs no passwords and no access to the business's accounts. For ongoing care the business invites us to its Google profile; no password is needed, and the access can be withdrawn at any time.
+- What is stored: the details of the business, the search terms, the measured values with the unchanged responses of the providers, and the reports. The list from the customer search is deleted automatically after 24 hours.
+- The texts of the evaluation and the action plan are produced with artificial intelligence and are labelled as such. A separate control step checks every measurement against the unchanged responses.
+- Every change to the website or the Google profile arrives as a draft and is only carried out after approval by a person.
+- Anyone who has objected to advertising is on a block list and is not approached again.
 
 ## Quotes and orders
-The operator builds the quote on site in the app from the open points of the audit, with products and prices from the CRM; audit report and quote go out as one PDF through the CRM. After acceptance Claude Code prepares the changes to website and Google profile as drafts, and the collector applies the approved ones. The CRM handles the order, invoices and the monthly audit of a subscription; the RadarAuditor writes no invoices.
+The provider builds the quote on site in the app from the open points of the audit, with products and prices from the customer management system (CRM); audit report and quote go out as one PDF through the CRM. After acceptance the changes to website and Google profile are prepared as drafts and applied once approved. The CRM handles the order, invoices and the monthly audit of a subscription; the RadarAuditor writes no invoices.
 
 ## Finding customers, reply drafts and monthly service
-- Customer search: in the app's "Kunden" (customers) tab the operator enters a trade and a town; the server reads up to 60 businesses from Google Maps and sorts them by gaps in their Google profile (no website, no opening hours, no phone number, few photos, clearly fewer reviews than half of the list), each with a one-sentence reason. "Add to the CRM as a prospect" stores only what the operator copies from the public Google profile; "Start audit" checks the business's website.
+- Customer search: in the app's "Kunden" (customers) tab you enter a trade and a town; the app reads up to 60 businesses from Google Maps and sorts them by gaps in their Google profile, each with a one-sentence reason. "Add to the CRM as a prospect" stores only what you copy from the public Google profile; "Start audit" checks the business's website.
 - Ways of contact follow section 7 of the German Act against Unfair Competition (UWG): letter and personal visit; a phone call only with a concrete reason; an advertising email without prior consent never, so the app has neither an email nor a dial button. A block list keeps every business that objected to advertising out of reach.
-- The customer search has its own daily limit and monthly limit in euros; the list is deleted by the database after 24 hours.
-- Reply drafts: when a customer wants to think it over, the server writes up to five replies to their real reviews that have no owner reply yet, as a PDF. Nothing is published on Google.
-- Monthly service: once the first optimisation is finished, after every monthly audit of a subscription drafts of replies to new reviews and suggestions for profile care (opening hours, photos, posts, description) are prepared; the operator approves each one individually. What is promised is this work, never a particular position on Google.
-
-## Thirteen weighted areas (weights add up to 100)
-Website technology 9; Page structure 10; Content and service pages 12; Company details on the website 6; Hidden data for Google and AI 7; Google Business Profile 14; Reviews 8; Directories and listings 7; Recommendations through links 6; Ranking on Google and Bing 10; Visibility in AI assistants 5; Law and trust 4; Tools on the website 2. A fourteenth area, Results with customer access, shows calls, clicks and enquiries and does not count towards the score.
+- The customer search has its own daily limit and monthly limit in euros; the list is deleted after 24 hours.
+- Reply drafts: when a customer wants to think it over, the app writes up to five replies to their real reviews that have no owner reply yet, as a PDF. Nothing is published on Google.
+- Monthly service: after every monthly audit of a subscription drafts of replies to new reviews and suggestions for profile care are prepared; each one is approved individually. What is promised is this work, never a particular position on Google.
 
 ## Limits
-Calls, clicks and enquiries need customer access. Owner replies to reviews and several Google profile fields are read from Google Maps in the browser and are missing when Maps blocks the browser. New reviews per month are an estimate because Google Maps dates reviews only roughly. Links from other sites, search volume, competitors' search terms and the visibility trend come from a paid data service with a monthly limit. Searches in the browser can hit a block page; the server fetches the missing positions later.
-
-## Status
-Built and tested (1913 Python tests including database tests against PostgreSQL, 399 app tests in 47 test files, measured on 31 October 2026). The first run against a real business is still to come.
+Calls, routes and views from the Google profile, search words with real clicks and the figures from the Google Ads and Meta ad accounts need access to the business's accounts. Links from other sites, search volume, competitors' search terms and ads on Google, Facebook and Instagram need a paid data service; once the set limit is reached, these checks read "not measured". Two queries of the same search can turn out differently, so the report names the time of every query.
 
 ## Pages
 - German: https://radarauditor.speedofthespirit.dev/
 - English: https://radarauditor.speedofthespirit.dev/en/
-- Tabs (same anchors in both languages): #projekt (project page), #organigramm (how an order flows through app, queue, collector, scoring, Claude Code, report, quote and CRM, plus customer search, audit requests and the monthly audit with monthly service), #benchmarks (measured figures from the check catalogue and the test runs), #praesentation (the project in nine scenes)
+- Tabs (same anchors in both languages): #projekt (project page), #organigramm (how an order flows from the request to the invoice), #benchmarks (figures from the check catalogue), #praesentation (the project in nine scenes)
 - Main site: https://speedofthespirit.dev/
 - Contact: kontakt@speedofthespirit.dev
 - LinkedIn: https://www.linkedin.com/in/danielhuette

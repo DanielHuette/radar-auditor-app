@@ -1,14 +1,10 @@
-"""Tests for the Google Maps page parsers.
-
-Context: Pure parser tests on saved Maps pages. | Input: tests/fixtures/maps. | Output: Assertions.
-"""
-
 from datetime import UTC, date, datetime
 
 import pytest
 from conftest import FIXTURES_DIR
 
 from radarauditor.collectors import maps_pages
+from radarauditor.collectors.identity import identity
 from radarauditor.collectors.maps_pages import MapListing
 from radarauditor.collectors.snapshot import PlaceSnapshot
 
@@ -26,7 +22,6 @@ def _page(name: str) -> str:
 
 
 def test_parse_place_reads_every_tab() -> None:
-    """Overview, newest reviews and info tab fill every field and mark it as read in the browser."""
     place = maps_pages.parse_place(
         _page("place_hollenbeck.html"),
         PLACE_URL,
@@ -69,7 +64,6 @@ def test_parse_place_reads_every_tab() -> None:
 
 
 def test_parse_reviews_keeps_owner_replies_and_dates() -> None:
-    """Every review carries reviewReply; dates count back from the moment of reading."""
     reviews = maps_pages.parse_reviews(_page("place_hollenbeck_reviews.html"), NOW)
 
     assert [review["rating"] for review in reviews] == [5.0, 2.0, 5.0, 4.0]
@@ -88,7 +82,6 @@ def test_parse_reviews_keeps_owner_replies_and_dates() -> None:
 
 
 def test_parse_place_without_tabs_leaves_tab_fields_unread() -> None:
-    """Without the review and info tabs, reviews and attributes have no route."""
     place = maps_pages.parse_place(_page("place_hollenbeck.html"), PLACE_URL, NOW)
 
     assert place.recent_reviews == []
@@ -99,7 +92,6 @@ def test_parse_place_without_tabs_leaves_tab_fields_unread() -> None:
 
 
 def test_parse_place_with_info_tab_but_no_description_reads_an_empty_one() -> None:
-    """An opened info tab without an owner text means the profile has no description."""
     overview = "<div role='main'><h1>Betrieb</h1></div>"
     about = "<div role='main'><h2>Zahlungen</h2><ul><li>Rechnung</li></ul></div>"
 
@@ -124,7 +116,6 @@ def test_parse_place_reads_closed_status(label: str, status: str) -> None:
 
 
 def test_parse_listings_skips_sponsored_entries() -> None:
-    """The sponsored first entry does not count; ids come from the place addresses."""
     listings = maps_pages.parse_listings(_page("search_dachdecker_muenster.html"))
 
     assert [listing.name for listing in listings] == [
@@ -152,14 +143,17 @@ def test_is_place_page_tells_profile_from_list() -> None:
 def test_listing_position_prefers_ids_and_falls_back_to_names() -> None:
     listings = maps_pages.parse_listings(_page("search_dachdecker_muenster.html"))
 
-    assert maps_pages.listing_position(listings, "Unbekannt", {OWN_PLACE_ID}) == 3
-    assert maps_pages.listing_position(listings, "Dachdeckerei Hollenbeck", set()) == 3
-    assert maps_pages.listing_position(listings, "Nicht gelistet", {"ChIJ-other"}) is None
+    by_id = identity(name="Unbekannt", place_ids=[OWN_PLACE_ID])
+    assert maps_pages.listing_position(listings, by_id) == 3
+    assert maps_pages.listing_position(listings, identity(name="Dachdeckerei Hollenbeck")) == 3
+    other = identity(name="Nicht gelistet", place_ids=["ChIJ-other"])
+    assert maps_pages.listing_position(listings, other) is None
 
 
 def test_listing_position_matches_feature_ids() -> None:
     listing = MapListing("Kemper", "u", "0x1:0x2", None, None)
-    assert maps_pages.listing_position([listing], "Anders", {"0x1:0x2"}) == 1
+    own = identity(name="Anders", place_ids=["0x1:0x2"])
+    assert maps_pages.listing_position([listing], own) == 1
 
 
 @pytest.mark.parametrize(
@@ -210,12 +204,10 @@ def test_tab_labels_and_place_ids() -> None:
     ],
 )
 def test_photo_date_reads_german_month_and_relative_dates(text: str, expected: date | None) -> None:
-    """A month-year counts as the month's last day, never after today; relative dates count back."""
     assert maps_pages.photo_date(text, NOW) == expected
 
 
 def test_viewer_photo_ignores_panel_texts_and_gallery_tabs() -> None:
-    """Dates of the place panel and the "Street View & 360°" tab say nothing about the photo."""
     before = maps_pages.page_texts(_page("photos_overview.html"))
 
     owner = maps_pages.viewer_photo(_page("photos_owner_1.html"), before, NOW)
@@ -261,7 +253,6 @@ def test_parse_place_stores_photo_dates_with_the_browser_route() -> None:
 
 
 def test_place_snapshot_without_photo_fields_still_loads() -> None:
-    """Snapshots stored before the photo dates existed load with both fields unread."""
     stored = maps_pages.parse_place(_page("place_hollenbeck.html"), PLACE_URL, NOW).model_dump(
         mode="json", exclude={"photo_newest_date", "photo_dated_count"}
     )

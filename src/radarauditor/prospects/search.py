@@ -166,5 +166,5 @@ async def _one_page(
         logger.warning("Customer search %s: Google answered with an error: %s", search.id, exc)
         raise _StoppedError(GOOGLE_FAILED) from exc
     cost = places.request_cost_eur(places.SEARCH_PROSPECTS_SKU, settings.google_eur_per_usd)
-    gate.record_cost(Source.PROSPECT_SEARCH, cost)
+    gate.record_cost(Source.PROSPECT_SEARCH, cost, service=places.SEARCH_PROSPECTS_SKU.value)
     return page

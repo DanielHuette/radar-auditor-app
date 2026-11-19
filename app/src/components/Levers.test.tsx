@@ -3,7 +3,7 @@ import { render } from "preact";
 import { act } from "preact/test-utils";
 import { describe, expect, it } from "vitest";
 import { buildRows, topLevers } from "../lib/evaluation";
-import { check } from "../lib/testRows";
+import { check, EMPTY_CONTEXT } from "../lib/testRows";
 import { CheckRow } from "./CheckRow";
 import { Levers } from "./Levers";
 
@@ -28,7 +28,7 @@ describe("Auswertung parts", () => {
     await act(() => {
       render(
         <ul>
-          <CheckRow row={row} />
+          <CheckRow row={row} context={EMPTY_CONTEXT} />
         </ul>,
         root,
       );
@@ -55,7 +55,7 @@ describe("Auswertung parts", () => {
           <Levers levers={topLevers([g1, g4])} />
           <ul>
             {rows.map((row) => (
-              <CheckRow key={row.check.id} row={row} />
+              <CheckRow key={row.check.id} row={row} context={EMPTY_CONTEXT} />
             ))}
           </ul>
         </div>,

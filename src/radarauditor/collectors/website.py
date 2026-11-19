@@ -1,16 +1,10 @@
-"""Crawl the customer's website: pages, meta data, structure, legal pages, NAP.
-
-Context: First collector; limited to the same host and a page budget.
-Input: Start URL.
-Output: WebsiteSnapshot.
-"""
-
 import asyncio
 import json
 import logging
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from html import unescape
 from typing import TypedDict
 from urllib.parse import urldefrag, urljoin, urlsplit
 from urllib.robotparser import RobotFileParser
@@ -19,6 +13,8 @@ import httpx
 from bs4 import BeautifulSoup, Tag
 from pydantic import HttpUrl
 
+from radarauditor.collectors import crawl_extras, legal_notice, page_parts, raw_answers
+from radarauditor.collectors.page_parts import INVISIBLE_TAGS
 from radarauditor.collectors.patterns import (
     POSTAL_CITY_PATTERN,
     collapse_whitespace,
@@ -27,7 +23,7 @@ from radarauditor.collectors.patterns import (
     parse_http_url,
     site_key,
 )
-from radarauditor.collectors.snapshot import PageSnapshot, WebsiteSnapshot
+from radarauditor.collectors.snapshot import PageSnapshot, SitemapEntry, WebsiteSnapshot
 from radarauditor.collectors.transport import USER_AGENT, send
 from radarauditor.collectors.web_tools import ads_conversions, google_tag_ids, inline_signatures
 
@@ -38,10 +34,9 @@ REQUEST_TIMEOUT_SECONDS = 20
 CONCURRENT_REQUESTS = 4
 POLITE_DELAY_SECONDS = 0.5
 TEXT_EXCERPT_CHARS = 600
-# The privacy policy names its services far below the first paragraph, so it keeps more text.
 PRIVACY_EXCERPT_CHARS = 20000
-IMAGE_HEAD_LIMIT = 20
-OVERSIZED_IMAGE_BYTES = 300 * 1024
+MAX_SITEMAP_FILES = 10
+MAX_SITEMAP_PAGES = 1000
 NAP_SOURCE_PAGES = 3
 OPENING_HOURS_LINES = 7
 
@@ -63,7 +58,6 @@ NON_HTML_SUFFIXES = (
     ".ics",
     ".vcf",
 )
-INVISIBLE_TAGS = ("script", "style", "noscript", "template", "svg", "iframe")
 LEGAL_NOTICE_PATTERN = re.compile(r"impressum|imprint|legal[-_ ]?notice", re.IGNORECASE)
 PRIVACY_PATTERN = re.compile(r"datenschutz|privacy", re.IGNORECASE)
 CONTACT_PATTERN = re.compile(r"kontakt|contact|anfahrt", re.IGNORECASE)
@@ -71,6 +65,11 @@ FOOTER_HINT_PATTERN = re.compile(r"footer|contact|kontakt|address|adresse|anschr
 WEEKDAY = r"(?:Mo|Di|Mi|Do|Fr|Sa|So|Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)"
 OPENING_HOURS_PATTERN = re.compile(rf"\b{WEEKDAY}\b\.?[^\n]{{0,80}}?\d{{1,2}}[:.]\d{{2}}")
 VIEWPORT_NAME_PATTERN = re.compile(r"^viewport$", re.IGNORECASE)
+BYTE_ORDER_MARK = "\ufeff"
+ROBOTS_META_NAME_PATTERN = re.compile(r"^(robots|googlebot)$", re.IGNORECASE)
+SITEMAP_LOC_PATTERN = re.compile(r"<loc>\s*([^<]*?)\s*</loc>", re.IGNORECASE)
+SITEMAP_URL_BLOCK_PATTERN = re.compile(r"<url>(.*?)</url>", re.IGNORECASE | re.DOTALL)
+SITEMAP_LASTMOD_PATTERN = re.compile(r"<lastmod>\s*([^<]*?)\s*</lastmod>", re.IGNORECASE)
 STYLE_SOURCE_PATTERN = re.compile(
     r"@import\s+(?:url\(\s*)?['\"]?([^'\")\s;]+)|@font-face\s*\{([^}]*)\}", re.IGNORECASE
 )
@@ -85,7 +84,6 @@ BLOCK_LABEL_PATTERN = re.compile(
 @dataclass(frozen=True)
 class _ParsedPage:
     snapshot: PageSnapshot
-    image_urls: list[str]
     json_ld_errors: list[str]
     visible_lines: list[str]
 
@@ -96,23 +94,17 @@ class _CrawlState:
     errors: list[str] = field(default_factory=list)
     nap_sources: list[str] = field(default_factory=list)
     opening_hours: str | None = None
-    image_sizes: dict[str, int | None] = field(default_factory=dict)
     recorded_urls: set[str] = field(default_factory=set)
+    legal_scans: list[legal_notice.PageScan] = field(default_factory=list)
+    robots_skipped: list[str] = field(default_factory=list)
+    capped: bool = False
 
 
-async def crawl_website(start_url: HttpUrl, max_pages: int = MAX_PAGES) -> WebsiteSnapshot:
-    """Fetch the start page and follow internal links breadth-first up to max_pages.
-
-    Args:
-        start_url: Public address of the website.
-        max_pages: Upper bound of pages to fetch.
-
-    Returns:
-        Site-wide facts and one PageSnapshot per fetched page.
-
-    Raises:
-        CollectionError: If the start page cannot be fetched.
-    """
+async def crawl_website(
+    start_url: HttpUrl,
+    max_pages: int = MAX_PAGES,
+    browser: legal_notice.PageBrowser | None = None,
+) -> WebsiteSnapshot:
     async with httpx.AsyncClient(
         follow_redirects=True,
         timeout=REQUEST_TIMEOUT_SECONDS,
@@ -121,24 +113,44 @@ async def crawl_website(start_url: HttpUrl, max_pages: int = MAX_PAGES) -> Websi
         start_response = await send(client, "GET", str(start_url), source="website start page")
         final = urlsplit(str(start_response.url))
         origin = f"{final.scheme}://{final.netloc}"
-        robots_txt = await _fetch_text(client, f"{origin}/robots.txt")
+        robots_txt, robots_status = await _fetch_robots(client, f"{origin}/robots.txt")
         robots = _robot_rules(robots_txt)
         state = await _crawl_pages(client, start_response, robots, max_pages)
         sitemap_urls = await _sitemap_urls(client, origin, robots)
+        sitemap_entries = await _sitemap_entries(
+            client, sitemap_urls, site_key(final.hostname or "")
+        )
+        notice = await legal_notice.locate(client, state.legal_scans, browser)
+        extras = await crawl_extras.collect(
+            client,
+            str(start_response.url),
+            state.pages,
+            sitemap_entries,
+            POLITE_DELAY_SECONDS,
+        )
     single_host = await asyncio.to_thread(check_single_host_redirects, start_url)
-    legal_notice_url, privacy_url = find_legal_pages(state.pages)
+    linked_legal_notice_url, privacy_url = find_legal_pages(state.pages)
     return WebsiteSnapshot(
         start_url=start_url,
         uses_https=final.scheme == "https",
         redirects_to_single_host=single_host,
         robots_txt=robots_txt,
         sitemap_urls=sitemap_urls,
-        legal_notice_url=legal_notice_url,
+        legal_notice_url=notice.url or linked_legal_notice_url,
         privacy_url=privacy_url,
         footer_nap=_merge_nap(state.nap_sources),
         opening_hours_text=state.opening_hours,
         pages=state.pages,
         crawl_errors=state.errors,
+        robots_skipped=state.robots_skipped,
+        sitemap_pages=[entry.url for entry in sitemap_entries],
+        crawl_capped=state.capped,
+        legal_notice=notice,
+        robots_status=robots_status,
+        sitemap_entries=sitemap_entries,
+        sitemap_probes=extras.sitemap_probes,
+        variant_probes=extras.variant_probes,
+        agent_fetches=extras.agent_fetches,
     )
 
 
@@ -153,8 +165,8 @@ async def _crawl_pages(
     start_url = _strip_fragment(str(start_response.url))
     home_site = site_key(urlsplit(start_url).hostname or "")
     visited = {start_url}
-    await _record_page(client, semaphore, state, start_response, is_start=True)
-    frontier = _new_links(state.pages[-1:], visited, home_site, robots)
+    _record_page(state, start_response, is_start=True)
+    frontier = _new_links(state.pages[-1:], visited, home_site, robots, state.robots_skipped)
     while frontier and len(state.pages) < max_pages:
         batch = frontier[: max_pages - len(state.pages)]
         frontier = frontier[len(batch) :]
@@ -169,19 +181,15 @@ async def _crawl_pages(
                 continue
             if not _is_html(outcome):
                 continue
-            await _record_page(client, semaphore, state, outcome, is_start=False)
-        frontier.extend(_new_links(state.pages[before:], visited, home_site, robots))
+            _record_page(state, outcome, is_start=False)
+        frontier.extend(
+            _new_links(state.pages[before:], visited, home_site, robots, state.robots_skipped)
+        )
+    state.capped = bool(frontier)
     return state
 
 
-async def _record_page(
-    client: httpx.AsyncClient,
-    semaphore: asyncio.Semaphore,
-    state: _CrawlState,
-    response: httpx.Response,
-    *,
-    is_start: bool,
-) -> None:
+def _record_page(state: _CrawlState, response: httpx.Response, *, is_start: bool) -> None:
     url = _strip_fragment(str(response.url))
     page_url = parse_http_url(url)
     if page_url is None:
@@ -189,10 +197,16 @@ async def _record_page(
         return
     state.recorded_urls.add(url)
     html = response.text
-    parsed = _parse(page_url, response.status_code, html)
-    oversized = await _count_oversized(client, semaphore, parsed.image_urls, state.image_sizes)
-    state.pages.append(parsed.snapshot.model_copy(update={"oversized_images": oversized}))
+    parsed = _parse(
+        page_url,
+        response.status_code,
+        html,
+        _x_robots_tag(response),
+        response.headers.get("last-modified"),
+    )
+    state.pages.append(parsed.snapshot)
     state.errors.extend(f"{url}: {error}" for error in parsed.json_ld_errors)
+    state.legal_scans.append(legal_notice.scan_page(url, html))
     is_nap_page = is_start or bool(LEGAL_NOTICE_PATTERN.search(url) or CONTACT_PATTERN.search(url))
     if is_nap_page and len(state.nap_sources) < NAP_SOURCE_PAGES:
         state.nap_sources.append(html)
@@ -218,9 +232,24 @@ async def _fetch_text(client: httpx.AsyncClient, url: str) -> str | None:
     except httpx.HTTPError as error:
         logger.info("Could not read %s: %s", url, type(error).__name__)
         return None
+    raw_answers.keep(raw_answers.file_name("website", "website", url, "txt"), response.content)
     if response.status_code != httpx.codes.OK:
         return None
     return response.text
+
+
+async def _fetch_robots(client: httpx.AsyncClient, url: str) -> tuple[str | None, int | None]:
+    try:
+        response = await client.get(url)
+    except httpx.HTTPError as error:
+        logger.info("Could not read %s: %s", url, type(error).__name__)
+        return None, None
+    raw_answers.keep(
+        raw_answers.file_name("website", "website", "robots.txt", "txt"), response.content
+    )
+    if response.status_code != httpx.codes.OK:
+        return None, response.status_code
+    return response.text.removeprefix(BYTE_ORDER_MARK), response.status_code
 
 
 async def _sitemap_urls(
@@ -239,34 +268,54 @@ async def _sitemap_urls(
     return [url for url in (parse_http_url(item) for item in candidates) if url is not None]
 
 
-async def _count_oversized(
-    client: httpx.AsyncClient,
-    semaphore: asyncio.Semaphore,
-    image_urls: list[str],
-    sizes: dict[str, int | None],
-) -> int:
-    pending = [url for url in image_urls[:IMAGE_HEAD_LIMIT] if url not in sizes]
-    measured = await asyncio.gather(*(_content_length(client, semaphore, url) for url in pending))
-    sizes.update(zip(pending, measured, strict=True))
-    return sum(
-        1
-        for url in image_urls[:IMAGE_HEAD_LIMIT]
-        if (size := sizes.get(url)) is not None and size > OVERSIZED_IMAGE_BYTES
-    )
+def _sitemap_locations(content: str) -> list[tuple[str, str | None]]:
+    blocks = SITEMAP_URL_BLOCK_PATTERN.findall(content)
+    if not blocks:
+        return [(unescape(match).strip(), None) for match in SITEMAP_LOC_PATTERN.findall(content)]
+    locations: list[tuple[str, str | None]] = []
+    for block in blocks:
+        location = SITEMAP_LOC_PATTERN.search(block)
+        if location is None:
+            continue
+        modified = SITEMAP_LASTMOD_PATTERN.search(block)
+        locations.append(
+            (unescape(location.group(1)).strip(), modified.group(1) if modified else None)
+        )
+    return locations
 
 
-async def _content_length(
-    client: httpx.AsyncClient, semaphore: asyncio.Semaphore, url: str
-) -> int | None:
-    async with semaphore:
-        try:
-            response = await client.head(url)
-        except httpx.HTTPError:
-            return None
-    header = response.headers.get("content-length")
-    if response.status_code != httpx.codes.OK or header is None or not header.isdigit():
-        return None
-    return int(header)
+async def _sitemap_entries(
+    client: httpx.AsyncClient, sitemap_urls: list[HttpUrl], home_site: str
+) -> list[SitemapEntry]:
+    pending = [str(url) for url in sitemap_urls]
+    seen = set(pending)
+    pages: list[SitemapEntry] = []
+    known: set[str] = set()
+    fetched = 0
+    while pending and fetched < MAX_SITEMAP_FILES and len(pages) < MAX_SITEMAP_PAGES:
+        sitemap = pending.pop(0)
+        fetched += 1
+        content = await _fetch_text(client, sitemap)
+        if content is None:
+            continue
+        if "<sitemapindex" in content[:2000].lower():
+            indexed = [unescape(match).strip() for match in SITEMAP_LOC_PATTERN.findall(content)]
+            children = [loc for loc in indexed if loc not in seen]
+            seen.update(children)
+            pending.extend(children)
+            continue
+        for location, modified in _sitemap_locations(content):
+            page = _strip_fragment(location)
+            parts = urlsplit(page)
+            if (
+                parts.scheme in ("http", "https")
+                and site_key(parts.hostname or "") == home_site
+                and not parts.path.lower().endswith(NON_HTML_SUFFIXES)
+                and page not in known
+            ):
+                known.add(page)
+                pages.append(SitemapEntry(url=page, lastmod=modified))
+    return pages[:MAX_SITEMAP_PAGES]
 
 
 def _robot_rules(robots_txt: str | None) -> RobotFileParser:
@@ -280,6 +329,7 @@ def _new_links(
     visited: set[str],
     home_site: str,
     robots: RobotFileParser,
+    skipped: list[str],
 ) -> list[str]:
     queued: list[str] = []
     for page in pages:
@@ -292,6 +342,7 @@ def _new_links(
                 continue
             if not robots.can_fetch(USER_AGENT, url):
                 logger.debug("robots.txt disallows %s", url)
+                skipped.append(url)
                 continue
             queued.append(url)
     return queued
@@ -306,39 +357,41 @@ def _strip_fragment(url: str) -> str:
     return urldefrag(url).url
 
 
-def parse_page(url: HttpUrl, status_code: int, html: str) -> PageSnapshot:
-    """Extract title, meta, headings, JSON-LD, links, third-party hosts and counts from a page.
-
-    `oversized_images` is 0 here because it needs network requests; the crawler fills it in.
-    An image counts as without alt text when the attribute is missing or empty. Links to another
-    site go to `external_links`; hosts outside the site that serve scripts, stylesheets, frames,
-    images or inline font faces go to `third_party_hosts`. External script addresses go to
-    `script_sources`; the chat, analytics and Google Ads markers of inline scripts, the Google tag
-    ids and the Google Ads conversion measurements are recorded for the tool checks. A privacy
-    page keeps a longer text excerpt so the services it names can be compared with the hosts in
-    use.
-
-    Args:
-        url: Address the document was fetched from; relative links resolve against it.
-        status_code: HTTP status of the response.
-        html: Document source.
-
-    Returns:
-        The page snapshot.
-    """
-    return _parse(url, status_code, html).snapshot
+def _x_robots_tag(response: httpx.Response) -> str | None:
+    values = [value.strip() for value in response.headers.get_list("x-robots-tag")]
+    return "\n".join(value for value in values if value) or None
 
 
-def _parse(url: HttpUrl, status_code: int, html: str) -> _ParsedPage:
+def parse_page(
+    url: HttpUrl,
+    status_code: int,
+    html: str,
+    x_robots_tag: str | None = None,
+    last_modified: str | None = None,
+) -> PageSnapshot:
+    return _parse(url, status_code, html, x_robots_tag, last_modified).snapshot
+
+
+def _parse(
+    url: HttpUrl,
+    status_code: int,
+    html: str,
+    x_robots_tag: str | None = None,
+    last_modified: str | None = None,
+) -> _ParsedPage:
     soup = BeautifulSoup(html, "lxml")
     base = str(url)
     json_ld, json_ld_errors = _json_ld(soup)
-    image_urls, images_without_alt = _images(soup, base)
+    images_without_alt = _images_without_alt(soup)
+    images = page_parts.images(soup)
+    links = page_parts.links(soup, base)
     links_and_scripts = _links_and_scripts(soup, base)
     head_values = _head_values(soup, base)
     headings = _headings(soup)
-    # Reading the visible text removes scripts and styles from the soup, so it comes last.
+    bing_robots = page_parts.meta_robots_bing(soup)
+    data_nosnippet = page_parts.has_data_nosnippet(soup)
     lines = _visible_lines(soup)
+    root = page_parts.content_root(soup)
     text = " ".join(lines)
     snapshot = PageSnapshot(
         url=url,
@@ -352,17 +405,23 @@ def _parse(url: HttpUrl, status_code: int, html: str) -> _ParsedPage:
         json_ld=json_ld,
         open_graph=head_values.open_graph,
         images_without_alt=images_without_alt,
-        oversized_images=0,
         text_excerpt=text[: _excerpt_chars(base, head_values.title)],
         has_viewport_meta=head_values.has_viewport_meta,
+        meta_robots=head_values.meta_robots,
+        x_robots_tag=x_robots_tag,
+        meta_robots_bing=bing_robots,
+        last_modified=last_modified,
+        body_text=page_parts.body_text(lines),
+        first_text=page_parts.first_text(root),
+        images=images,
+        links=links,
+        has_data_nosnippet=data_nosnippet,
         **links_and_scripts,
     )
-    return _ParsedPage(snapshot, image_urls, json_ld_errors, lines)
+    return _ParsedPage(snapshot, json_ld_errors, lines)
 
 
 class _LinksAndScripts(TypedDict):
-    """The link and script fields of a PageSnapshot."""
-
     tel_links: list[str]
     mailto_links: list[str]
     internal_links: list[HttpUrl]
@@ -394,7 +453,6 @@ def _links_and_scripts(soup: BeautifulSoup, base: str) -> _LinksAndScripts:
 
 
 def _excerpt_chars(base: str, title: str | None) -> int:
-    """Privacy pages keep a longer excerpt than other pages."""
     is_privacy_page = PRIVACY_PATTERN.search(urlsplit(base).path) or PRIVACY_PATTERN.search(
         title or ""
     )
@@ -409,6 +467,7 @@ class _HeadValues:
     lang: str | None
     open_graph: dict[str, str]
     has_viewport_meta: bool
+    meta_robots: str | None
 
 
 def _head_values(soup: BeautifulSoup, base: str) -> _HeadValues:
@@ -431,7 +490,16 @@ def _head_values(soup: BeautifulSoup, base: str) -> _HeadValues:
         lang=_attribute(html_tag, "lang") or None,
         open_graph=open_graph,
         has_viewport_meta=soup.find("meta", attrs={"name": VIEWPORT_NAME_PATTERN}) is not None,
+        meta_robots=_meta_robots(soup),
     )
+
+
+def _meta_robots(soup: BeautifulSoup) -> str | None:
+    contents = [
+        (_attribute(tag, "content") or "").strip()
+        for tag in soup.find_all("meta", attrs={"name": ROBOTS_META_NAME_PATTERN})
+    ]
+    return ", ".join(content for content in contents if content) or None
 
 
 def _headings(soup: BeautifulSoup) -> list[tuple[int, str]]:
@@ -458,19 +526,8 @@ def _json_ld(soup: BeautifulSoup) -> tuple[list[dict[str, object]], list[str]]:
     return blocks, errors
 
 
-def _images(soup: BeautifulSoup, base: str) -> tuple[list[str], int]:
-    urls: list[str] = []
-    without_alt = 0
-    for image in soup.find_all("img"):
-        alt = _attribute(image, "alt")
-        if alt is None or not alt.strip():
-            without_alt += 1
-        source = _attribute(image, "src") or _attribute(image, "data-src")
-        if source and not source.startswith("data:"):
-            absolute = urljoin(base, source)
-            if absolute.startswith(("http://", "https://")) and absolute not in urls:
-                urls.append(absolute)
-    return urls, without_alt
+def _images_without_alt(soup: BeautifulSoup) -> int:
+    return sum(1 for image in soup.find_all("img") if not (_attribute(image, "alt") or "").strip())
 
 
 def _contact_links(soup: BeautifulSoup) -> tuple[list[str], list[str]]:
@@ -533,7 +590,6 @@ def _third_party_hosts(soup: BeautifulSoup, base: str) -> list[str]:
 
 
 def _scripts(soup: BeautifulSoup, base: str) -> tuple[list[str], list[str]]:
-    """Absolute addresses of external scripts and the text of inline scripts, JSON-LD left out."""
     sources: list[str] = []
     inline: list[str] = []
     for tag in soup.find_all("script"):
@@ -582,17 +638,6 @@ def _attribute(tag: object, name: str) -> str | None:
 
 
 def find_legal_pages(pages: list[PageSnapshot]) -> tuple[HttpUrl | None, HttpUrl | None]:
-    """Locate the legal notice (Impressum) and privacy policy by link text and URL patterns.
-
-    Crawled page addresses, titles and first headings are checked first, then the internal links
-    of every page, so a legal page beyond the crawl budget is still found.
-
-    Args:
-        pages: Crawled pages in crawl order.
-
-    Returns:
-        Legal notice URL and privacy policy URL, each None if not found.
-    """
     return _first_match(pages, LEGAL_NOTICE_PATTERN), _first_match(pages, PRIVACY_PATTERN)
 
 
@@ -611,18 +656,6 @@ def _first_match(pages: list[PageSnapshot], pattern: re.Pattern[str]) -> HttpUrl
 
 
 def extract_footer_nap(html: str) -> dict[str, str]:
-    """Read name, street, postal code, city and phone from the footer or a contact block.
-
-    Candidate blocks are tried in this order: `<footer>`, elements whose id or class names a
-    footer or contact block, `<address>`, then the whole body. The first block with a postal code
-    and city wins; the phone may come from any block.
-
-    Args:
-        html: Document source.
-
-    Returns:
-        Keys name, street, postal_code, city and phone, each only when found.
-    """
     soup = BeautifulSoup(html, "lxml")
     for tag in soup.find_all(INVISIBLE_TAGS):
         tag.decompose()
@@ -684,30 +717,11 @@ def _merge_nap(html_sources: list[str]) -> dict[str, str]:
 
 
 def extract_opening_hours(lines: list[str]) -> str | None:
-    """Return the lines that pair a German weekday with a time, joined by newlines.
-
-    Args:
-        lines: Visible text lines of a page.
-
-    Returns:
-        Up to seven matching lines, or None when the page shows no opening hours.
-    """
     matches = [line for line in lines if OPENING_HOURS_PATTERN.search(line)]
     return "\n".join(matches[:OPENING_HOURS_LINES]) if matches else None
 
 
 def check_single_host_redirects(start_url: HttpUrl) -> bool:
-    """Return True if http, https, www and non-www variants all end on one canonical host.
-
-    Variants that cannot be reached at all (for example a www name without a DNS entry) do not
-    create duplicate content and are skipped.
-
-    Args:
-        start_url: Public address of the website.
-
-    Returns:
-        True when every reachable variant ends on the same scheme and host.
-    """
     bare_host = site_key(start_url.host or "")
     variants = [
         f"{scheme}://{prefix}{bare_host}/"

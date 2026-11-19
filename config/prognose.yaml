@@ -28,6 +28,7 @@ enquiry_rate_by_industry:
   recht_steuern_beratung: [0.04, 0.08]
   fitness_sport: [0.04, 0.08]
   handel_dienstleistung: [0.03, 0.08]
+  kunst_kreativ: [0.01, 0.03]
   default: [0.03, 0.08]
 volume_fallback_when_unknown:
   small_city: [20, 80]

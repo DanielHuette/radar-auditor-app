@@ -1,36 +1,35 @@
-"""Typed snapshots returned by the collectors and the merged RawAudit.
-
-Context: The RawAudit is stored as JSON in Supabase storage and handed to scoring and to Claude
-Code.
-Input: Collector results.
-Output: RawAudit.
-"""
-
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
+from uuid import UUID
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 from radarauditor.db.app_settings import Source
+from radarauditor.feedback.events import RouteReport
 
-DataRoute = Literal["browser", "places_api"]
-"""How a value was read: Google Maps in the server browser, or the paid Places API (New)."""
+DataRoute = Literal["browser", "places_api", "dataforseo"]
+
+
+LinkKind = Literal["href", "anchor", "javascript", "no_href", "onclick"]
+
+
+class ImageInfo(BaseModel):
+    source: str | None
+    file_name: str | None
+    alt: str | None
+    decorative: bool = False
+
+
+class LinkInfo(BaseModel):
+    kind: LinkKind
+    text: str
+    url: str | None = None
+    in_navigation: bool = False
+    image_alt: str | None = None
+    aria_label: str | None = None
 
 
 class PageSnapshot(BaseModel):
-    """What one crawled page contains.
-
-    external_links are distinct links to other sites; third_party_hosts are the hosts of scripts,
-    stylesheets, frames, images and inline font faces loaded from outside the site.
-
-    The script fields feed the website tool checks: script_sources are the absolute addresses of
-    external scripts, inline_script_signatures the known tool markers (see web_tools) found in
-    inline scripts, google_tag_ids the Google tag ids (G-, UA-, GTM-, AW-) in scripts and script
-    addresses, ads_conversions the Google Ads conversion measurements (send_to targets
-    "AW-id/label", google_conversion_id values, googleadservices conversion calls). None means the
-    page was crawled before these fields existed.
-    """
-
     url: HttpUrl
     status_code: int
     title: str | None
@@ -43,22 +42,67 @@ class PageSnapshot(BaseModel):
     open_graph: dict[str, str]
     internal_links: list[HttpUrl]
     images_without_alt: int
-    oversized_images: int
     tel_links: list[str]
     mailto_links: list[str]
     text_excerpt: str
     has_viewport_meta: bool = False
+    meta_robots: str | None = None
+    x_robots_tag: str | None = None
     external_links: list[HttpUrl] = Field(default_factory=list)
     third_party_hosts: list[str] = Field(default_factory=list)
     script_sources: list[str] | None = None
     inline_script_signatures: list[str] | None = None
     google_tag_ids: list[str] | None = None
     ads_conversions: list[str] | None = None
+    meta_robots_bing: str | None = None
+    last_modified: str | None = None
+    body_text: str | None = None
+    first_text: str | None = None
+    images: list[ImageInfo] | None = None
+    links: list[LinkInfo] | None = None
+    has_data_nosnippet: bool = False
+
+
+LegalNoticeWay = Literal[
+    "address", "heading", "link", "foreign_link", "frame", "section", "text", "browser", "direct"
+]
+
+
+class LegalNoticeCandidate(BaseModel):
+    url: HttpUrl
+    way: LegalNoticeWay
+
+
+class LegalNotice(BaseModel):
+    url: HttpUrl | None = None
+    way: LegalNoticeWay | None = None
+    rendered: bool = False
+    lines: list[str] = Field(default_factory=list)
+    candidates: list[LegalNoticeCandidate] = Field(default_factory=list)
+
+
+class SitemapEntry(BaseModel):
+    url: str
+    lastmod: str | None = None
+
+
+class UrlProbe(BaseModel):
+    url: str
+    status: int | None
+    chain: list[int] = Field(default_factory=list)
+    location: str | None = None
+    final_url: str | None = None
+    error: str | None = None
+
+
+class AgentFetch(BaseModel):
+    agent: str
+    status: int | None
+    text: str = ""
+    error: str | None = None
 
 
 class WebsiteSnapshot(BaseModel):
-    """Site-wide facts plus the crawled pages."""
-
     start_url: HttpUrl
     uses_https: bool
     redirects_to_single_host: bool
@@ -70,18 +114,49 @@ class WebsiteSnapshot(BaseModel):
     opening_hours_text: str | None
     pages: list[PageSnapshot]
     crawl_errors: list[str]
+    robots_skipped: list[str] = Field(default_factory=list)
+    sitemap_pages: list[str] = Field(default_factory=list)
+    crawl_capped: bool = False
+    legal_notice: LegalNotice | None = None
+    robots_status: int | None = None
+    sitemap_entries: list[SitemapEntry] | None = None
+    sitemap_probes: list[UrlProbe] | None = None
+    variant_probes: list[UrlProbe] | None = None
+    agent_fetches: list[AgentFetch] | None = None
+
+
+FieldScope = Literal["url", "origin"]
+
+
+class PageSpeedLab(BaseModel):
+    runs: int
+    lcp_ms: int
+    cls: float
+    tbt_ms: int
+
+
+class PageSpeedField(BaseModel):
+    scope: FieldScope
+    lcp_ms: int | None
+    cls: float | None
+    inp_ms: int | None
 
 
 class PageSpeedSnapshot(BaseModel):
-    """Core Web Vitals and scores from PageSpeed Insights, mobile and desktop."""
-
     url: HttpUrl
     mobile_performance: int
     desktop_performance: int
-    lcp_ms: int
-    cls: float
-    inp_ms: int | None
     accessibility: int
+    lab: PageSpeedLab | None = None
+    field_data: PageSpeedField | None = None
+    older_format: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _mark_single_run_values(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "lab" not in data and "lcp_ms" in data:
+            return {**data, "older_format": True}
+        return data
 
 
 PLACES_API_FIELDS = frozenset(
@@ -105,25 +180,6 @@ PLACES_API_FIELDS = frozenset(
 
 
 class PlaceSnapshot(BaseModel):
-    """Public Google Business Profile facts, read from Google Maps in the browser or the Places API.
-
-    Each recent review keeps publishTime, rating, text and relativePublishTimeDescription. Reviews
-    read in the browser are the newest ones and always carry reviewReply (None, or a dict with
-    text, publishTime and relativePublishTimeDescription of the owner's answer); their times are
-    derived from Google's relative dates. The Places API returns its most relevant reviews without
-    owner replies.
-
-    The fields from description on are only shown on the Maps page; None means the route did not
-    read them, an empty list means the page shows none. post_ages_days holds the age of every
-    visible profile post, newest first; question_count the questions under "Fragen und Antworten".
-    photo_newest_date is the capture date of the newest dated photo in the Maps photo viewer
-    (Street View and 360° images left out; a month-year date counts as the last day of that
-    month), photo_dated_count how many photos with a date were seen; a count of 0 with no date
-    means the viewer was opened but showed no dated photo.
-    value_routes names the route of every field that was read; an empty map is a snapshot stored
-    before routes were recorded, which came from the Places API.
-    """
-
     place_id: str
     name: str
     formatted_address: str
@@ -150,23 +206,12 @@ class PlaceSnapshot(BaseModel):
     value_routes: dict[str, DataRoute] = Field(default_factory=dict)
 
     def route_of(self, field: str) -> DataRoute | None:
-        """Return the route that delivered a field, or None when no route read it.
-
-        Snapshots without recorded routes came from the Places API, which reads every field
-        it has.
-        """
         if not self.value_routes:
             return "places_api" if field in PLACES_API_FIELDS else None
         return self.value_routes.get(field)
 
 
 class MapRanking(BaseModel):
-    """Position of the customer in the Google Maps result list for one search phrase.
-
-    position is None when the customer is not among the listed results; listed holds the names of
-    the results in order (empty when the route returns identifiers only).
-    """
-
     phrase: str
     position: int | None
     listed: list[str] = Field(default_factory=list)
@@ -174,11 +219,6 @@ class MapRanking(BaseModel):
 
 
 class ListedBusiness(BaseModel):
-    """One business of a Google Maps result list with its review count.
-
-    review_count is None where the list does not show it; is_customer marks the audited business.
-    """
-
     name: str
     review_count: int | None
     rating: float | None = None
@@ -187,25 +227,12 @@ class ListedBusiness(BaseModel):
 
 
 class MapResultList(BaseModel):
-    """Every business Google Maps lists for the primary keyword, in Google's order.
-
-    route says whether the list was read in the browser or came from the Places text search.
-    """
-
     phrase: str
     businesses: list[ListedBusiness]
     route: DataRoute
 
 
 class SerpResult(BaseModel):
-    """One search executed from the operator's location.
-
-    Organic entries are distinct domains in page order. For the image vertical they are the
-    source hosts of the first image results. Ads hold advertiser hosts, or names where a sponsored
-    block shows no link. route says where the result was read: in the server browser, or through
-    the DataForSEO SERP API when Google blocked the browser.
-    """
-
     phrase: str
     organic: list[tuple[int, str]]
     local_pack: list[tuple[int, str]]
@@ -217,38 +244,53 @@ class SerpResult(BaseModel):
     ads: list[str] = Field(default_factory=list)
     knowledge_panel: bool = False
     vertical: Literal["web", "images"] = "web"
-    route: Literal["browser", "dataforseo"] = "browser"
+    route: Literal["browser", "dataforseo", "apify"] = "browser"
+    returned_keyword: str | None = None
+    language_code: str | None = None
+    location_code: int | None = None
+
+
+class PositionChange(BaseModel):
+    phrase: str
+    kind: Literal["organic", "local_pack"]
+    before: int | None
+    after: int | None
+
+
+class RankingHistory(BaseModel):
+    previous_audit_id: UUID
+    previous_requested_at: datetime
+    changes: list[PositionChange]
 
 
 class DeferredSearch(BaseModel):
-    """A Google search that could not run because Google blocked the browser; retried later."""
-
     phrase: str
     vertical: Literal["web", "images"] = "web"
 
 
-class DirectoryHit(BaseModel):
-    """Whether a directory lists the business and how it spells the NAP."""
+class DirectoryEntry(BaseModel):
+    name: str | None = None
+    address: str | None = None
+    phone: str | None = None
+    website: str | None = None
 
+
+class DirectoryHit(BaseModel):
     directory: str
     found: bool
     listing_url: HttpUrl | None
     name: str | None
     address: str | None
     phone: str | None
+    delivered: int | None = None
+    search_text: str | None = None
+    entries: list[DirectoryEntry] | None = None
 
 
-AnswerRoute = Literal["browser", "api", "claude_code"]
+AnswerRoute = Literal["browser", "api", "claude_code", "manual", "dataforseo"]
 
 
 class AssistantAnswer(BaseModel):
-    """One answer of an AI assistant to a local recommendation question.
-
-    route says how the answer was obtained: the assistant's website in the server browser, its
-    paid interface after the browser was blocked, or the Claude Code CLI. Audits collected before
-    routes were recorded have None.
-    """
-
     provider: str
     question: str
     mentioned: bool
@@ -258,13 +300,6 @@ class AssistantAnswer(BaseModel):
 
 
 class GridPoint(BaseModel):
-    """Local pack position of the customer at one point of the grid around its location.
-
-    key is "r{row}c{column}", both 1-based, row 1 in the north and column 1 in the west; the app
-    and the ranking rows use it. position is None where the customer is not listed; route names
-    how the point was measured (None for points stored before routes were recorded).
-    """
-
     key: str = Field(pattern=r"^r[1-9]\d*c[1-9]\d*$")
     latitude: float
     longitude: float
@@ -273,8 +308,6 @@ class GridPoint(BaseModel):
 
 
 class SearchQuery(BaseModel):
-    """One search query of the customer's site in Google Search Console."""
-
     query: str
     clicks: int
     impressions: int
@@ -283,11 +316,6 @@ class SearchQuery(BaseModel):
 
 
 class AnalyticsSnapshot(BaseModel):
-    """Visits and enquiries of the website from Google Analytics 4 over the last 28 days.
-
-    key_events counts what GA4 calls key events (formerly conversions).
-    """
-
     property_id: str
     sessions: int
     engaged_sessions: int
@@ -295,15 +323,6 @@ class AnalyticsSnapshot(BaseModel):
 
 
 class AccessSnapshot(BaseModel):
-    """Data from the customer's own Google accounts, read with the operator's authorisation.
-
-    profile_metrics sums the Business Profile daily metrics over the last 28 days and
-    profile_metrics_previous over the 28 days before; empty means the profile was not read.
-    search_totals holds clicks, impressions, ctr and position of the whole site; empty means
-    Search Console was not read. owner_reviews keep publishTime, rating, text and reviewReply
-    (None or a dict with text and updateTime), the shape the review checks read.
-    """
-
     profile_metrics: dict[str, int] = Field(default_factory=dict)
     profile_metrics_previous: dict[str, int] = Field(default_factory=dict)
     search_queries: list[SearchQuery] = Field(default_factory=list)
@@ -314,8 +333,6 @@ class AccessSnapshot(BaseModel):
 
 
 class BacklinkSummary(BaseModel):
-    """Referring domains of one domain; shares are None where the sample could not be read."""
-
     domain: str
     referring_domains: int
     referring_domains_local_share: float | None = None
@@ -324,8 +341,6 @@ class BacklinkSummary(BaseModel):
 
 
 class GapKeyword(BaseModel):
-    """A search phrase a competitor ranks for and the customer does not."""
-
     phrase: str
     volume: int
     competitor_domain: str
@@ -333,13 +348,6 @@ class GapKeyword(BaseModel):
 
 
 class PaidSnapshot(BaseModel):
-    """Volumes, links and keyword data from DataForSEO.
-
-    Keys of volumes are the searched phrases ("<keyword> <city>"); primary_phrases lists those of
-    primary keywords. keyword_gap is None when it could not be read, an empty list when there is
-    no gap. historic_visibility holds (YYYY-MM, top-10 keyword count) oldest first.
-    """
-
     customer_domain: str | None = None
     volumes: dict[str, int] = Field(default_factory=dict)
     primary_phrases: list[str] = Field(default_factory=list)
@@ -353,7 +361,6 @@ class PaidSnapshot(BaseModel):
 IdentifiedField = Literal[
     "name", "street", "postal_code", "city", "phone", "google_place_id", "industry", "keywords"
 ]
-"""A customer or location value the identify step filled in."""
 
 IdentificationSource = Literal[
     "json_ld",
@@ -364,37 +371,144 @@ IdentificationSource = Literal[
     "name_words",
     "industry_services",
 ]
-"""Where an identified value came from: JSON-LD of the start page, the legal notice (Impressum),
-the footer contact data, the Google profile, the profile categories, the words of the name and
-category text, or the typical services of the industry group (keywords)."""
+
+
+class GoogleAd(BaseModel):
+    advertiser_id: str | None = None
+    creative_id: str | None = None
+    advertiser_name: str | None = None
+    format: str | None = None
+    verified: bool | None = None
+    first_shown: str | None = None
+    last_shown: str | None = None
+    url: str | None = None
+
+
+class GoogleAdsSnapshot(BaseModel):
+    target: str
+    window_days: int
+    location_code: int
+    returned_location_code: int | None = None
+    ads: list[GoogleAd]
+    items_count: int | None = None
+    format_problem: str | None = None
+    raw_items: list[dict[str, Any]] = Field(default_factory=list)
+    measured_at: datetime
+
+
+class MetaAd(BaseModel):
+    ad_id: str | None = None
+    page_name: str | None = None
+
+
+class MetaAdsSnapshot(BaseModel):
+    searched_name: str
+    actor: str
+    confirmed: bool
+    own_ads: list[MetaAd] = Field(default_factory=list)
+    other_pages: list[str] = Field(default_factory=list)
+    competitor_counts: dict[str, int] = Field(default_factory=dict)
+    items_total: int = 0
+    raw_items: list[dict[str, Any]] = Field(default_factory=list)
+    measured_at: datetime
 
 
 class IdentifiedValue(BaseModel):
-    """One value the identify step filled in for an audit started with only the website address.
-
-    For field "keywords" value lists the created phrases separated by ", ", for "industry" it is
-    the group id of config/branchen.yaml.
-    """
-
     field: IdentifiedField
     value: str
     source: IdentificationSource
 
 
+class RouteCheck(BaseModel):
+    route: str
+    ok: bool
+    detail: str | None = None
+
+
+class BusinessFacts(BaseModel):
+    name: str | None = None
+    city: str | None = None
+    street: str | None = None
+    postal_code: str | None = None
+    phone: str | None = None
+
+
+class PhaseTiming(BaseModel):
+    phase: str
+    seconds: float
+    answers: int | None = None
+
+
+SocialPlatform = Literal["instagram", "facebook", "linkedin_company", "linkedin_person", "x"]
+SocialSource = Literal["website_link", "legal_notice_link", "google_search"]
+SocialStatus = Literal["confirmed", "unsure", "unreachable"]
+SocialGapReason = Literal["no_account_found", "search_failed"]
+
+
+class SocialPost(BaseModel):
+    published_at: datetime | None = None
+    kind: str | None = None
+    likes: int | None = None
+    comments: int | None = None
+    shares: int | None = None
+    views: int | None = None
+
+
+class SocialMeasurement(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    followers: int | None = None
+    following: int | None = None
+    connections: int | None = None
+    posts_count: int | None = None
+    page_likes: int | None = None
+    employees: int | None = None
+    is_business: bool | None = None
+    category: str | None = None
+    is_private: bool | None = None
+    advertising: str | None = None
+    rating: float | None = None
+    website: str | None = None
+    posts: list[SocialPost] = Field(default_factory=list)
+
+
+class SocialAccount(SocialMeasurement):
+    platform: SocialPlatform
+    url: str
+    handle: str
+    source: SocialSource
+    status: SocialStatus
+    proof: str | None = None
+    reason: str | None = None
+    evidence_websites: list[str] = Field(default_factory=list)
+    evidence_phones: list[str] = Field(default_factory=list)
+    evidence_places: list[str] = Field(default_factory=list)
+
+
+class SocialGap(BaseModel):
+    platform: SocialPlatform
+    reason: SocialGapReason
+    detail: str | None = None
+
+
+class SocialSnapshot(BaseModel):
+    accounts: list[SocialAccount]
+    gaps: list[SocialGap]
+    collected_at: datetime
+
+
+class MeasurementRecord(BaseModel):
+    step: str
+    supplier: str
+    route: str
+    measured_at: datetime
+    technical_status: str
+    record_count: int
+    valid: bool
+    reason: str
+
+
 class RawAudit(BaseModel):
-    """Everything collected for one audit; grid holds the map grid of the primary keyword.
-
-    access is filled only for audits with customer access, paid only with DataForSEO switched on.
-    capped_sources lists the sources whose daily cap ran out during collection, cost_capped_sources
-    those whose monthly cost cap was reached; deferred_searches the Google searches a serp_retry job
-    still has to run. domain_first_capture is the day the Wayback Machine first archived the
-    customer's domain, None when it never did or could not be asked. map_rankings holds the
-    Google Maps position per keyword; map_results the whole Maps result list of the primary
-    keyword with review counts, None for audits collected before it was recorded. identified lists
-    what the identify step filled in, with its source, for an audit started without name, city,
-    industry or keywords.
-    """
-
     website: WebsiteSnapshot | None
     pagespeed: PageSpeedSnapshot | None
     place: PlaceSnapshot | None
@@ -414,3 +528,14 @@ class RawAudit(BaseModel):
     map_rankings: list[MapRanking] = Field(default_factory=list)
     map_results: MapResultList | None = None
     identified: list[IdentifiedValue] = Field(default_factory=list)
+    timings: list[PhaseTiming] = Field(default_factory=list)
+    preflight: list[RouteCheck] = Field(default_factory=list)
+    business: BusinessFacts | None = None
+    profile_missing: bool = False
+    route_reports: list[RouteReport] = Field(default_factory=list)
+    social: SocialSnapshot | None = None
+    ranking_history: RankingHistory | None = None
+    measurements: list[MeasurementRecord] = Field(default_factory=list)
+    has_location: bool | None = None
+    ads_google: GoogleAdsSnapshot | None = None
+    ads_meta: MetaAdsSnapshot | None = None

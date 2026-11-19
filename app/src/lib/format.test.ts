@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDate, formatEuro, hostOf, normaliseWebsite, parseAmount } from "./format";
+import { formatDate, formatEuro, formatEuroPrecise, formatNumber, hostOf, normaliseWebsite, parseAmount } from "./format";
 
 describe("parseAmount", () => {
   it("reads German and plain notation", () => {
@@ -42,5 +42,23 @@ describe("display formats", () => {
   it("extracts the host of a website", () => {
     expect(hostOf("https://dachdecker-muster.de/")).toBe("dachdecker-muster.de");
     expect(hostOf(null)).toBe("");
+  });
+});
+
+describe("formatEuroPrecise", () => {
+  it("shows up to four decimals so that a cent fraction is not rounded away", () => {
+    expect(formatEuroPrecise(0.0045)).toContain("0,0045");
+    expect(formatEuroPrecise(0.02)).toContain("0,02");
+    expect(formatEuroPrecise(0.02)).not.toContain("0,0200");
+  });
+
+  it("shows a dash without an amount", () => {
+    expect(formatEuroPrecise(null)).toBe("–");
+  });
+});
+
+describe("formatNumber", () => {
+  it("groups thousands the German way", () => {
+    expect(formatNumber(12345)).toBe("12.345");
   });
 });

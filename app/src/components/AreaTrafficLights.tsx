@@ -20,6 +20,7 @@ export function AreaTrafficLights({ areas }: { areas: readonly AreaSummary[] }) 
                   ? "Nicht messbar"
                   : `${String(area.counts.passed)} bestanden · ${String(area.counts.partial)} teilweise · ${String(area.counts.failed)} offen`}
               </span>
+              <span class="muted small">aus {String(area.counted)} von {String(area.ratable)} Prüfungen</span>
             </span>
             <span class={`area__score ${tone}`}>{formatScore(area.score)}</span>
           </li>

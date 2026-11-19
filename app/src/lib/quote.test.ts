@@ -35,7 +35,7 @@ function position(overrides: Partial<Position>): Position {
     unitPriceNet: 100,
     vatRate: 19,
     billing: "once",
-    areas: ["a"],
+    areas: ["google"],
     openChecks: 1,
     quantity: 1,
     enabled: true,
@@ -44,20 +44,20 @@ function position(overrides: Partial<Position>): Position {
 }
 
 const CHECKS: CheckOutcomeRow[] = [
-  { check_id: "a1", area: "a", outcome: "failed" },
-  { check_id: "a2", area: "a", outcome: "partial" },
-  { check_id: "a3", area: "a", outcome: "passed" },
-  { check_id: "f1", area: "f", outcome: "failed" },
-  { check_id: "g1", area: "g", outcome: "passed" },
-  { check_id: "i1", area: "i", outcome: "not_measurable" },
-  { check_id: "k1", area: "k", outcome: "skipped" },
+  { check_id: "a2", area: "google", outcome: "failed" },
+  { check_id: "a4", area: "google", outcome: "partial" },
+  { check_id: "a12", area: "google", outcome: "passed" },
+  { check_id: "a14", area: "bing", outcome: "failed" },
+  { check_id: "h1", area: "apple", outcome: "passed" },
+  { check_id: "a15", area: "openai", outcome: "not_measurable" },
+  { check_id: "a17", area: "anthropic", outcome: "skipped" },
 ];
 
 describe("openChecksByArea", () => {
   it("counts only failed and partial checks", () => {
     expect([...openChecksByArea(CHECKS)]).toEqual([
-      ["a", 2],
-      ["f", 1],
+      ["google", 2],
+      ["bing", 1],
     ]);
   });
 });
@@ -65,15 +65,15 @@ describe("openChecksByArea", () => {
 describe("proposePositions", () => {
   it("proposes each product once whose areas have open checks, one-off before monthly", () => {
     const positions = proposePositions(CHECKS, [
-      product({ id: "care", name: "Laufende Betreuung", billing: "monthly", price_net: 290, radar_areas: ["f", "g"] }),
-      product({ id: "setup", name: "Erstoptimierung", radar_areas: ["f", "a", "zz"] }),
-      product({ id: "setup", name: "Erstoptimierung", radar_areas: ["a"] }),
-      product({ id: "links", name: "Linkaufbau", radar_areas: ["i"] }),
-      product({ id: "old", name: "Altprodukt", active: false, radar_areas: ["a"] }),
+      product({ id: "care", name: "Laufende Betreuung", billing: "monthly", price_net: 290, radar_areas: ["bing", "apple"] }),
+      product({ id: "setup", name: "Erstoptimierung", radar_areas: ["bing", "google", "zz"] }),
+      product({ id: "setup", name: "Erstoptimierung", radar_areas: ["google"] }),
+      product({ id: "links", name: "Linkaufbau", radar_areas: ["openai"] }),
+      product({ id: "old", name: "Altprodukt", active: false, radar_areas: ["google"] }),
     ]);
     expect(positions.map((item) => item.productId)).toEqual(["setup", "care"]);
-    expect(positions[0]).toMatchObject({ areas: ["a", "f"], openChecks: 3, quantity: 1, enabled: true, billing: "once" });
-    expect(positions[1]).toMatchObject({ areas: ["f"], openChecks: 1, billing: "monthly", unitPriceNet: 290 });
+    expect(positions[0]).toMatchObject({ areas: ["google", "bing"], openChecks: 3, quantity: 1, enabled: true, billing: "once" });
+    expect(positions[1]).toMatchObject({ areas: ["bing"], openChecks: 1, billing: "monthly", unitPriceNet: 290 });
   });
 
   it("proposes nothing when the CRM has no products", () => {
@@ -82,7 +82,7 @@ describe("proposePositions", () => {
 
   it("proposes nothing when every check passed", () => {
     const passed = CHECKS.map((check) => ({ ...check, outcome: "passed" as const }));
-    expect(proposePositions(passed, [product({ radar_areas: ["a"] })])).toEqual([]);
+    expect(proposePositions(passed, [product({ radar_areas: ["google"] })])).toEqual([]);
   });
 });
 
@@ -130,7 +130,7 @@ describe("computeTotals", () => {
 describe("buildQuoteItems", () => {
   it("numbers the enabled positions and names the billing", () => {
     const items = buildQuoteItems("q1", [
-      position({ productId: "setup", title: "Erstoptimierung", description: "Einmalige Umsetzung", areas: ["a", "f"] }),
+      position({ productId: "setup", title: "Erstoptimierung", description: "Einmalige Umsetzung", areas: ["google", "bing"] }),
       position({ productId: "skip", enabled: false }),
       position({ productId: "care", title: "Laufende Betreuung", billing: "monthly", quantity: 2, unitPriceNet: 290 }),
     ]);
@@ -140,7 +140,7 @@ describe("buildQuoteItems", () => {
         position: 1,
         product_id: "setup",
         title: "Erstoptimierung, einmalig",
-        description: "Einmalige Umsetzung\nBehebt die offenen Punkte in: Technik der Website, Google-Unternehmensprofil.",
+        description: "Einmalige Umsetzung\nBehebt die offenen Punkte in: Google, Bing und Copilot.",
         quantity: 1,
         unit: "Pauschale",
         unit_price_net: 100,
@@ -151,7 +151,7 @@ describe("buildQuoteItems", () => {
         position: 2,
         product_id: "care",
         title: "Laufende Betreuung, monatlich",
-        description: "Behebt die offenen Punkte in: Technik der Website.",
+        description: "Behebt die offenen Punkte in: Google.",
         quantity: 2,
         unit: "Pauschale",
         unit_price_net: 290,
@@ -169,11 +169,11 @@ describe("buildQuoteItems", () => {
 
 describe("quoteTexts", () => {
   it("refers to score, audit date and covered areas", () => {
-    const { intro, outro } = quoteTexts({ score: 62.6, auditDate: "2026-10-01T08:30:00+02:00", areas: ["f", "a", "g", "a"] });
+    const { intro, outro } = quoteTexts({ score: 62.6, auditDate: "2026-10-01T08:30:00+02:00", areas: ["bing", "google", "apple", "google"] });
     expect(intro).toBe(
       "vielen Dank für das Gespräch. Die Prüfung Ihres Online-Auftritts vom 01.10.2026 hat 63 von 100 Punkten ergeben. " +
-        "Die folgenden Leistungen beheben die offenen Punkte in den Bereichen Technik der Website, " +
-        "Google-Unternehmensprofil und Bewertungen:",
+        "Die folgenden Leistungen beheben die offenen Punkte in den Bereichen Google, " +
+        "Bing und Copilot und Apple:",
     );
     expect(outro).toContain("Vorher-Nachher-Vergleich");
   });
@@ -184,5 +184,22 @@ describe("quoteTexts", () => {
       "vielen Dank für das Gespräch. Die Prüfung Ihres Online-Auftritts zeigt, wo Kunden Sie heute noch nicht finden. " +
         "Gern biete ich Ihnen folgende Leistungen an:",
     );
+  });
+});
+
+
+describe("openChecksByArea with the control", () => {
+  it("does not count checks the control has crossed out", () => {
+    const rows: CheckOutcomeRow[] = [
+      { check_id: "a2", area: "google", outcome: "failed", verdict_collected_ok: true, verdict_data_ok: true, verdict_evaluation_ok: true },
+      { check_id: "a4", area: "google", outcome: "failed", verdict_collected_ok: true, verdict_data_ok: false, verdict_evaluation_ok: null },
+      { check_id: "a7", area: "google", outcome: "failed", verdict_collected_ok: false, verdict_data_ok: null, verdict_evaluation_ok: null },
+    ];
+
+    expect([...openChecksByArea(rows)]).toEqual([["google", 1]]);
+  });
+
+  it("does not count findings without rating", () => {
+    expect([...openChecksByArea([{ check_id: "p1", area: "ads", outcome: "failed" }])]).toEqual([]);
   });
 });

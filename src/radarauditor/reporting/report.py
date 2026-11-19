@@ -1,14 +1,6 @@
-"""Render the sales report and the monthly before-after report as PDF.
-
-Context: Jinja2 HTML templates in templates/report rendered with WeasyPrint. Chart wording and the
-names of the profile metrics come from templates/report/labels.yaml, report prose from
-texte.json; without texte.json the templates fall back to neutral standard sentences. Profile
-figures appear only for audits with customer access, the keyword gap only with paid data.
-Input: Audit, results, findings, forecast, charts.
-Output: PDF path.
-"""
-
 import logging
+import os
+import re
 import tempfile
 from collections.abc import Callable
 from datetime import UTC, date, datetime
@@ -20,26 +12,37 @@ from uuid import UUID
 import yaml
 from pydantic import BaseModel, Field, ValidationError
 
-from radarauditor.collectors.snapshot import GapKeyword, PlaceSnapshot, RawAudit
+from radarauditor.collectors.assistants import provider_source
+from radarauditor.collectors.patterns import host_of
+from radarauditor.collectors.snapshot import (
+    GapKeyword,
+    PlaceSnapshot,
+    RawAudit,
+)
+from radarauditor.collectors.validation import steps_of_check
 from radarauditor.config import Settings
 from radarauditor.db.models import (
     Audit,
     AuditStatus,
     CheckOutcome,
     CheckResult,
-    Customer,
+    ControlState,
     Finding,
     Keyword,
+    KeywordScope,
     Location,
     Ranking,
 )
 from radarauditor.db.repositories import Repositories
 from radarauditor.errors import RenderError, StorageError
+from radarauditor.feedback.events import INVALID_REASON_CODE
+from radarauditor.jobs.control_agent import is_planned
 from radarauditor.rendering import filename_slug, german_date, render_template, write_pdf
 from radarauditor.reporting import charts
-from radarauditor.reporting.forecast import Forecast, best_positions, report_forecast
+from radarauditor.reporting.costs import CostStatement, cost_statement
+from radarauditor.reporting.forecast import best_positions
 from radarauditor.reporting.texts import ReportTexts, parse_texts
-from radarauditor.scoring.catalog import Catalogue, load_catalogue
+from radarauditor.scoring.catalog import Catalogue, CheckDefinition, load_catalogue
 from radarauditor.scoring.evaluator import POINTS, area_scores, total_score
 
 logger = logging.getLogger(__name__)
@@ -47,13 +50,34 @@ logger = logging.getLogger(__name__)
 REPORT_DIR = "berichte"
 REPORT_TEMPLATE_DIR = "report"
 SALES_TEMPLATE = "sales.html"
+RECOMMENDATION_TEMPLATE = "recommendation.html"
 MONTHLY_TEMPLATE = "monthly.html"
 LABELS_FILE = "labels.yaml"
-SALES_FILE_PREFIX = "Sichtbarkeitsbericht"
+SALES_FILE_PREFIX = "Auswertung"
+RECOMMENDATION_FILE_PREFIX = "Empfehlung"
+PAID_CHECKS = ("p1", "p2", "p3", "p4")
+UNRATED_OUTCOMES = (CheckOutcome.SKIPPED, CheckOutcome.NOT_APPLICABLE)
+SHORT_REASON_CHARS = 200
+SHORT_REASON_SUFFIX = "… (vollständig unter „Was nicht gemessen wurde“)"
 MONTHLY_FILE_PREFIX = "Monatsbericht"
 RAW_BUCKET = "raw"
 RAW_FILE = "raw.json"
 TEXTS_FILE = "texte.json"
+PENDING_FILE = "offene_pruefungen.yaml"
+PENDING_KEY = "daniel_entscheidet"
+UNKNOWN_REASON = "Der Grund wurde nicht gespeichert (Kennung: {code})"
+NO_CODE = "ohne Angabe"
+NOT_MEASURED_PREFIX = "nicht gemessen: "
+FINDING_OUTCOME = "finding"
+PROFILE_STEP = "place"
+GRID_CHECK = "j3"
+GAP_CHECK = "c12"
+PROFILE_CHECK = "f1"
+RANKING_CHECKS = ("j1", "j2")
+SITE_FILE_CHARACTERS = re.compile(r"[^a-z0-9.-]+")
+PROJECT_FILE_SUFFIX = ".pdf"
+ASSISTANT_ROUTE = "assistant:"
+SILENT_PREFIX = "assistants: no answers from "
 TOP_FINDINGS = 3
 MAX_COMPETITORS = 3
 MAX_GAP_KEYWORDS = 10
@@ -67,42 +91,41 @@ Level = Literal["ok", "warn", "bad"]
 
 
 class ChartTitles(BaseModel):
-    """Titles and legend lines of the charts."""
-
     area_traffic_lights: str
     competitor_comparison: str
     grid_map: str
     score_trend: str
     ranking_table: str
     ranking_legend: str
+    nationwide_keyword: str
 
 
 class SubjectLabels(BaseModel):
-    """How the customer is named in charts."""
-
     customer: str
 
 
 class MetricLabels(BaseModel):
-    """Names of the compared Google profile metrics."""
-
     reviews: str
     rating: str
     photos: str
 
 
 class ReportLabels(BaseModel):
-    """Content of templates/report/labels.yaml; profile_metrics names the profile figures shown."""
-
     charts: ChartTitles
     subjects: SubjectLabels
     metrics: MetricLabels
     profile_metrics: dict[str, str] = Field(default_factory=dict)
+    assistants: dict[str, str] = Field(default_factory=dict)
+    answer_routes: dict[str, str] = Field(default_factory=dict)
+    reasons: dict[str, str] = Field(default_factory=dict)
+    outcomes: dict[str, str] = Field(default_factory=dict)
+    paid_visibility: dict[str, str] = Field(default_factory=dict)
+    cost_sources: dict[str, str] = Field(default_factory=dict)
+    cost_services: dict[str, str] = Field(default_factory=dict)
+    notes: dict[str, str] = Field(default_factory=dict)
 
 
 class ProfileMetricLine(BaseModel):
-    """One Google profile figure of the last 28 days against the 28 days before."""
-
     label: str
     value: int
     previous: int
@@ -111,17 +134,15 @@ class ProfileMetricLine(BaseModel):
 
 
 class AreaLine(BaseModel):
-    """Score of one catalogue area."""
-
     area_id: str
     name: str
     score: Decimal
     level: Level
+    counted: int = 0
+    ratable: int = 0
 
 
 class FindingLine(BaseModel):
-    """A finding with the name of its area."""
-
     area_name: str
     check_id: str
     severity: int
@@ -132,15 +153,60 @@ class FindingLine(BaseModel):
 
 
 class FindingGroup(BaseModel):
-    """Findings of one area in catalogue order."""
-
     area_name: str
     findings: list[FindingLine]
 
 
-class ChartFiles(BaseModel):
-    """File URIs of the rendered charts; None where data was missing."""
+class VerdictLine(BaseModel):
+    check_id: str
+    name: str
+    result: str
+    measured: bool
+    collected: bool | None
+    data: bool | None
+    evaluation: bool | None
+    reason: str | None
+    source: str = ""
+    value: str | None = None
 
+
+class OpenCheckLine(BaseModel):
+    check_id: str
+    name: str
+    reason: str
+    decided_by_daniel: bool
+    failed: bool = False
+
+
+class OpenGroup(BaseModel):
+    names: list[str]
+    reason: str
+    decided_by_daniel: bool
+
+
+class PaidLine(BaseModel):
+    check_id: str
+    name: str
+    text: str
+    measured: bool
+
+
+class RecommendationReport(BaseModel):
+    customer_name: str
+    customer_address: str
+    report_date: date
+    site: str
+    actions: list[FindingLine]
+
+
+class AssistantLine(BaseModel):
+    name: str
+    answers: int
+    mentioned: int
+    route: str
+
+
+class ChartFiles(BaseModel):
     areas: str | None = None
     competitors: str | None = None
     grid: str | None = None
@@ -149,27 +215,42 @@ class ChartFiles(BaseModel):
 
 
 class SalesReport(BaseModel):
-    """Everything sales.html shows."""
-
     customer_name: str
     customer_address: str
     report_date: date
+    site: str
     total_score: Decimal | None
+    total_counted: int = 0
+    total_ratable: int = 0
+    unfound_phrases: int = 0
     texts: ReportTexts | None
     areas: list[AreaLine]
+    unrated_areas: list[str]
     strongest_area: AreaLine | None
     weakest_area: AreaLine | None
     charts: ChartFiles
     top_findings: list[FindingLine]
     finding_groups: list[FindingGroup]
-    forecast: Forecast
     profile: list[ProfileMetricLine] = Field(default_factory=list)
     keyword_gap: list[GapKeyword] = Field(default_factory=list)
+    open_checks: list[OpenCheckLine] = Field(default_factory=list)
+    open_groups: list[OpenGroup] = Field(default_factory=list)
+    verdicts: list[VerdictLine] = Field(default_factory=list)
+    paid_visibility: list[PaidLine] = Field(default_factory=list)
+    assistants: list[AssistantLine] = Field(default_factory=list)
+    comparison_note: str | None = None
+    costs: CostStatement | None = None
+
+    @property
+    def failed_count(self) -> int:
+        return sum(1 for line in self.open_checks if line.failed)
+
+    @property
+    def decision_count(self) -> int:
+        return sum(1 for line in self.open_checks if line.decided_by_daniel)
 
 
 class ScoreChange(BaseModel):
-    """A score before and after."""
-
     label: str
     before: Decimal | None
     after: Decimal | None
@@ -177,8 +258,6 @@ class ScoreChange(BaseModel):
 
 
 class RankingChange(BaseModel):
-    """Positions of one keyword before and after, organic and in the local pack."""
-
     phrase: str
     organic_before: int | None
     organic_after: int | None
@@ -186,11 +265,10 @@ class RankingChange(BaseModel):
     local_before: int | None
     local_after: int | None
     local_trend: Trend
+    nationwide: bool = False
 
 
 class MonthlyReport(BaseModel):
-    """Everything monthly.html shows."""
-
     customer_name: str
     report_date: date
     previous_date: date
@@ -205,8 +283,6 @@ class MonthlyReport(BaseModel):
 
 
 class AuditBundle(BaseModel):
-    """One audit with everything stored about it."""
-
     audit: Audit
     results: list[CheckResult]
     findings: list[Finding]
@@ -218,17 +294,6 @@ def _today() -> date:
 
 
 def load_labels(templates_dir: Path) -> ReportLabels:
-    """Read the chart wording.
-
-    Args:
-        templates_dir: Root template folder holding report/labels.yaml.
-
-    Returns:
-        Parsed labels.
-
-    Raises:
-        RenderError: If the file is missing or malformed.
-    """
     path = templates_dir / REPORT_TEMPLATE_DIR / LABELS_FILE
     try:
         content = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -238,7 +303,6 @@ def load_labels(templates_dir: Path) -> ReportLabels:
 
 
 def audit_rankings(repositories: Repositories, audit_id: UUID) -> list[Ranking]:
-    """Rankings of an audit, or none while the repositories offer no ranking reader."""
     reader: Callable[[UUID], list[Ranking]] | None = getattr(repositories, "rankings", None)
     if reader is None:
         logger.warning("Repositories cannot read rankings; report shows none")
@@ -267,16 +331,6 @@ def _download_text(
 
 
 def load_texts(repositories: Repositories, audit_id: UUID, scratch: Path) -> ReportTexts | None:
-    """Download and validate texte.json; a missing or invalid file yields None.
-
-    Args:
-        repositories: Data access.
-        audit_id: Audit whose texts are read from bucket raw.
-        scratch: Folder for the downloaded file.
-
-    Returns:
-        The texts, or None so the template uses its standard sentences.
-    """
     content = _download_text(repositories, f"{audit_id}/{TEXTS_FILE}", scratch, TEXTS_FILE)
     if content is None:
         return None
@@ -288,7 +342,6 @@ def load_texts(repositories: Repositories, audit_id: UUID, scratch: Path) -> Rep
 
 
 def load_raw(repositories: Repositories, audit: Audit, scratch: Path) -> RawAudit | None:
-    """Download the raw audit data; missing or invalid data yields None."""
     if audit.raw_data_path is None:
         return None
     content = _download_text(repositories, audit.raw_data_path, scratch, RAW_FILE)
@@ -310,28 +363,324 @@ def _level(score: Decimal) -> Level:
 
 
 def area_lines(results: list[CheckResult], catalogue: Catalogue) -> list[AreaLine]:
-    """Score per scored area in catalogue order, with the German area name."""
     names = {area.id: area.name for area in catalogue.areas}
+    lines: list[AreaLine] = []
+    for area_id, score in area_scores(results, catalogue).items():
+        counted, ratable = coverage(results, catalogue, area_id)
+        lines.append(
+            AreaLine(
+                area_id=area_id,
+                name=names[area_id],
+                score=score,
+                level=_level(score),
+                counted=counted,
+                ratable=ratable,
+            )
+        )
+    return lines
+
+
+def coverage(
+    results: list[CheckResult], catalogue: Catalogue, area_id: str | None = None
+) -> tuple[int, int]:
+    by_id = {result.check_id: result for result in results}
+    counted = ratable = 0
+    for area in catalogue.areas:
+        if area_id is not None and area.id != area_id:
+            continue
+        for check in area.checks:
+            result = by_id.get(check.id)
+            if not check.counts_in_score or result is None or result.outcome in UNRATED_OUTCOMES:
+                continue
+            ratable += 1
+            counted += _counted(result)
+    return counted, ratable
+
+
+def unrated_areas(lines: list[AreaLine], catalogue: Catalogue) -> list[str]:
+    scored = {line.area_id for line in lines}
     return [
-        AreaLine(area_id=area_id, name=names[area_id], score=score, level=_level(score))
-        for area_id, score in area_scores(results, catalogue).items()
+        area.name
+        for area in catalogue.areas
+        if area.id not in scored and any(check.counts_in_score for check in area.checks)
     ]
 
 
+def load_pending(catalogue_path: Path) -> frozenset[str]:
+    path = catalogue_path.parent / PENDING_FILE
+    if not path.exists():
+        return frozenset()
+    try:
+        content = yaml.safe_load(path.read_text(encoding="utf-8"))
+        ids = content[PENDING_KEY]
+    except (OSError, yaml.YAMLError, KeyError, TypeError) as exc:
+        raise RenderError(f"open checks {path} cannot be read: {exc}") from exc
+    if not isinstance(ids, list) or not all(isinstance(item, str) for item in ids):
+        raise RenderError(f"open checks {path}: {PENDING_KEY} must list check ids")
+    return frozenset(ids)
+
+
+def open_checks(
+    results: list[CheckResult],
+    catalogue: Catalogue,
+    labels: ReportLabels,
+    pending: frozenset[str],
+) -> list[OpenCheckLine]:
+    by_id = {result.check_id: result for result in results}
+    lines: list[OpenCheckLine] = []
+    for area in catalogue.areas:
+        for check in area.checks:
+            result = by_id.get(check.id)
+            if result is not None and result.outcome is not CheckOutcome.NOT_MEASURABLE:
+                continue
+            lines.append(
+                OpenCheckLine(
+                    check_id=check.id,
+                    name=check.name,
+                    reason=_open_reason(check, result, labels),
+                    decided_by_daniel=check.id in pending,
+                    failed=result is not None and not is_planned(result),
+                )
+            )
+    return lines
+
+
+def group_open_checks(lines: list[OpenCheckLine]) -> list[OpenGroup]:
+    groups: dict[tuple[str, bool], list[str]] = {}
+    for line in lines:
+        groups.setdefault((line.reason, line.decided_by_daniel), []).append(line.name)
+    return [
+        OpenGroup(names=names, reason=reason, decided_by_daniel=decided)
+        for (reason, decided), names in groups.items()
+    ]
+
+
+def short_reason(reason: str) -> str:
+    if len(reason) <= SHORT_REASON_CHARS:
+        return reason
+    cut = reason[:SHORT_REASON_CHARS].rsplit(" ", 1)[0].rstrip(";,: ")
+    return f"{cut} {SHORT_REASON_SUFFIX}"
+
+
+def _open_reason(check: CheckDefinition, result: CheckResult | None, labels: ReportLabels) -> str:
+    if result is None:
+        code = "paid" if check.requires_paid else "access" if check.requires_access else ""
+    else:
+        code = str(result.measured.get("reason", ""))
+    return reason_text(code, result, labels)
+
+
+def _plain(reason: str) -> str:
+    text = reason.strip()
+    while text.lower().startswith(NOT_MEASURED_PREFIX):
+        text = text[len(NOT_MEASURED_PREFIX) :].lstrip()
+    return text
+
+
+def reason_text(code: str, result: CheckResult | None, labels: ReportLabels) -> str:
+    label = None if code == INVALID_REASON_CODE else labels.reasons.get(code)
+    if label:
+        return label
+    if result is not None:
+        invalid = result.measured.get("invalid_reason")
+        if invalid:
+            return _plain(str(invalid))
+        failed = _failed_reason(result)
+        if failed:
+            return _plain(failed)
+    return UNKNOWN_REASON.format(code=code or NO_CODE)
+
+
+def assistant_lines(raw: RawAudit | None, labels: ReportLabels) -> list[AssistantLine]:
+    if raw is None:
+        return []
+    answered = [(_provider_key(answer.provider), answer) for answer in raw.assistant_answers]
+    asked = {provider for provider, _ in answered}
+    asked.update(
+        check.route.removeprefix(ASSISTANT_ROUTE)
+        for check in raw.preflight
+        if check.route.startswith(ASSISTANT_ROUTE)
+    )
+    for warning in raw.warnings:
+        if warning.startswith(SILENT_PREFIX):
+            names = warning.removeprefix(SILENT_PREFIX).split(",")
+            asked.update(name.strip() for name in names)
+    lines: list[AssistantLine] = []
+    for provider, name in labels.assistants.items():
+        if provider not in asked:
+            continue
+        answers = [answer for key, answer in answered if key == provider]
+        routes = {answer.route for answer in answers if answer.route is not None}
+        route = "manual" if "manual" in routes else min(routes) if routes else "none"
+        lines.append(
+            AssistantLine(
+                name=name,
+                answers=len(answers),
+                mentioned=sum(1 for answer in answers if answer.mentioned),
+                route=labels.answer_routes.get(route, route),
+            )
+        )
+    return lines
+
+
+def _provider_key(provider: str) -> str:
+    source = provider_source(provider)
+    return source.value if source is not None else provider
+
+
 def check_order(check_id: str) -> tuple[str, int]:
-    """Sort key that puts b2 before b10."""
     digits = check_id[1:]
     return check_id[:1], int(digits) if digits.isdigit() else 0
 
 
+def verdict_lines(
+    results: list[CheckResult], catalogue: Catalogue, labels: ReportLabels
+) -> list[VerdictLine]:
+    checks = {check.id: check for area in catalogue.areas for check in area.checks}
+    lines: list[VerdictLine] = []
+    for result in sorted(results, key=lambda item: check_order(item.check_id)):
+        if result.control_state is not ControlState.DONE or is_planned(result):
+            continue
+        check = checks.get(result.check_id)
+        measured = result.outcome is not CheckOutcome.NOT_MEASURABLE
+        outcome = (
+            FINDING_OUTCOME
+            if measured and check is not None and not check.counts_in_score
+            else result.outcome.value
+        )
+        lines.append(
+            VerdictLine(
+                check_id=result.check_id,
+                name=check.name if check else result.check_id,
+                result=labels.outcomes.get(outcome, outcome),
+                measured=measured,
+                collected=result.verdict_collected_ok,
+                data=result.verdict_data_ok if measured else None,
+                evaluation=result.verdict_evaluation_ok if measured else None,
+                reason=_line_reason(result, measured),
+                source=check.source if check else "",
+                value=comparison_text(result) if measured else None,
+            )
+        )
+    return lines
+
+
+def comparison_text(result: CheckResult) -> str | None:
+    measured = result.measured
+    if result.check_id == "j3":
+        return _grid_text(measured)
+    if "mentioned" not in measured or "answers" not in measured:
+        return None
+    text = f"{measured['mentioned']} von {measured['answers']} Antworten nennen den Betrieb"
+    rivals = measured.get("competitors")
+    if isinstance(rivals, list) and rivals and isinstance(rivals[0], dict):
+        best = rivals[0]
+        return (
+            f"{text}; stärkster Wettbewerber ({best.get('name')}): "
+            f"{best.get('mentioned')} von {best.get('answers')}"
+        )
+    return f"{text}; Wettbewerberwerte liegen nicht vor"
+
+
+def _grid_text(measured: dict[str, object]) -> str | None:
+    if "points_in_top" not in measured or "points_total" not in measured:
+        return None
+    text = (
+        f"{measured['points_in_top']} von {measured['points_total']} Rasterpunkten "
+        f"in den ersten {measured.get('top')}"
+    )
+    if measured.get("competitor_values") is None:
+        return f"{text}; Wettbewerberwerte liegen nicht vor"
+    return text
+
+
+def _line_reason(result: CheckResult, measured: bool) -> str | None:
+    failed = _failed_reason(result)
+    if measured:
+        return failed and short_reason(failed)
+    invalid = result.measured.get("invalid_reason")
+    parts = [_plain(str(invalid))] if invalid else []
+    if failed and not any(_plain(failed) in part for part in parts):
+        parts.append(_plain(failed))
+    joined = "; ".join(parts)
+    return short_reason(joined) if joined else None
+
+
+def paid_lines(
+    results: list[CheckResult], catalogue: Catalogue, labels: ReportLabels
+) -> list[PaidLine]:
+    names = {check.id: check.name for area in catalogue.areas for check in area.checks}
+    by_id = {result.check_id: result for result in results}
+    lines: list[PaidLine] = []
+    for check_id in PAID_CHECKS:
+        result = by_id.get(check_id)
+        if result is None or is_planned(result):
+            continue
+        name = names.get(check_id, check_id)
+        if result.outcome is CheckOutcome.NOT_MEASURABLE:
+            reason = short_reason(
+                reason_text(str(result.measured.get("reason", "")), result, labels)
+            )
+            lines.append(
+                PaidLine(
+                    check_id=check_id,
+                    name=name,
+                    text=labels.paid_visibility["not_measured"].format(reason=reason),
+                    measured=False,
+                )
+            )
+            continue
+        text = _paid_text(check_id, result.measured, labels)
+        if text:
+            lines.append(PaidLine(check_id=check_id, name=name, text=text, measured=True))
+    return lines
+
+
+def _paid_text(check_id: str, measured: dict[str, object], labels: ReportLabels) -> str:
+    texts = labels.paid_visibility
+    if check_id == "p1":
+        key = "p1_shown" if measured.get("shows_ads") else "p1_none"
+        return texts[key].format(count=measured.get("ads_found", 0))
+    if check_id == "p2":
+        key = "p2_shown" if measured.get("shows_ads") else "p2_none"
+        return texts[key].format(count=measured.get("own_ads", 0))
+    if check_id == "p3":
+        return texts["p3"].format(
+            shown=measured.get("phrases_with_own_ad", 0), total=measured.get("phrases_total", 0)
+        )
+    rivals = measured.get("competitors_on_brand") or []
+    if not rivals:
+        return texts["p4_none"]
+    names = ", ".join(str(item) for item in rivals) if isinstance(rivals, list) else str(rivals)
+    return texts["p4_some"].format(count=measured.get("competitors_on_brand_count", 0), names=names)
+
+
+def _failed_reason(result: CheckResult) -> str | None:
+    for flag, reason in (
+        (result.verdict_collected_ok, result.verdict_collected_reason),
+        (result.verdict_data_ok, result.verdict_data_reason),
+        (result.verdict_evaluation_ok, result.verdict_evaluation_reason),
+    ):
+        if flag is False:
+            return reason
+    return None
+
+
 def finding_lines(
-    findings: list[Finding], results: list[CheckResult], catalogue: Catalogue
+    findings: list[Finding],
+    results: list[CheckResult],
+    catalogue: Catalogue,
+    *,
+    confirmed_only: bool = True,
 ) -> list[FindingLine]:
-    """Findings with area names, most severe first, then by check id."""
     names = {area.id: area.name for area in catalogue.areas}
     area_of = {result.check_id: result.area for result in results}
+    confirmed = {
+        result.check_id for result in results if result.verdicts_all_ok or not confirmed_only
+    }
     ordered = sorted(
-        findings, key=lambda finding: (-finding.severity, check_order(finding.check_id))
+        (finding for finding in findings if finding.check_id in confirmed),
+        key=lambda finding: (-finding.severity, check_order(finding.check_id)),
     )
     return [
         FindingLine(
@@ -345,7 +694,6 @@ def finding_lines(
 
 
 def group_findings(lines: list[FindingLine], catalogue: Catalogue) -> list[FindingGroup]:
-    """Group findings by area in catalogue order; areas without findings are left out."""
     groups: list[FindingGroup] = []
     for area in catalogue.areas:
         members = sorted(
@@ -360,7 +708,6 @@ def group_findings(lines: list[FindingLine], catalogue: Catalogue) -> list[Findi
 def competitor_values(
     raw: RawAudit | None, labels: ReportLabels
 ) -> dict[str, dict[str, float]] | None:
-    """Reviews, rating and photos of the customer and up to three competitors."""
     if raw is None or raw.place is None or not raw.competitor_places:
         return None
     metrics = labels.metrics
@@ -379,7 +726,6 @@ def competitor_values(
 
 
 def profile_lines(raw: RawAudit | None, labels: ReportLabels) -> list[ProfileMetricLine]:
-    """Profile figures named in labels.yaml, in that order; empty without access data."""
     if raw is None or raw.access is None or not raw.access.profile_metrics:
         return []
     now = raw.access.profile_metrics
@@ -399,16 +745,54 @@ def profile_lines(raw: RawAudit | None, labels: ReportLabels) -> list[ProfileMet
     return lines
 
 
-def gap_keywords(raw: RawAudit | None) -> list[GapKeyword]:
-    """The highest-volume phrases competitors rank for and the customer does not."""
-    if raw is None or raw.paid is None or not raw.paid.keyword_gap:
+def _counted(result: CheckResult | None) -> bool:
+    return result is not None and result.outcome in POINTS and result.verdicts_all_ok
+
+
+def gap_keywords(results: list[CheckResult]) -> list[GapKeyword]:
+    result = next((item for item in results if item.check_id == GAP_CHECK), None)
+    if not _counted(result) or result is None:
         return []
-    ordered = sorted(raw.paid.keyword_gap, key=lambda keyword: -keyword.volume)
-    return ordered[:MAX_GAP_KEYWORDS]
+    entries = result.measured.get("top_gap_keywords")
+    if not isinstance(entries, list):
+        return []
+    keywords: list[GapKeyword] = []
+    for entry in entries:
+        try:
+            keywords.append(GapKeyword.model_validate(entry))
+        except ValidationError:
+            logger.warning("A gap keyword of check %s is unreadable and left out", GAP_CHECK)
+    return sorted(keywords, key=lambda keyword: -keyword.volume)[:MAX_GAP_KEYWORDS]
+
+
+def profile_invalid_reason(
+    results: list[CheckResult], catalogue: Catalogue, labels: ReportLabels
+) -> str | None:
+    definitions = {check.id: check for area in catalogue.areas for check in area.checks}
+    for result in results:
+        check = definitions.get(result.check_id)
+        if check is None or PROFILE_STEP not in steps_of_check(check.id, check.measurement):
+            continue
+        if result.measured.get("reason") == INVALID_REASON_CODE:
+            return reason_text(INVALID_REASON_CODE, result, labels)
+    return None
+
+
+def comparison_note(
+    raw: RawAudit | None, results: list[CheckResult], catalogue: Catalogue, labels: ReportLabels
+) -> str | None:
+    invalid = profile_invalid_reason(results, catalogue, labels)
+    if invalid is not None:
+        return labels.notes["profile_invalid"].format(reason=invalid)
+    profile = next((item for item in results if item.check_id == PROFILE_CHECK), None)
+    if raw is not None and raw.place is None and profile is not None:
+        if profile.outcome is CheckOutcome.NOT_MEASURABLE:
+            reason = reason_text(str(profile.measured.get("reason", "")), profile, labels)
+            return labels.notes["profile_unread"].format(reason=reason)
+    return None
 
 
 def grid_points(keywords: list[Keyword], rankings: list[Ranking]) -> dict[str, int | None]:
-    """Local pack positions of the customer on the grid of the primary keyword."""
     gridded = [r for r in rankings if r.subject == CUSTOMER_SUBJECT and r.grid_point is not None]
     if not gridded:
         return {}
@@ -426,7 +810,6 @@ def grid_points(keywords: list[Keyword], rankings: list[Ranking]) -> dict[str, i
 
 
 def _draw_optional(draw: Callable[[], Path], name: str) -> str | None:
-    """Draw a chart that the report can do without; failures are logged."""
     try:
         return draw().as_uri()
     except RenderError as exc:
@@ -441,23 +824,9 @@ def _sales_charts(
     rankings: list[Ranking],
     labels: ReportLabels,
     chart_dir: Path,
+    results: list[CheckResult],
+    catalogue: Catalogue,
 ) -> ChartFiles:
-    """Draw the charts of the sales report into chart_dir.
-
-    Args:
-        lines: Scored areas; without them the traffic lights are left out.
-        raw: Collected raw data for the competitor comparison, if any.
-        keywords: Tracked keywords; the primary one picks the grid.
-        rankings: Rankings of the audit.
-        labels: Chart titles and the customer's column heading.
-        chart_dir: Folder the PNG files are written to.
-
-    Returns:
-        File URIs of the drawn charts; grid map and ranking table stay empty when they fail.
-
-    Raises:
-        RenderError: If the traffic lights or the competitor comparison cannot be written.
-    """
     titles = labels.charts
     files = ChartFiles()
     if lines:
@@ -467,28 +836,42 @@ def _sales_charts(
             area_names={line.area_id: line.name for line in lines},
             title=titles.area_traffic_lights,
         ).as_uri()
-    values = competitor_values(raw, labels)
+    by_id = {result.check_id: result for result in results}
+    values = (
+        competitor_values(raw, labels)
+        if profile_invalid_reason(results, catalogue, labels) is None
+        else None
+    )
     if values:
         files.competitors = charts.competitor_comparison(
             values, chart_dir / "wettbewerber.png", title=titles.competitor_comparison
         ).as_uri()
-    points = grid_points(keywords, rankings)
+    points = grid_points(keywords, rankings) if _counted(by_id.get(GRID_CHECK)) else {}
     if points:
         files.grid = _draw_optional(
             lambda: charts.grid_map(points, chart_dir / "karte.png", title=titles.grid_map),
             "grid map",
         )
-    files.rankings = _ranking_chart(keywords, rankings, labels, chart_dir)
+    if any(_counted(by_id.get(check_id)) for check_id in RANKING_CHECKS):
+        files.rankings = _ranking_chart(keywords, rankings, labels, chart_dir)
     return files
 
 
 def _ranking_chart(
     keywords: list[Keyword], rankings: list[Ranking], labels: ReportLabels, chart_dir: Path
 ) -> str | None:
-    phrases = {keyword.id: keyword.phrase for keyword in keywords}
+    phrases = {
+        keyword.id: (
+            f"{keyword.phrase} ({labels.charts.nationwide_keyword})"
+            if keyword.scope is KeywordScope.NATIONWIDE
+            else keyword.phrase
+        )
+        for keyword in keywords
+    }
+    found = _found_keywords(rankings)
     return _draw_optional(
         lambda: charts.ranking_table_image(
-            rankings,
+            [ranking for ranking in rankings if ranking.keyword_id in found],
             chart_dir / "plaetze.png",
             keyword_phrases=phrases,
             subject_labels={CUSTOMER_SUBJECT: labels.subjects.customer},
@@ -499,16 +882,33 @@ def _ranking_chart(
     )
 
 
-def _forecast(
-    customer: Customer, keywords: list[Keyword], rankings: list[Ranking], settings: Settings
-) -> Forecast:
-    return report_forecast(
-        customer.industry, keywords, rankings, settings.forecast_path, settings.industries_path
+def _found_keywords(rankings: list[Ranking]) -> set[UUID]:
+    return {
+        ranking.keyword_id
+        for ranking in rankings
+        if ranking.grid_point is None
+        and (ranking.organic_position is not None or ranking.local_pack_position is not None)
+    }
+
+
+def unfound_phrase_count(rankings: list[Ranking]) -> int:
+    listed = {ranking.keyword_id for ranking in rankings if ranking.grid_point is None}
+    return len(listed - _found_keywords(rankings))
+
+
+def _costs(
+    repositories: Repositories, audit_id: UUID, labels: ReportLabels, settings: Settings
+) -> CostStatement | None:
+    if not settings.report_show_costs:
+        return None
+    return cost_statement(
+        repositories.audit_costs(audit_id), labels.cost_sources, labels.cost_services
     )
 
 
 def _address(location: Location) -> str:
-    return f"{location.street}, {location.postal_code} {location.city}"
+    town = f"{location.postal_code} {location.city}".strip()
+    return ", ".join(part for part in (location.street.strip(), town) if part)
 
 
 def _total(audit: Audit, results: list[CheckResult], catalogue: Catalogue) -> Decimal | None:
@@ -522,22 +922,6 @@ def _total(audit: Audit, results: list[CheckResult], catalogue: Catalogue) -> De
 def sales_report_context(
     audit_id: UUID, repositories: Repositories, settings: Settings, work_dir: Path
 ) -> SalesReport:
-    """Load everything the sales report shows and draw its charts.
-
-    Args:
-        audit_id: Audit to report.
-        repositories: Data access.
-        settings: Paths of catalogue, forecast curves and templates.
-        work_dir: Scratch folder for downloads and chart images; must outlive the rendering.
-
-    Returns:
-        The filled report model.
-
-    Raises:
-        StorageError: If audit, customer or results cannot be loaded.
-        RenderError: If labels are malformed or a required chart cannot be written.
-        ConfigurationError: If catalogue or forecast curves are malformed.
-    """
     audit = repositories.audit(audit_id)
     customer = repositories.customer(audit.customer_id)
     keywords = repositories.keywords(audit.customer_id)
@@ -549,27 +933,61 @@ def sales_report_context(
     findings = finding_lines(bundle.findings, bundle.results, catalogue)
     ranked = sorted(lines, key=lambda line: line.score)
     raw = load_raw(repositories, audit, work_dir)
+    pending = load_pending(settings.catalogue_path)
+    total_counted, total_ratable = coverage(bundle.results, catalogue)
+    open_lines = open_checks(bundle.results, catalogue, labels, pending)
     return SalesReport(
+        open_checks=open_lines,
+        open_groups=group_open_checks(open_lines),
+        verdicts=verdict_lines(bundle.results, catalogue, labels),
+        paid_visibility=paid_lines(bundle.results, catalogue, labels),
+        assistants=assistant_lines(raw, labels),
+        comparison_note=comparison_note(raw, bundle.results, catalogue, labels),
         customer_name=customer.name,
         customer_address=_address(locations[0]) if locations else customer.city,
         report_date=_today(),
+        site=site_name(customer.website, customer.name),
         total_score=_total(audit, bundle.results, catalogue),
+        total_counted=total_counted,
+        total_ratable=total_ratable,
+        unfound_phrases=unfound_phrase_count(bundle.rankings),
         texts=load_texts(repositories, audit_id, work_dir),
         areas=lines,
+        unrated_areas=unrated_areas(lines, catalogue),
         strongest_area=ranked[-1] if ranked else None,
         weakest_area=ranked[0] if ranked else None,
-        charts=_sales_charts(lines, raw, keywords, bundle.rankings, labels, work_dir),
+        charts=_sales_charts(
+            lines, raw, keywords, bundle.rankings, labels, work_dir, bundle.results, catalogue
+        ),
         top_findings=findings[:TOP_FINDINGS],
         finding_groups=group_findings(findings, catalogue),
-        forecast=_forecast(customer, keywords, bundle.rankings, settings),
         profile=profile_lines(raw, labels),
-        keyword_gap=gap_keywords(raw),
+        keyword_gap=gap_keywords(bundle.results),
+        costs=_costs(repositories, audit_id, labels, settings),
     )
 
 
 def _report_path(settings: Settings, audit_id: UUID, prefix: str, name: str, day: date) -> Path:
     file_name = f"{prefix}_{filename_slug(name)}_{day.isoformat()}.pdf"
     return settings.radar_work_dir / REPORT_DIR / str(audit_id) / file_name
+
+
+def site_name(website: object, customer_name: str) -> str:
+    host = host_of(str(website) if website is not None else None)
+    if host:
+        return SITE_FILE_CHARACTERS.sub("_", host).strip("_.")
+    return filename_slug(customer_name)
+
+
+def deliverable_path(settings: Settings, audit_id: UUID, prefix: str, site: str) -> Path:
+    name = f"{prefix}_{site}{PROJECT_FILE_SUFFIX}"
+    folder = settings.analysis_project_dir
+    if not (folder.is_dir() and os.access(folder, os.W_OK)):
+        raise RenderError(
+            f"cannot write {name} of audit {audit_id}: the project folder {folder} "
+            "does not exist or is not writable; set ANALYSIS_PROJECT_DIR to a writable folder"
+        )
+    return folder / name
 
 
 def _render(settings: Settings, template: str, report: BaseModel, output: Path) -> Path:
@@ -580,27 +998,43 @@ def _render(settings: Settings, template: str, report: BaseModel, output: Path) 
 
 
 def build_sales_report(audit_id: UUID, repositories: Repositories, settings: Settings) -> Path:
-    """Traffic lights, competitor comparison, top findings in plain language, forecast, offer.
-
-    Args:
-        audit_id: Audit to report.
-        repositories: Data access.
-        settings: Work directory, catalogue, forecast curves and template paths.
-
-    Returns:
-        PDF at <work_dir>/berichte/<audit_id>/Sichtbarkeitsbericht_<customer>_<date>.pdf.
-
-    Raises:
-        StorageError: If audit data cannot be loaded.
-        RenderError: If a template or chart fails.
-        ConfigurationError: If catalogue or forecast curves are malformed.
-    """
     with tempfile.TemporaryDirectory(prefix="radar-report-") as scratch:
         report = sales_report_context(audit_id, repositories, settings, Path(scratch))
-        output = _report_path(
-            settings, audit_id, SALES_FILE_PREFIX, report.customer_name, report.report_date
-        )
+        output = deliverable_path(settings, audit_id, SALES_FILE_PREFIX, report.site)
         return _render(settings, SALES_TEMPLATE, report, output)
+
+
+def recommendation_context(
+    audit_id: UUID, repositories: Repositories, settings: Settings
+) -> RecommendationReport:
+    audit = repositories.audit(audit_id)
+    customer = repositories.customer(audit.customer_id)
+    locations = repositories.locations(audit.customer_id)
+    bundle = _bundle(repositories, audit)
+    catalogue = load_catalogue(settings.catalogue_path)
+    return RecommendationReport(
+        customer_name=customer.name,
+        customer_address=_address(locations[0]) if locations else customer.city,
+        report_date=_today(),
+        site=site_name(customer.website, customer.name),
+        actions=_one_action_per_check(finding_lines(bundle.findings, bundle.results, catalogue)),
+    )
+
+
+def _one_action_per_check(lines: list[FindingLine]) -> list[FindingLine]:
+    seen: set[str] = set()
+    actions: list[FindingLine] = []
+    for line in lines:
+        if line.check_id not in seen:
+            seen.add(line.check_id)
+            actions.append(line)
+    return actions
+
+
+def build_recommendation(audit_id: UUID, repositories: Repositories, settings: Settings) -> Path:
+    report = recommendation_context(audit_id, repositories, settings)
+    output = deliverable_path(settings, audit_id, RECOMMENDATION_FILE_PREFIX, report.site)
+    return _render(settings, RECOMMENDATION_TEMPLATE, report, output)
 
 
 def _score_trend(before: Decimal | None, after: Decimal | None) -> Trend:
@@ -622,7 +1056,6 @@ def _position_trend(before: int | None, after: int | None) -> Trend:
 def score_changes(
     before: list[CheckResult], after: list[CheckResult], catalogue: Catalogue
 ) -> list[ScoreChange]:
-    """Area scores before and after for every area scored in either audit."""
     old = area_scores(before, catalogue)
     new = area_scores(after, catalogue)
     return [
@@ -640,7 +1073,6 @@ def score_changes(
 def ranking_changes(
     keywords: list[Keyword], before: list[Ranking], after: list[Ranking]
 ) -> list[RankingChange]:
-    """Customer positions per keyword before and after; unmeasured keywords are left out."""
     old = best_positions(before)
     new = best_positions(after)
     changes: list[RankingChange] = []
@@ -652,6 +1084,7 @@ def ranking_changes(
         changes.append(
             RankingChange(
                 phrase=keyword.phrase,
+                nationwide=keyword.scope is KeywordScope.NATIONWIDE,
                 organic_before=organic_before,
                 organic_after=organic_after,
                 organic_trend=_position_trend(organic_before, organic_after),
@@ -664,13 +1097,11 @@ def ranking_changes(
 
 
 def resolved_findings(previous: list[Finding], current: list[CheckResult]) -> list[Finding]:
-    """Findings of the previous audit whose check passes now."""
     passed = {r.check_id for r in current if r.outcome is CheckOutcome.PASSED}
     return [finding for finding in previous if finding.check_id in passed]
 
 
 def score_history(audits: list[Audit], current: Audit) -> list[tuple[str, Decimal]]:
-    """Total score of every reported audit plus the current one, oldest first."""
     shown = {audit.id: audit for audit in audits if audit.status is AuditStatus.REPORTED}
     shown[current.id] = current
     ordered = sorted(shown.values(), key=lambda audit: audit.requested_at)
@@ -684,21 +1115,6 @@ def score_history(audits: list[Audit], current: Audit) -> list[tuple[str, Decima
 def monthly_report_context(
     audit_id: UUID, repositories: Repositories, settings: Settings, work_dir: Path
 ) -> MonthlyReport:
-    """Load the current and the previous audit and draw the comparison charts.
-
-    Args:
-        audit_id: Current audit.
-        repositories: Data access.
-        settings: Catalogue and template paths.
-        work_dir: Scratch folder for downloads and chart images.
-
-    Returns:
-        The filled report model.
-
-    Raises:
-        RenderError: If there is no previous reported audit or a chart cannot be written.
-        StorageError: If audit data cannot be loaded.
-    """
     audit = repositories.audit(audit_id)
     previous_audit = repositories.previous_audit(audit)
     if previous_audit is None:
@@ -721,7 +1137,10 @@ def monthly_report_context(
         areas=score_changes(previous.results, current.results, catalogue),
         rankings=ranking_changes(keywords, previous.rankings, current.rankings),
         done=finding_lines(
-            resolved_findings(previous.findings, current.results), previous.results, catalogue
+            resolved_findings(previous.findings, current.results),
+            previous.results,
+            catalogue,
+            confirmed_only=False,
         ),
         next_steps=finding_lines(current.findings, current.results, catalogue),
         texts=load_texts(repositories, audit_id, work_dir),
@@ -748,20 +1167,6 @@ def _total_change(previous: AuditBundle, current: AuditBundle, catalogue: Catalo
 
 
 def build_monthly_report(audit_id: UUID, repositories: Repositories, settings: Settings) -> Path:
-    """Compare with the previous audit: what improved, what was done, what comes next.
-
-    Args:
-        audit_id: Current audit.
-        repositories: Data access.
-        settings: Work directory, catalogue and template paths.
-
-    Returns:
-        PDF at <work_dir>/berichte/<audit_id>/Monatsbericht_<customer>_<date>.pdf.
-
-    Raises:
-        RenderError: If there is no previous audit or a template or chart fails.
-        StorageError: If audit data cannot be loaded.
-    """
     with tempfile.TemporaryDirectory(prefix="radar-report-") as scratch:
         report = monthly_report_context(audit_id, repositories, settings, Path(scratch))
         output = _report_path(

@@ -1,4 +1,11 @@
 const euro = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
+const preciseEuro = new Intl.NumberFormat("de-DE", {
+  style: "currency",
+  currency: "EUR",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});
+const integer = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 });
 const date = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
 const dateTime = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
@@ -6,6 +13,14 @@ const dateTime = new Intl.DateTimeFormat("de-DE", {
 
 export function formatEuro(amount: number | null): string {
   return amount === null ? "–" : euro.format(amount);
+}
+
+export function formatEuroPrecise(amount: number | null): string {
+  return amount === null ? "–" : preciseEuro.format(amount);
+}
+
+export function formatNumber(value: number): string {
+  return integer.format(value);
 }
 
 export function formatDate(value: string | null): string {

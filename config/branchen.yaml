@@ -81,6 +81,12 @@ groups:
     services: [Reinigungsfirma, Fahrschule, Immobilienmakler]
     question_term: Dienstleister
     google_types: [real_estate_agency, laundry, moving_company, locksmith, florist, travel_agency, tailor, courier_service, clothing_store, shoe_store, jewelry_store, book_store, gift_shop, electronics_store, cell_phone_store, hardware_store, pet_store, bicycle_store]
+  - id: kunst_kreativ
+    label: Kunst und Kreatives
+    examples: [Künstlerin, Malerin, Atelier, Illustration]
+    services: [Künstler, Atelier, Kunst kaufen]
+    question_term: Künstler
+    google_types: [art_studio, art_gallery]
 # Früher gespeicherte Branchen, beim Lesen auf eine Gruppe abgebildet (klein geschrieben).
 legacy:
   handwerk: bauhandwerk
@@ -88,3 +94,5 @@ legacy:
   recht_steuern: recht_steuern_beratung
   recht und steuern: recht_steuern_beratung
   immobilien: handel_dienstleistung
+  künstlerin: kunst_kreativ
+  künstler: kunst_kreativ

@@ -1,0 +1,156 @@
+suppliers:
+  website_crawler: Website
+  google_pagespeed: PageSpeed
+  places_api: Google Places API
+  dataforseo: DataForSEO
+  apify: Apify
+  browser: Browser
+  apple_maps_server_api: Apple-Maps-Schnittstelle
+  openai_api: OpenAI-Schnittstelle
+  claude_code: Claude Code
+  google_oauth: Google-Konto des Kunden
+  api: Programmierschnittstelle
+  manual: von Hand
+checks:
+  a2: {number: 1, stage: 3}
+  a4: {number: 2, stage: 3}
+  a12: {number: 3, stage: 3}
+  a11: {number: 4, stage: 3}
+  a13: {number: 5, stage: 3}
+  a7: {number: 6, stage: 3}
+  b5: {number: 7, stage: 3}
+  c4: {number: 8, stage: 3}
+  i1: {number: 9, stage: 0}
+  f1: {number: 10, stage: 1}
+  f2: {number: 11, stage: 1}
+  f4: {number: 12, stage: 1}
+  f5: {number: 13, stage: 1}
+  f7: {number: 14, stage: 1}
+  f8: {number: 15, stage: 1}
+  f13: {number: 16, stage: 1}
+  g1: {number: 17, stage: 1}
+  g2: {number: 18, stage: 1}
+  j1: {number: 19, stage: 1}
+  j2: {number: 20, stage: 1}
+  j3: {number: 21, stage: 1}
+  j4: {number: 22, stage: 1}
+  j5: {number: 23, stage: 0}
+  j6: {number: 24, stage: 1}
+  j8: {number: 25, stage: 1, route: google_images}
+  c12: {number: 26, stage: 0}
+  j9: {number: 27, stage: 4}
+  m1: {number: 28, stage: 4}
+  m2: {number: 29, stage: 4}
+  a14: {number: 30, stage: 3}
+  b10: {number: 31, stage: 3}
+  b11: {number: 32, stage: 3}
+  b12: {number: 33, stage: 3}
+  b13: {number: 34, stage: 3}
+  b14: {number: 35, stage: 3}
+  b15: {number: 36, stage: 3}
+  b3: {number: 37, stage: 3}
+  b4: {number: 38, stage: 3}
+  b16: {number: 39, stage: 3}
+  b17: {number: 40, stage: 3}
+  b18: {number: 41, stage: 3}
+  b19: {number: 42, stage: 3}
+  b20: {number: 43, stage: 3}
+  b21: {number: 44, stage: 3}
+  b22: {number: 45, stage: 3}
+  j7: {number: 46, stage: 1, route: bing}
+  h2: {number: 47, stage: 2, route: bing_maps}
+  h1: {number: 48, stage: 2, route: apple_maps}
+  a15: {number: 49, stage: 3}
+  a16: {number: 50, stage: 3}
+  k1: {number: 51, stage: 1}
+  k2: {number: 52, stage: 1}
+  a17: {number: 53, stage: 3}
+  a18: {number: 54, stage: 3}
+  k6: {number: 55, stage: 1}
+  k7: {number: 56, stage: 1}
+  p1: {number: 57, stage: 2}
+  p3: {number: 58, stage: 2}
+  p4: {number: 59, stage: 2}
+  p5: {number: 60, stage: 4}
+  p2: {number: 61, stage: 2}
+  p6: {number: 62, stage: 4}
+measurements:
+  crawler:
+    label: Website lesen
+    routes:
+      - {supplier: website_crawler, endpoint: "HTTP-Abruf der Seiten, robots.txt, Sitemap", key: null, built: true}
+  pagespeed:
+    label: Ladezeit
+    routes:
+      - {supplier: google_pagespeed, endpoint: "https://www.googleapis.com/pagespeedonline/v5/runPagespeed", key: GOOGLE_API_KEY, built: true}
+  places:
+    label: Google-Profil und Karte
+    routes:
+      - {supplier: places_api, endpoint: "https://places.googleapis.com/v1/places:searchText", key: GOOGLE_API_KEY, built: true, price_source: "https://developers.google.com/maps/billing-and-pricing/pricing", price_read_on: "2026-11-15"}
+      - {supplier: dataforseo, endpoint: "/v3/business_data/google/my_business_info und /v3/serp/google/maps", key: DATAFORSEO_LOGIN, built: true}
+      - {supplier: browser, endpoint: "Google Maps im Browser", key: null, built: true}
+  serp:
+    label: Suchergebnisse
+    routes:
+      - {supplier: dataforseo, endpoint: "/v3/serp/google/organic und /v3/serp/google/ai_mode", key: DATAFORSEO_LOGIN, built: true}
+      - {supplier: apify, endpoint: "Google-Suche-Akteur", key: APIFY_TOKEN, built: true}
+      - {supplier: browser, endpoint: "https://www.google.de/search", key: null, built: true}
+    variants:
+      bing:
+        - {supplier: browser, endpoint: "https://www.bing.com/search", key: null, built: true}
+        - {supplier: dataforseo, endpoint: "/v3/serp/bing/organic", key: DATAFORSEO_LOGIN, built: false, bestaetigt: false, note: "Bei der Erprobung am 13.11.2026 lieferte DataForSEO bei Namenssuchen fremde Treffer (Foren, Namensseiten); deshalb steht der Browser vorn, bis ein Vergleich besteht."}
+      google_images:
+        - {supplier: dataforseo, endpoint: "/v3/serp/google/images", key: DATAFORSEO_LOGIN, built: false}
+        - {supplier: apify, endpoint: "johnvc~google-images-api", key: APIFY_TOKEN, built: true}
+        - {supplier: browser, endpoint: "https://www.google.de/search?tbm=isch", key: null, built: true}
+  directories:
+    label: Karten-Einträge
+    routes: []
+    variants:
+      apple_maps:
+        - {supplier: apple_maps_server_api, endpoint: "https://maps-api.apple.com/v1/search", key: APPLE_MAPS_TOKEN, built: false}
+        - {supplier: apify, endpoint: "zen-studio~apple-maps-scraper-pro", key: APIFY_TOKEN, built: true}
+      bing_maps:
+        - {supplier: apify, endpoint: "karamelo~bing-maps-scraper", key: APIFY_TOKEN, built: true}
+  assistants:
+    label: KI-Antworten
+    routes: []
+    variants:
+      chatgpt:
+        - {supplier: dataforseo, endpoint: "/v3/ai_optimization/chat_gpt/llm_scraper", key: DATAFORSEO_LOGIN, built: true}
+        - {supplier: browser, endpoint: "ChatGPT im Browser", key: null, built: true}
+        - supplier: openai_api
+          endpoint: "https://api.openai.com/v1/chat/completions"
+          key: OPENAI_API_KEY
+          built: true
+          price_source: "https://developers.openai.com/api/docs/pricing"
+          price_read_on: "2026-11-15"
+          usd_per_million_tokens:
+            gpt-4o-mini: {input: "0.15", output: "0.60"}
+      google_ai:
+        - {supplier: dataforseo, endpoint: "/v3/serp/google/ai_mode", key: DATAFORSEO_LOGIN, built: true}
+      claude:
+        - {supplier: claude_code, endpoint: "claude (Abo-Schlüssel)", key: CLAUDE_CODE_OAUTH_TOKEN, built: true}
+  paid:
+    label: Linkdaten und Vergleichsdaten
+    routes:
+      - {supplier: dataforseo, endpoint: "/v3/backlinks/summary/live, /v3/dataforseo_labs/google/*", key: DATAFORSEO_LOGIN, built: true}
+  access:
+    label: Zugang des Kunden
+    routes:
+      - {supplier: google_oauth, endpoint: "Search-Console- und Business-Profile-Performance-Schnittstelle", key: GOOGLE_OAUTH_CLIENT_ID, built: true}
+  ads_google:
+    label: Anzeigen bei Google
+    routes:
+      - {supplier: dataforseo, endpoint: "POST https://api.dataforseo.com/v3/serp/google/ads_search/task_post, Ergebnis /v3/serp/google/ads_search/task_get/advanced, Ziel = Domain des Betriebs", key: DATAFORSEO_LOGIN, built: true, price_usd_per_task: "0.0006", price_source: "https://dataforseo.com/pricing/google-serp/google-ads-search-serp-api", price_read_on: "2026-11-15"}
+  ads_meta:
+    label: Anzeigen bei Facebook und Instagram
+    routes:
+      - supplier: apify
+        endpoint: "apify/facebook-ads-scraper"
+        key: APIFY_TOKEN
+        built: true
+        input_url: "https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=DE&q={name}"
+        field_mapping: {}
+        bestaetigt: false
+        note: "Preis des Akteurs je Abruf nicht hinterlegt; der Schritt läuft erst, wenn price_usd_per_run eingetragen und bestaetigt auf true gesetzt ist."

@@ -1,13 +1,3 @@
-"""Read Google Maps in the shared server browser: business profiles and result lists.
-
-Context: Free source for the Google profile checks (areas f and g), competitor discovery, the map
-position per keyword and the map grid. One call opens one tab of the shared BrowserService; a
-bot check raises SearchBlockedError, which the profile route answers with the Places API.
-Input: The shared BrowserService, a profile to read or a phrase with an optional position.
-Output: PlaceSnapshot (overview, newest reviews with owner replies, info tab and, for the
-customer's own profile, the capture dates of its photos) or MapListings.
-"""
-
 import logging
 from collections.abc import Awaitable
 from dataclasses import dataclass
@@ -18,19 +8,20 @@ from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import Page
 
 from radarauditor.collectors.browser import BrowserService, Geolocation, ensure_not_blocked
+from radarauditor.collectors.identity import identity, same_business
 from radarauditor.collectors.maps_pages import (
     MapListing,
     PhotoDates,
     ViewerPhoto,
     gallery_tab,
     is_place_page,
+    listing_identity,
     newest_photo,
     next_photo_button,
     page_texts,
     parse_listings,
     parse_place,
     photo_button,
-    same_business,
     tab_labels,
     viewer_photo,
 )
@@ -52,7 +43,6 @@ REVIEW_TABS = ("Rezensionen", "Reviews")
 ABOUT_TABS = ("Info", "About")
 OVERVIEW_TABS = ("Übersicht", "Overview")
 SORT_BUTTONS = ("Rezensionen sortieren", "Sort reviews")
-# The sort menu has used several roles; any entry labelled "Neueste" is the date order.
 NEWEST_SELECTOR = ", ".join(
     f'[role="{role}"]:has-text("{label}")'
     for role in ("menuitemradio", "menuitem", "option")
@@ -79,12 +69,6 @@ EXPAND_REVIEWS_SCRIPT = (
 
 @dataclass(frozen=True)
 class ProfileTarget:
-    """A business to open on Google Maps: by place page address, place id, or name and address.
-
-    with_photos opens the photo viewer to read the capture dates of the photos; it takes up to
-    PHOTO_LIMIT clicks, so only the customer's own profile asks for it.
-    """
-
     name: str
     address: str = ""
     place_id: str | None = None
@@ -92,7 +76,6 @@ class ProfileTarget:
     with_photos: bool = False
 
     def start_url(self) -> str:
-        """Address that opens the profile directly or a search that lists it."""
         if self.url:
             return self.url
         if self.place_id and self.place_id.startswith("ChIJ"):
@@ -102,25 +85,6 @@ class ProfileTarget:
 
 
 async def read_profile(browser: BrowserService, target: ProfileTarget) -> PlaceSnapshot:
-    """Open a business profile, its newest reviews, its info tab and its photos, and parse them.
-
-    The photos are read only when the target asks for them: the viewer opens on "Vom Inhaber"
-    when the owner uploaded photos, else on "Alle", and steps through up to PHOTO_LIMIT photos.
-    A viewer that cannot be operated leaves the photo dates unread.
-
-    Args:
-        browser: Shared browser of the job.
-        target: Business to open.
-
-    Returns:
-        The profile as read from Google Maps.
-
-    Raises:
-        SearchBlockedError: On a captcha, "unusual traffic" page or HTTP 429.
-        ProfileNotFoundError: If Google Maps shows no profile matching the business.
-        CollectionError: If the page shows neither a profile nor a result list.
-        playwright.async_api.Error: On a navigation failure or timeout.
-    """
     async with browser.page() as page:
         html = await _load(browser, page, target.start_url())
         if not is_place_page(html):
@@ -153,23 +117,6 @@ async def read_profile(browser: BrowserService, target: ProfileTarget) -> PlaceS
 async def search_listings(
     browser: BrowserService, phrase: str, at: Geolocation | None = None
 ) -> list[MapListing]:
-    """Search Google Maps for a phrase and return the organic result list.
-
-    With a position, the map is centred there and the tab reports it as the device location,
-    which is how a person standing at that point would search.
-
-    Args:
-        browser: Shared browser of the job.
-        phrase: Search phrase, for example "Dachdecker Münster".
-        at: Position to search from, or None for no position.
-
-    Returns:
-        Listings in Google's order; a search that jumps straight to one profile returns that one.
-
-    Raises:
-        SearchBlockedError: On a captcha, "unusual traffic" page or HTTP 429.
-        playwright.async_api.Error: On a navigation failure or timeout.
-    """
     query = quote(phrase, safe="")
     url = (
         SEARCH_URL.format(query=query)
@@ -196,10 +143,9 @@ async def search_listings(
 
 
 def _matching_listing(listings: list[MapListing], target: ProfileTarget) -> MapListing:
+    own = identity(name=target.name, place_ids=[target.place_id])
     for listing in listings:
-        if (target.place_id and listing.place_id == target.place_id) or same_business(
-            listing.name, target.name
-        ):
+        if same_business(own, listing_identity(listing)):
             return listing
     raise ProfileNotFoundError(f"Google Maps lists no profile for {target.name}")
 
@@ -220,12 +166,10 @@ async def _wait(page: Page, selector: str, timeout_ms: int) -> None:
     try:
         await page.wait_for_selector(selector, timeout=timeout_ms)
     except PlaywrightError as error:
-        # A missing element shows up as missing data; the parser decides what that means.
         logger.debug("Waited in vain for %s: %s", selector, error.message)
 
 
 async def _tab_or_none[T](reading: Awaitable[T | None], tab: str) -> T | None:
-    """A tab that cannot be operated leaves its fields unread instead of losing the profile."""
     try:
         return await reading
     except PlaywrightError as error:
@@ -259,12 +203,6 @@ async def _open_tab(
 
 
 async def _photos(browser: BrowserService, page: Page, overview_html: str) -> PhotoDates | None:
-    """Open the photo viewer and read the capture date of up to PHOTO_LIMIT photos.
-
-    Returns:
-        The newest date and the count of dated photos, Street View and 360° images left out;
-        None when the profile shows no photo control or the viewer did not open.
-    """
     now = datetime.now(UTC)
     opened = await _open_viewer(browser, page, overview_html)
     if opened is None:
@@ -281,15 +219,8 @@ async def _photos(browser: BrowserService, page: Page, overview_html: str) -> Ph
 async def _open_viewer(
     browser: BrowserService, page: Page, overview_html: str
 ) -> tuple[str, frozenset[str]] | None:
-    """Open the photo viewer on its gallery tab.
-
-    Returns:
-        The viewer's page source and the texts the page showed before it opened; None when the
-        profile shows no photo control or the viewer did not open.
-    """
     current = await _content(page)
     if photo_button(current) is None and photo_button(overview_html) is not None:
-        # The review and info tabs may hide the photo control; the overview tab shows it.
         current = await _open_tab(browser, page, current, OVERVIEW_TABS, READY_SELECTOR) or current
     label = photo_button(current)
     if label is None:
@@ -314,7 +245,6 @@ async def _open_viewer(
 async def _read_viewer(
     browser: BrowserService, page: Page, viewer: str, before: frozenset[str], now: datetime
 ) -> list[ViewerPhoto]:
-    """Read the shown photo and step to the next one until PHOTO_LIMIT or the last photo."""
     seen = [viewer_photo(viewer, before, now)]
     while len(seen) < PHOTO_LIMIT:
         next_label = next_photo_button(viewer)
@@ -331,7 +261,6 @@ async def _read_viewer(
 
 
 async def _sort_newest(page: Page, html: str) -> bool:
-    """Sort the reviews by date; on failure they keep Google's order of relevance."""
     button = next((label for label in SORT_BUTTONS if label in html), None)
     if button is None:
         return False

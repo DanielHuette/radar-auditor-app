@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -36,6 +37,8 @@ logger = logging.getLogger(__name__)
 MAIL_READING_OFF = "Mails lesen ist ausgeschaltet"
 CAPABILITY_REFRESH = timedelta(minutes=10)
 ALIVE_MAX_AGE = timedelta(minutes=3)
+WATCHDOG_INTERVAL_SECONDS = 30.0
+WATCHDOG_EXIT_CODE = 70
 CLAUDE_STATUS_TIMEOUT_SECONDS = 20
 CHROMIUM_DIR_PREFIXES = ("chromium-", "chromium_headless_shell-")
 PLAYWRIGHT_BROWSERS_ENV = "PLAYWRIGHT_BROWSERS_PATH"
@@ -278,3 +281,20 @@ def alive_file_fresh(path: Path, now: datetime, max_age: timedelta = ALIVE_MAX_A
     except OSError:
         return False
     return now - modified <= max_age
+
+
+def run_watchdog(
+    path: Path,
+    stop: threading.Event,
+    exit_process: Callable[[int], object] = os._exit,
+    interval: float = WATCHDOG_INTERVAL_SECONDS,
+) -> None:
+    while not stop.wait(interval):
+        if not alive_file_fresh(path, datetime.now(UTC)):
+            logger.critical(
+                "Alive file %s is older than %s: the worker is hung, exiting for a restart",
+                path,
+                ALIVE_MAX_AGE,
+            )
+            exit_process(WATCHDOG_EXIT_CODE)
+            return

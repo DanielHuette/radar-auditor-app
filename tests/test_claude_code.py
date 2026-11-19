@@ -1,9 +1,4 @@
-"""Tests for the headless Claude Code run.
-
-Context: The real CLI is never started; a fake script stands in for it. | Input: Fixtures. |
-Output: Assertions.
-"""
-
+import contextlib
 import json
 from pathlib import Path, PureWindowsPath
 
@@ -16,6 +11,7 @@ from radarauditor.jobs.claude_code import (
     assistant_command,
     check_result,
     claude_command,
+    counting_usage,
     failure_reason,
     ping_claude_code,
     run_claude_code,
@@ -27,7 +23,6 @@ SUCCESS = json.dumps({"type": "result", "subtype": "success", "is_error": False,
 
 @pytest.fixture
 def job_folder(tmp_path: Path) -> Path:
-    """A hand-off folder with the audit id the fake CLI reads."""
     folder = tmp_path / "work" / "analyse" / "job"
     folder.mkdir(parents=True)
     audit = {"audit": {"id": "00000000-0000-4000-8000-000000000002"}}
@@ -36,19 +31,16 @@ def job_folder(tmp_path: Path) -> Path:
 
 
 def test_absolute_rule_path_on_posix() -> None:
-    """Absolute rule paths start with two slashes."""
     assert absolute_rule_path(Path("/srv/work/x/findings.json")) == "//srv/work/x/findings.json"
 
 
 def test_absolute_rule_path_on_windows() -> None:
-    """Windows drives are written the way Claude Code normalises them."""
     path = PureWindowsPath(r"C:\KI\work\x\texte.json")
 
     assert absolute_rule_path(Path(path.as_posix())) == "//c/KI/work/x/texte.json"
 
 
-def test_command_allows_reading_and_only_the_two_output_files(settings: Settings) -> None:
-    """Prompt, JSON output, permission mode, tools and the two writable files are passed."""
+def test_command_allows_reading_and_only_the_three_output_files(settings: Settings) -> None:
     folder = Path("/srv/work/analyse/job")
 
     command = claude_command("/usr/bin/claude", folder, settings)
@@ -64,13 +56,13 @@ def test_command_allows_reading_and_only_the_two_output_files(settings: Settings
         "Grep",
         "Edit(//srv/work/analyse/job/findings.json)",
         "Edit(//srv/work/analyse/job/texte.json)",
+        "Edit(//srv/work/analyse/job/urteile.json)",
     ]
     assert command[-2:] == ["--add-dir", str(folder)]
     assert "--model" not in command
 
 
 def test_command_passes_model_when_set(settings: Settings) -> None:
-    """A configured model is passed on."""
     with_model = settings.model_copy(update={"analysis_model": "sonnet"})
 
     command = claude_command("claude", Path("/w"), with_model)
@@ -79,12 +71,10 @@ def test_command_passes_model_when_set(settings: Settings) -> None:
 
 
 def test_check_result_accepts_success() -> None:
-    """Exit code 0 with a success result passes and returns the result text."""
     assert check_result(0, SUCCESS, "") == "1"
 
 
 def test_assistant_command_allows_only_the_web_tools() -> None:
-    """The question is the prompt; web search and fetch are the only tools."""
     command = assistant_command("/usr/bin/claude", "Wer ist ein guter Dachdecker?", "haiku")
 
     assert command[:3] == ["/usr/bin/claude", "-p", "Wer ist ein guter Dachdecker?"]
@@ -96,7 +86,6 @@ def test_assistant_command_allows_only_the_web_tools() -> None:
 
 
 def test_toolless_command_offers_no_tool_and_asks_for_nothing() -> None:
-    """A question answered from the text alone: no tools, no prompt, no stored session."""
     command = toolless_command("/usr/bin/claude", "Ordne diese Mail ein.", "sonnet")
 
     assert command[:3] == ["/usr/bin/claude", "-p", "Ordne diese Mail ein."]
@@ -109,7 +98,6 @@ def test_toolless_command_offers_no_tool_and_asks_for_nothing() -> None:
 
 
 def test_toolless_command_loads_no_settings_servers_or_skills() -> None:
-    """User settings, plugins, hooks, allow rules, MCP servers and skills of the host stay out."""
     command = toolless_command("/usr/bin/claude", "Frage", "sonnet")
 
     assert command[command.index("--setting-sources") + 1] == ""
@@ -118,8 +106,25 @@ def test_toolless_command_loads_no_settings_servers_or_skills() -> None:
     assert "--disable-slash-commands" in command
 
 
+def test_assistant_command_starts_lean() -> None:
+    command = assistant_command("/usr/bin/claude", "Frage", "haiku")
+
+    assert command[command.index("--setting-sources") + 1] == ""
+    assert "--strict-mcp-config" in command
+    assert "--mcp-config" not in command
+    assert "--disable-slash-commands" in command
+
+
+def test_folder_command_loads_only_the_project_and_no_mcp_server(settings: Settings) -> None:
+    command = claude_command("/usr/bin/claude", Path("/srv/work/analyse/job"), settings)
+
+    assert command[command.index("--setting-sources") + 1] == "project"
+    assert "--strict-mcp-config" in command
+    assert "--mcp-config" not in command
+    assert "--disable-slash-commands" not in command
+
+
 def test_assistant_command_without_model_uses_the_login_default() -> None:
-    """No model leaves the choice to the Claude Code login."""
     assert "--model" not in assistant_command("claude", "Frage", None)
 
 
@@ -141,7 +146,6 @@ def test_assistant_command_without_model_uses_the_login_default() -> None:
 def test_check_result_rejects_failures(
     returncode: int, stdout: str, stderr: str, problem: str
 ) -> None:
-    """Errors, wrong exit codes and missing results raise with a readable reason."""
     with pytest.raises(ClaudeCodeError, match=problem):
         check_result(returncode, stdout, stderr)
 
@@ -149,12 +153,20 @@ def test_check_result_rejects_failures(
 def test_run_writes_files_through_the_cli(
     claude_settings: Settings, job_folder: Path, fake_claude: Path, tmp_path: Path
 ) -> None:
-    """The fake CLI runs in the project directory and receives the folder in the prompt."""
     run_claude_code(job_folder, claude_settings)
 
     assert (job_folder / "findings.json").exists() and (job_folder / "texte.json").exists()
     argv = json.loads(fake_claude.with_name("argv.json").read_text(encoding="utf-8"))
     assert argv[:2] == ["-p", f"/auswerten {job_folder.resolve().as_posix()}"]
+
+
+def test_folder_run_does_not_load_the_project_instructions(
+    claude_settings: Settings, job_folder: Path, fake_claude: Path
+) -> None:
+    run_claude_code(job_folder, claude_settings)
+
+    seen = fake_claude.with_name("claude_mds.txt").read_text(encoding="utf-8")
+    assert seen == "1"
 
 
 @pytest.mark.parametrize(
@@ -173,7 +185,6 @@ def test_run_reports_cli_errors(
     problem: str,
     failure: ClaudeCodeFailure,
 ) -> None:
-    """A missing login, an error answer or unreadable output becomes ClaudeCodeError."""
     monkeypatch.setenv("FAKE_CLAUDE_MODE", mode)
 
     with pytest.raises(ClaudeCodeError, match=problem) as caught:
@@ -186,7 +197,6 @@ def test_run_reports_cli_errors(
     ["Invalid API key · Please run /login", "OAuth token has expired", "Not logged in"],
 )
 def test_login_problems_are_recognised(message: str) -> None:
-    """Every way Claude Code reports a missing login counts as NOT_LOGGED_IN."""
     stdout = json.dumps({"subtype": "success", "is_error": True, "result": message})
 
     with pytest.raises(ClaudeCodeError) as caught:
@@ -206,7 +216,6 @@ def test_login_problems_are_recognised(message: str) -> None:
     ],
 )
 def test_usage_limits_of_the_subscription_are_recognised(message: str) -> None:
-    """A used-up subscription is no error of the question; it counts as USAGE_LIMIT."""
     stdout = json.dumps({"subtype": "success", "is_error": True, "result": message})
 
     with pytest.raises(ClaudeCodeError) as caught:
@@ -228,7 +237,6 @@ def test_failure_reasons_are_german() -> None:
 def test_ping_asks_without_tools_outside_the_project(
     claude_settings: Settings, fake_claude: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The answer check passes with an answer and runs with no tools and the small model."""
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "ok")
 
     ping_claude_code(claude_settings)
@@ -243,7 +251,6 @@ def test_ping_asks_without_tools_outside_the_project(
 def test_run_stops_at_the_timeout(
     claude_settings: Settings, job_folder: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A run longer than the timeout is stopped."""
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "sleep")
     quick = claude_settings.model_copy(update={"analysis_timeout_seconds": 1})
 
@@ -253,9 +260,73 @@ def test_run_stops_at_the_timeout(
 
 
 def test_run_without_executable(settings: Settings, job_folder: Path) -> None:
-    """A missing CLI is reported before anything starts."""
     missing = settings.model_copy(update={"analysis_claude_command": "claude-not-installed"})
 
     with pytest.raises(ClaudeCodeError, match="not found") as caught:
         run_claude_code(job_folder, missing)
     assert caught.value.failure is ClaudeCodeFailure.NOT_INSTALLED
+
+
+USAGE_RESULT = json.dumps(
+    {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "result": "1",
+        "usage": {
+            "input_tokens": 10,
+            "cache_creation_input_tokens": 200,
+            "cache_read_input_tokens": 3000,
+            "output_tokens": 40,
+        },
+    }
+)
+
+
+def _counted(stdout: str, returncode: int = 0) -> list[tuple[int, int]]:
+    seen: list[tuple[int, int]] = []
+    with counting_usage(lambda tokens_in, tokens_out: seen.append((tokens_in, tokens_out))):
+        with contextlib.suppress(ClaudeCodeError):
+            check_result(returncode, stdout, "")
+    return seen
+
+
+def test_a_result_reports_its_tokens_with_the_cache_counted_as_input() -> None:
+    assert _counted(USAGE_RESULT) == [(3210, 40)]
+
+
+def test_a_result_without_usage_reports_no_tokens() -> None:
+    assert _counted(SUCCESS) == [(0, 0)]
+
+
+@pytest.mark.parametrize("usage", [None, "many", [1], {"input_tokens": "9", "output_tokens": 2.5}])
+def test_an_unusable_usage_counts_as_no_tokens(usage: object) -> None:
+    result = json.dumps({"subtype": "success", "is_error": False, "result": "1", "usage": usage})
+
+    assert _counted(result) == [(0, 0)]
+
+
+def test_a_failed_run_still_reports_the_tokens_it_used() -> None:
+    failed = json.dumps(
+        {"subtype": "error", "is_error": True, "result": "529", "usage": {"output_tokens": 4}}
+    )
+
+    assert _counted(failed, returncode=1) == [(0, 4)]
+
+
+def test_output_that_is_not_json_reports_nothing() -> None:
+    assert _counted("garbage", returncode=1) == []
+
+
+def test_without_a_listener_the_result_is_read_as_before() -> None:
+    assert check_result(0, USAGE_RESULT, "") == "1"
+
+
+def test_the_listener_is_removed_after_the_block() -> None:
+    seen: list[tuple[int, int]] = []
+    with counting_usage(lambda tokens_in, tokens_out: seen.append((tokens_in, tokens_out))):
+        pass
+
+    check_result(0, USAGE_RESULT, "")
+
+    assert seen == []

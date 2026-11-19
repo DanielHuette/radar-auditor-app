@@ -9,6 +9,7 @@ directories:
   - name: Gelbe Seiten
     kind: core
     search_url: https://www.gelbeseiten.de/suche/{name}/{city}
+    no_hits_status: 404
   - name: Das Örtliche
     kind: core
     search_url: https://www.dasoertliche.de/?kw={name}&ci={city}
@@ -33,14 +34,54 @@ directories:
     kind: social
   - name: Wikidata
     kind: entity
+# Fachverzeichnisse je Branchengruppe (Prüfung h4), gelesen von collectors/listings.py.
 industry_specific:
   bauhandwerk: [MyHammer, Check24 Profis, Handwerkskammer, Innung]
   haustechnik: [MyHammer, Check24 Profis, Handwerkskammer, Innung]
   holz_innenausbau: [MyHammer, Check24 Profis, Handwerkskammer, Innung]
+  friseur_kosmetik: [Handwerkskammer, Innung]
+  baeckerei_lebensmittel: [Handwerkskammer, Innung]
   kfz: [Autoscout24 Händler, mobile.de Händler]
   gastronomie: [TripAdvisor, OpenTable]
   arzt_zahnarzt: [Jameda, Doctolib]
   therapie_pflege: [Jameda, Doctolib]
   recht_steuern_beratung: [Anwalt.de, Steuerberater.de]
   handel_dienstleistung: [ImmobilienScout24 Anbieter]
-bewertungsportale: [ProvenExpert, Trustpilot, kununu]
+  kunst_kreativ: [Berufsverband Bildender Künstler (BBK), KünstlerinnenForum MünsterLand, Kunst am Rand (Stadt Münster)]
+# Bewertungsportale (Prüfung g7), festgelegt von Daniel am 10.11.2026: für jeden Betrieb die Portale
+# unter alle, dazu die der Branchengruppe; kununu ist gestrichen.
+bewertungsportale:
+  alle: [Trustpilot, ProvenExpert, Werkenntdenbesten, GoLocal, Yelp]
+  branchen:
+    arzt_zahnarzt: [Jameda, Doctolib]
+    therapie_pflege: [Jameda, Doctolib]
+    gastronomie: [TripAdvisor, OpenTable]
+    bauhandwerk: [MyHammer, Check24 Profis]
+    haustechnik: [MyHammer, Check24 Profis]
+    holz_innenausbau: [MyHammer, Check24 Profis]
+    recht_steuern_beratung: [Anwalt.de]
+# Wo ein Portal im Netz steht. site: Adresse der Seiten (Google-Suche site:), hosts: Wörter im
+# Adressnamen bei Kammern und Innungen, die es je Region gibt, path: Pfadteil der Seiten,
+# cities: Portal gilt nur für Betriebe in diesen Orten.
+portale:
+  Trustpilot: {site: trustpilot.com}
+  ProvenExpert: {site: provenexpert.com}
+  Werkenntdenbesten: {site: werkenntdenbesten.de}
+  GoLocal: {site: golocal.de}
+  Yelp: {site: yelp.de}
+  Jameda: {site: jameda.de}
+  Doctolib: {site: doctolib.de}
+  TripAdvisor: {site: tripadvisor.de}
+  OpenTable: {site: opentable.de}
+  MyHammer: {site: myhammer.de}
+  Check24 Profis: {site: check24.de}
+  Handwerkskammer: {hosts: [hwk, handwerkskammer]}
+  Innung: {hosts: [innung, kreishandwerkerschaft]}
+  Anwalt.de: {site: anwalt.de}
+  Steuerberater.de: {site: steuerberater.de}
+  Autoscout24 Händler: {site: autoscout24.de}
+  mobile.de Händler: {site: mobile.de}
+  ImmobilienScout24 Anbieter: {site: immobilienscout24.de}
+  Berufsverband Bildender Künstler (BBK): {site: bbk-bundesverband.de}
+  KünstlerinnenForum MünsterLand: {site: kuenstlerinnenforum.de, cities: [Münster]}
+  Kunst am Rand (Stadt Münster): {site: stadt-muenster.de, path: kunst-am-rand, cities: [Münster]}

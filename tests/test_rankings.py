@@ -1,13 +1,22 @@
-"""Tests for deriving ranking rows from collected searches.
-
-Context: Pure function tests on the roofer fixture. | Input: Fixtures. | Output: Assertions.
-"""
-
+from datetime import UTC, datetime
 from uuid import UUID, uuid5
 
-from radarauditor.collectors.snapshot import GridPoint, RawAudit, SerpResult
-from radarauditor.db.models import Competitor, Keyword
-from radarauditor.scoring.rankings import CUSTOMER_SUBJECT, grid_rankings, rankings_from_raw
+from radarauditor.collectors.snapshot import GridPoint, PositionChange, RawAudit, SerpResult
+from radarauditor.db.models import (
+    Audit,
+    AuditKind,
+    AuditStatus,
+    Competitor,
+    Keyword,
+    KeywordScope,
+    Ranking,
+)
+from radarauditor.scoring.rankings import (
+    CUSTOMER_SUBJECT,
+    grid_rankings,
+    ranking_history,
+    rankings_from_raw,
+)
 
 AUDIT_ID = UUID("00000000-0000-4000-8000-000000000002")
 CUSTOMER_ID = UUID("00000000-0000-4000-8000-000000000001")
@@ -152,3 +161,97 @@ def test_grid_rows_fall_back_to_first_keyword_and_need_one(raw_audit_full: RawAu
     assert {row.keyword_id for row in grid_rankings(AUDIT_ID, raw, KEYWORDS)} == {KEYWORD_ROOFER}
     assert grid_rankings(AUDIT_ID, raw, []) == []
     assert grid_rankings(AUDIT_ID, raw_audit_full, KEYWORDS) == []
+
+
+def test_a_nationwide_keyword_is_matched_to_the_search_without_the_city(
+    raw_audit_full: RawAudit,
+) -> None:
+    nationwide = _keyword(KEYWORD_ROOFER, "Dachdecker").model_copy(
+        update={"scope": KeywordScope.NATIONWIDE}
+    )
+    serps = [
+        serp.model_copy(update={"phrase": "Dachdecker"})
+        for serp in raw_audit_full.serps
+        if serp.phrase == "Dachdecker M\u00fcnster"
+    ]
+    raw = raw_audit_full.model_copy(update={"serps": serps})
+
+    rows = rankings_from_raw(AUDIT_ID, raw, [nationwide], [], "www.dachdeckerei-muster.de", None)
+
+    assert [row.keyword_id for row in rows] == [KEYWORD_ROOFER]
+
+
+def test_a_nationwide_keyword_ignores_the_search_with_the_city(raw_audit_full: RawAudit) -> None:
+    nationwide = _keyword(KEYWORD_ROOFER, "Dachdecker").model_copy(
+        update={"scope": KeywordScope.NATIONWIDE}
+    )
+    local_only = raw_audit_full.model_copy(
+        update={"serps": [s for s in raw_audit_full.serps if s.phrase == "Dachdecker M\u00fcnster"]}
+    )
+
+    rows = rankings_from_raw(AUDIT_ID, local_only, [nationwide], [], None, None)
+
+    assert [row for row in rows if row.grid_point is None] == []
+
+
+PREVIOUS_AUDIT_ID = UUID("00000000-0000-4000-8000-0000000000a1")
+PREVIOUS_AT = datetime(2026, 10, 13, 9, 0, tzinfo=UTC)
+
+
+def _ranking(
+    audit_id: UUID,
+    keyword_id: UUID,
+    organic: int | None,
+    local_pack: int | None,
+    subject: str = CUSTOMER_SUBJECT,
+    grid_point: str | None = None,
+) -> Ranking:
+    return Ranking(
+        id=uuid5(audit_id, f"{keyword_id}/{subject}/{grid_point}"),
+        audit_id=audit_id,
+        keyword_id=keyword_id,
+        subject=subject,
+        organic_position=organic,
+        local_pack_position=local_pack,
+        grid_point=grid_point,
+        measured_at=PREVIOUS_AT,
+    )
+
+
+def test_history_pairs_the_customer_positions_of_both_audits() -> None:
+    previous = Audit(
+        id=PREVIOUS_AUDIT_ID,
+        customer_id=CUSTOMER_ID,
+        kind=AuditKind.REMOTE,
+        status=AuditStatus.REPORTED,
+        requested_at=PREVIOUS_AT,
+        finished_at=None,
+        total_score=None,
+        raw_data_path=None,
+        report_path=None,
+    )
+    before = [
+        _ranking(PREVIOUS_AUDIT_ID, KEYWORD_ROOFER, 8, None),
+        _ranking(PREVIOUS_AUDIT_ID, KEYWORD_RENOVATION, None, 2),
+        _ranking(PREVIOUS_AUDIT_ID, KEYWORD_UNSEARCHED, 4, 1),
+        _ranking(PREVIOUS_AUDIT_ID, KEYWORD_ROOFER, 1, 1, subject="Dach Schmidt"),
+        _ranking(PREVIOUS_AUDIT_ID, KEYWORD_ROOFER, None, 3, grid_point="r1c1"),
+    ]
+    after = [
+        _ranking(AUDIT_ID, KEYWORD_ROOFER, 5, 3),
+        _ranking(AUDIT_ID, KEYWORD_RENOVATION, None, None),
+        _ranking(AUDIT_ID, KEYWORD_ROOFER, 9, 9, subject="Dach Schmidt"),
+        _ranking(AUDIT_ID, KEYWORD_ROOFER, None, 1, grid_point="r1c1"),
+    ]
+    phrases = {KEYWORD_ROOFER: "Dachdecker", KEYWORD_RENOVATION: "Dachsanierung"}
+
+    history = ranking_history(previous, before, after, phrases)
+
+    assert history.previous_audit_id == PREVIOUS_AUDIT_ID
+    assert history.previous_requested_at == PREVIOUS_AT
+    assert history.changes == [
+        PositionChange(phrase="Dachdecker", kind="organic", before=8, after=5),
+        PositionChange(phrase="Dachdecker", kind="local_pack", before=None, after=3),
+        PositionChange(phrase="Dachsanierung", kind="organic", before=None, after=None),
+        PositionChange(phrase="Dachsanierung", kind="local_pack", before=2, after=None),
+    ]

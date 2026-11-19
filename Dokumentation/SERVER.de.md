@@ -6,12 +6,12 @@ Jede Prüfung, Auswertung, jedes PDF (Portable Document Format) und jede Optimie
 
 ## 1. Größe und Standort des Servers
 
-| Ausstattung | Mindestens | Empfohlen | Warum |
-|---|---|---|---|
-| Prozessorkerne (virtuelle Kerne) | 2 | 4 | Chromium stellt Google, Google Maps und die Seiten der KI-Assistenten dar; Claude Code und die PDF-Erzeugung laufen nebenher |
-| Arbeitsspeicher | 4 GB | 8 GB | Chromium mit mehreren Seiten braucht 1–2 GB, Claude Code etwa 0,5 GB, der Sammler etwa 0,5 GB |
-| Festplatte (SSD, Solid State Drive) | 30 GB | 40 GB oder mehr | Abbild 3,4 GB, beim Aktualisieren noch einmal 3–4 GB Zwischenspeicher, Browser-Profil, Protokolle |
-| Standort | Deutschland | Deutschland (zum Beispiel Falkenstein, Nürnberg oder Frankfurt) | Google-Suche und Google Maps antworten je nach Standort des Servers; mit deutscher Adresse siehst du dieselben Ergebnisse wie deutsche Kunden |
+  Ausstattung   Mindestens   Empfohlen   Warum  
+ --- --- --- --- 
+  Prozessorkerne (virtuelle Kerne)   2   4   Chromium stellt Google, Google Maps und die Seiten der KI-Assistenten dar; Claude Code und die PDF-Erzeugung laufen nebenher  
+  Arbeitsspeicher   4 GB   8 GB   Chromium mit mehreren Seiten braucht 1–2 GB, Claude Code etwa 0,5 GB, der Sammler etwa 0,5 GB  
+  Festplatte (SSD, Solid State Drive)   30 GB   40 GB oder mehr   Abbild 3,4 GB, beim Aktualisieren noch einmal 3–4 GB Zwischenspeicher, Browser-Profil, Protokolle  
+  Standort   Deutschland   Deutschland (zum Beispiel Falkenstein, Nürnberg oder Frankfurt)   Google-Suche und Google Maps antworten je nach Standort des Servers; mit deutscher Adresse siehst du dieselben Ergebnisse wie deutsche Kunden  
 
 Jeder Anbieter mit Ubuntu 24.04 geht, zum Beispiel Hetzner Cloud CX32 oder CPX31. Getestet ist die übliche Intel/AMD-Bauart (x86-64), nicht die Arm-Server.
 
@@ -51,7 +51,7 @@ sudo apt-get install -y ca-certificates curl git postgresql-client
 sudo install -m 0755 -d /etc/apt/keyrings
 sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
 sudo chmod a+r /etc/apt/keyrings/docker.asc
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable"   sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 sudo apt-get update
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 sudo usermod -aG docker radar
@@ -73,43 +73,41 @@ Solange der Zweig mit der Außendienst-App noch nicht in `main` übernommen ist,
 
 Jede Zeile der `.env`:
 
-| Variable | Was hineingehört | Woher |
-|---|---|---|
-| `SUPABASE_URL` | `https://<ref>.supabase.co` | Supabase → **Project Settings** → **Data API** → Project URL |
-| `SUPABASE_SERVICE_KEY` | geheimer Schlüssel | Supabase → **Project Settings** → **API Keys** → **service_role** (oder **Secret key**) |
-| `GOOGLE_API_KEY` | Schlüssel für PageSpeed Insights und Places (New) | Google Cloud → **APIs & Services** → **Credentials** ([SETUP.de.md](SETUP.de.md) Abschnitt 3) |
-| `RADAR_WORK_DIR` | so lassen | `docker-compose.yml` setzt ihn auf den Speicherbereich `work` |
-| `WORKER_ALIVE_FILE` | leer | leer heißt `worker-alive` im Arbeitsordner; die Gesundheitsprüfung des Containers liest sie |
-| `BROWSER_PROFILE_DIR` | so lassen | `docker-compose.yml` setzt ihn auf den Speicherbereich `browser-profile` |
-| `FORECAST_PATH` | `config/prognose.yaml` | steckt im Abbild |
-| `TEMPLATES_DIR` | `templates` | steckt im Abbild |
-| `CATALOGUE_PATH` | `config/pruefkatalog.yaml` | steckt im Abbild |
-| `QUESTIONS_PATH` | leer | leer heißt `config/fragen.yaml` |
-| `PACKAGES_PATH` | leer | leer heißt `config/pakete.yaml` |
-| `INDUSTRIES_PATH` | leer | leer heißt `config/branchen.yaml` |
-| `EVENT_ENDPOINT` | leer, oder die Empfangsadresse deiner Kundenverwaltung (CRM, Customer Relationship Management) | deine Kundenverwaltung |
-| `DATAFORSEO_LOGIN` | Anmelde-E-Mail | https://app.dataforseo.com → **API Access** |
-| `DATAFORSEO_PASSWORD` | Passwort für die Schnittstelle (nicht das Konto-Passwort) | dieselbe Seite |
-| `DATAFORSEO_EUR_PER_USD` | `1` | so lassen; zählt jeden Dollar als Euro gegen die Monatsgrenze |
-| `OPENAI_API_KEY` | freiwillig | https://platform.openai.com/api-keys; nur genutzt, wenn chatgpt.com den Server-Browser sperrt |
-| `GEMINI_API_KEY` | freiwillig | https://aistudio.google.com → **Get API key**; nur genutzt, wenn gemini.google.com sperrt |
-| `PERPLEXITY_API_KEY` | freiwillig | https://www.perplexity.ai/settings/api; nur genutzt, wenn perplexity.ai sperrt |
-| `OPENAI_MODEL` | Vorgabe lassen | Modell für den ChatGPT-Ersatzweg |
-| `GEMINI_MODEL` | Vorgabe lassen | Modell für den Gemini-Ersatzweg |
-| `PERPLEXITY_MODEL` | `fast` | Voreinstellung für den Perplexity-Ersatzweg |
-| `CLAUDE_MODEL` | Vorgabe lassen | Modell, mit dem Claude Code die Assistenten-Fragen beantwortet |
-| `ASSISTANT_TIMEOUT_SECONDS` | `120` | Sekunden pro Assistenten-Antwort |
-| `GOOGLE_OAUTH_CLIENT_ID` | nur für Prüfungen mit Kundenzugang | [SETUP.de.md](SETUP.de.md) Abschnitt 9 |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | nur für Prüfungen mit Kundenzugang | [SETUP.de.md](SETUP.de.md) Abschnitt 9 |
-| `ANALYSIS_CLAUDE_COMMAND` | `claude` | das Claude-Code-Programm im Abbild |
-| `ANALYSIS_TIMEOUT_SECONDS` | `900` | Sekunden pro Auswertung, danach wird sie neu eingereiht |
-| `ANALYSIS_PROJECT_DIR` | so lassen | `docker-compose.yml` setzt ihn auf `/opt/radarauditor`, wo Skills und Befehle liegen |
-| `ANALYSIS_PERMISSION_MODE` | `dontAsk` | so lassen |
-| `ANALYSIS_MODEL` | leer | leer nimmt das Standardmodell der Claude-Code-Anmeldung |
-| `MAIL_TRIAGE_BATCH` | `5` | Mails, die auf einmal aus dem CRM geholt werden (höchstens 50), je Leerlauf wird eine gelesen; `0` schaltet das Mail-Lesen ab |
-| `MAIL_TRIAGE_TIMEOUT_SECONDS` | `120` | Sekunden je Mail |
-| `MAIL_TRIAGE_CLAIM_SECONDS` | `900` | Sekunden, die genommene Mails reserviert bleiben, 30 bis 3600; mindestens Anzahl mal Sekunden je Mail, und das darf 3600 nicht übersteigen |
-| `MAIL_TRIAGE_MODEL` | `sonnet` | Modell, mit dem Claude Code die Mails liest |
+  Variable   Was hineingehört   Woher  
+ --- --- --- 
+  `SUPABASE_URL`   `https://<ref>.supabase.co`   Supabase → **Project Settings** → **Data API** → Project URL  
+  `SUPABASE_SERVICE_KEY`   geheimer Schlüssel   Supabase → **Project Settings** → **API Keys** → **service_role** (oder **Secret key**)  
+  `GOOGLE_API_KEY`   Schlüssel für PageSpeed Insights und Places (New)   Google Cloud → **APIs & Services** → **Credentials** ([SETUP.de.md](SETUP.de.md) Abschnitt 3)  
+  `RADAR_WORK_DIR`   so lassen   `docker-compose.yml` setzt ihn auf den Speicherbereich `work`  
+  `WORKER_ALIVE_FILE`   leer   leer heißt `worker-alive` im Arbeitsordner; die Gesundheitsprüfung des Containers liest sie  
+  `BROWSER_PROFILE_DIR`   so lassen   `docker-compose.yml` setzt ihn auf den Speicherbereich `browser-profile`  
+  `FORECAST_PATH`   `config/prognose.yaml`   steckt im Abbild  
+  `TEMPLATES_DIR`   `templates`   steckt im Abbild  
+  `CATALOGUE_PATH`   `config/pruefkatalog.yaml`   steckt im Abbild  
+  `QUESTIONS_PATH`   leer   leer heißt `config/fragen.yaml`  
+  `PACKAGES_PATH`   leer   leer heißt `config/pakete.yaml`  
+  `INDUSTRIES_PATH`   leer   leer heißt `config/branchen.yaml`  
+  `EVENT_ENDPOINT`   leer, oder die Empfangsadresse deiner Kundenverwaltung (CRM, Customer Relationship Management)   deine Kundenverwaltung  
+  `DATAFORSEO_LOGIN`   Anmelde-E-Mail   https://app.dataforseo.com → **API Access**  
+  `DATAFORSEO_PASSWORD`   Passwort für die Schnittstelle (nicht das Konto-Passwort)   dieselbe Seite  
+  `DATAFORSEO_EUR_PER_USD`   `1`   so lassen; zählt jeden Dollar als Euro gegen die Monatsgrenze  
+  `OPENAI_API_KEY`   freiwillig   https://platform.openai.com/api-keys; nur genutzt, wenn chatgpt.com den Server-Browser sperrt  
+  `OPENAI_MODEL`   Vorgabe lassen   Modell für den ChatGPT-Ersatzweg  
+  `CLAUDE_MODEL`   Vorgabe lassen   Modell, mit dem Claude Code die Assistenten-Fragen beantwortet  
+  `ASSISTANT_TIMEOUT_SECONDS`   `120`   Sekunden pro Assistenten-Antwort  
+  `CLAUDE_PARALLEL_QUESTIONS`   `4`   Fragen an Claude, die gleichzeitig laufen (1 bis 8)  
+  `BROWSER_CHANNEL`   `chromium`   Browser der Browser-Assistenten; auf dem PC-Sammler `chrome`  
+  `GOOGLE_OAUTH_CLIENT_ID`   nur für Prüfungen mit Kundenzugang   [SETUP.de.md](SETUP.de.md) Abschnitt 9  
+  `GOOGLE_OAUTH_CLIENT_SECRET`   nur für Prüfungen mit Kundenzugang   [SETUP.de.md](SETUP.de.md) Abschnitt 9  
+  `ANALYSIS_CLAUDE_COMMAND`   `claude`   das Claude-Code-Programm im Abbild  
+  `ANALYSIS_TIMEOUT_SECONDS`   `900`   Sekunden pro Auswertung, danach wird sie neu eingereiht  
+  `ANALYSIS_PROJECT_DIR`   so lassen   `docker-compose.yml` setzt ihn auf `/project`; dorthin bindet `PROJECT_DIR` (Standard: der Projektordner) den Ordner mit Skills, Befehlen und den fertigen PDFs; der Containerbenutzer muss dort schreiben dürfen, sonst meldet der Schritt einen Fehler  
+  `ANALYSIS_PERMISSION_MODE`   `dontAsk`   so lassen  
+  `ANALYSIS_MODEL`   leer   leer nimmt das Standardmodell der Claude-Code-Anmeldung  
+  `MAIL_TRIAGE_BATCH`   `5`   Mails, die auf einmal aus dem CRM geholt werden (höchstens 50), je Leerlauf wird eine gelesen; `0` schaltet das Mail-Lesen ab  
+  `MAIL_TRIAGE_TIMEOUT_SECONDS`   `120`   Sekunden je Mail  
+  `MAIL_TRIAGE_CLAIM_SECONDS`   `900`   Sekunden, die genommene Mails reserviert bleiben, 30 bis 3600; mindestens Anzahl mal Sekunden je Mail, und das darf 3600 nicht übersteigen  
+  `MAIL_TRIAGE_MODEL`   `sonnet`   Modell, mit dem Claude Code die Mails liest  
 
 Die vier Pfade mit „setzt `docker-compose.yml`“ werden im Container überschrieben; eine vom PC kopierte `.env` passt also unverändert.
 
@@ -124,7 +122,7 @@ Die Außendienst-App braucht die Dateien `006_field_app.sql`, `007_serp_retry.sq
    ```
    read -rs -p "Connection string: " DB_URL; echo
    for f in 006_field_app 007_serp_retry 009_source_cost 010_manual_changes 011_url_only_audit 012_field_audit_parts 013_crm_handover 014_remove_billing 015_link_crm_leads; do
-     psql "$DB_URL" -v ON_ERROR_STOP=1 -f "supabase/migrations/$f.sql" || break
+     psql "$DB_URL" -v ON_ERROR_STOP=1 -f "supabase/migrations/$f.sql"    break
    done
    unset DB_URL
    ```
@@ -171,7 +169,7 @@ Dort steht `"loggedIn": true`. Spätestens nach zehn Minuten bemerkt der Sammler
 
 Ohne Anmeldung im Server-Terminal geht es so: Auf deinem PC `claude setup-token` ausführen (dort ist Claude Code installiert), den ausgegebenen Schlüssel als Zeile `CLAUDE_CODE_OAUTH_TOKEN=<Schlüssel>` in die `.env` schreiben und `docker compose up -d` ausführen. Der Schlüssel gilt ein Jahr.
 
-### 7.2 Anmeldungen im Browser (ChatGPT, Gemini mit deinem Google-Konto, Perplexity)
+### 7.2 Anmeldungen im Browser (ChatGPT, Google)
 
 Der Sammler liest diese Seiten in einem dauerhaften Chromium-Profil. Du meldest dich einmal in einer sichtbaren Ausgabe genau dieses Browsers an. Das Bild kommt über noVNC (Bildschirmübertragung im Browser) durch einen SSH-Tunnel auf deinen PC; von außen ist es nicht erreichbar.
 
@@ -189,10 +187,9 @@ Der Sammler liest diese Seiten in einem dauerhaften Chromium-Profil. Du meldest 
    ```
 
    Es erscheint `Browser ready: open http://localhost:6080/vnc.html through the SSH tunnel.`
-3. **Auf deinem PC** http://localhost:6080/vnc.html öffnen und **Connect** klicken. Ein Chromium-Fenster mit drei Reitern erscheint:
+3. **Auf deinem PC** http://localhost:6080/vnc.html öffnen und **Connect** klicken. Ein Chromium-Fenster mit zwei Reitern erscheint:
    - **chatgpt.com**: mit deinem OpenAI-Konto anmelden.
-   - **gemini.google.com**: mit deinem Google-Konto anmelden. Google fragt vielleicht auf deinem Handy nach, weil der Server ein neues Gerät ist; bestätige das.
-   - **perplexity.ai**: mit deinem Perplexity-Konto anmelden.
+   - **google.de**: mit deinem Google-Konto anmelden. Google fragt vielleicht auf deinem Handy nach, weil der Server ein neues Gerät ist; bestätige das.
 
    Cookie-Hinweise beantwortest du, wie du willst; die Wahl bleibt im Profil gespeichert.
 4. **Schließ das Chromium-Fenster** (das X oben rechts). Im Server-Terminal steht `Browser closed, profile saved in /data/browser-profile.`, der Anmelde-Container beendet sich.
@@ -230,11 +227,11 @@ docker image prune -f
 
 ## 10. Sicherungen
 
-| Speicherbereich | Inhalt | Sichern |
-|---|---|---|
-| `radarauditor_browser-profile` | Cookies und Anmeldungen von ChatGPT, Google, Perplexity | ja, erspart Schritt 7.2 |
-| `radarauditor_claude-login` | Anmeldung von Claude Code | ja, erspart Schritt 7.1 |
-| `radarauditor_work` | Übergabeordner laufender Aufträge, nur vorübergehend | nein |
+  Speicherbereich   Inhalt   Sichern  
+ --- --- --- 
+  `radarauditor_browser-profile`   Cookies und Anmeldungen von ChatGPT und Google   ja, erspart Schritt 7.2  
+  `radarauditor_claude-login`   Anmeldung von Claude Code   ja, erspart Schritt 7.1  
+  `radarauditor_work`   Übergabeordner laufender Aufträge, nur vorübergehend   nein  
 
 Alle Geschäftsdaten liegen in Supabase (dort mit eigener täglicher Sicherung), nicht auf dem Server. Sichere bei angehaltenem Sammler, damit das Browser-Profil vollständig ist:
 
@@ -262,11 +259,11 @@ docker compose up -d
 
 ## 11. Wenn etwas nicht geht
 
-| Was du siehst | Grund und Abhilfe |
-|---|---|
-| `docker compose ps` zeigt `(unhealthy)` | drei Minuten kein Lebenszeichen; `docker compose logs worker` nennt den Grund (Supabase-Adresse oder -Schlüssel, Netz) |
-| Protokoll: `missing environment variables: …` | die genannte Zeile in der `.env` ist leer; ausfüllen und `docker compose up -d` |
-| App: „Die Auswertung auf dem Server ist nicht bereit.“ | Claude Code nicht angemeldet oder das Abo-Kontingent aufgebraucht; `docker compose exec worker claude auth status`, dann Schritt 7.1 |
-| Prüfung zeigt „Google-Suche wird nachgeholt“ | Google hat den Server-Browser gesperrt; die Suchen laufen mit wachsenden Abständen erneut, oder kommen von DataForSEO, wenn das eingeschaltet ist |
-| Anmelde-Container: `error: no Playwright Chromium` | der Bau des Abbilds wurde unterbrochen; `docker compose build --no-cache` |
-| http://localhost:6080 lädt nicht | der SSH-Tunnel aus Schritt 7.2 ist nicht offen, oder der Anmelde-Container läuft nicht |
+  Was du siehst   Grund und Abhilfe  
+ --- --- 
+  `docker compose ps` zeigt `(unhealthy)`   drei Minuten kein Lebenszeichen; `docker compose logs worker` nennt den Grund (Supabase-Adresse oder -Schlüssel, Netz)  
+  Protokoll: `missing environment variables: …`   die genannte Zeile in der `.env` ist leer; ausfüllen und `docker compose up -d`  
+  App: „Die Auswertung auf dem Server ist nicht bereit.“   Claude Code nicht angemeldet oder das Abo-Kontingent aufgebraucht; `docker compose exec worker claude auth status`, dann Schritt 7.1  
+  Prüfung zeigt „Google-Suche wird nachgeholt“   Google hat den Server-Browser gesperrt; die Suchen laufen mit wachsenden Abständen erneut, oder kommen von DataForSEO, wenn das eingeschaltet ist  
+  Anmelde-Container: `error: no Playwright Chromium`   der Bau des Abbilds wurde unterbrochen; `docker compose build --no-cache`  
+  http://localhost:6080 lädt nicht   der SSH-Tunnel aus Schritt 7.2 ist nicht offen, oder der Anmelde-Container läuft nicht  

@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
-# One-time logins in the persistent browser profile of the worker (ChatGPT, Google for Gemini,
-# Perplexity). Starts a virtual display with the Playwright Chromium the worker uses and serves it as
+# One-time logins in the persistent browser profile of the worker (ChatGPT, Google). Starts a
+# virtual display with the Playwright Chromium the worker uses and serves it as
 # noVNC on port 6080; docker-compose.yml publishes that port on 127.0.0.1 only, so it is reachable
 # through an SSH tunnel and nowhere else. The container ends when the browser window is closed.
 # Run by the compose service "login" while the worker is stopped (both use the same profile).
@@ -10,7 +10,7 @@ DISPLAY_NUMBER=99
 SCREEN_SIZE=1366x768x24
 VNC_PORT=5900
 WEB_PORT=6080
-START_PAGES="https://chatgpt.com/ https://gemini.google.com/ https://www.perplexity.ai/"
+START_PAGES="https://chatgpt.com/ https://www.google.de/"
 
 chromium=$(find "${PLAYWRIGHT_BROWSERS_PATH:?}" -path '*/chromium-*/chrome-linux*/chrome' -type f | head -n 1)
 if [ -z "$chromium" ]; then

@@ -7,6 +7,7 @@ Context: Unit tests; PATH, the Claude Code CLI and the file system are faked. | 
 import json
 import os
 import subprocess
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -342,3 +343,43 @@ def test_alive_file_freshness_follows_its_modification_time(tmp_path: Path) -> N
     stale = (NOW - heartbeat.ALIVE_MAX_AGE - timedelta(seconds=1)).timestamp()
     os.utime(alive_file, (stale, stale))
     assert heartbeat.alive_file_fresh(alive_file, NOW) is False
+
+
+class _Rounds(threading.Event):
+    def __init__(self, rounds: int) -> None:
+        super().__init__()
+        self._rounds = rounds
+
+    def wait(self, timeout: float | None = None) -> bool:
+        self._rounds -= 1
+        return self._rounds < 0
+
+
+def test_the_watchdog_exits_the_process_when_the_alive_file_is_stale(tmp_path: Path) -> None:
+    alive_file = tmp_path / "alive"
+    alive_file.touch()
+    stale = (datetime.now(UTC) - heartbeat.ALIVE_MAX_AGE - timedelta(seconds=5)).timestamp()
+    os.utime(alive_file, (stale, stale))
+    exits: list[int] = []
+
+    heartbeat.run_watchdog(alive_file, _Rounds(3), exits.append)
+
+    assert exits == [heartbeat.WATCHDOG_EXIT_CODE]
+
+
+def test_the_watchdog_exits_the_process_when_the_alive_file_is_missing(tmp_path: Path) -> None:
+    exits: list[int] = []
+
+    heartbeat.run_watchdog(tmp_path / "alive", _Rounds(3), exits.append)
+
+    assert exits == [heartbeat.WATCHDOG_EXIT_CODE]
+
+
+def test_the_watchdog_leaves_a_fresh_worker_alone(tmp_path: Path) -> None:
+    alive_file = tmp_path / "alive"
+    alive_file.touch()
+    exits: list[int] = []
+
+    heartbeat.run_watchdog(alive_file, _Rounds(3), exits.append)
+
+    assert exits == []

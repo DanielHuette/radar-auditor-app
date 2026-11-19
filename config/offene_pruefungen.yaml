@@ -1,0 +1,6 @@
+# Prüfungen, über deren Messweg Daniel noch entscheidet. Leer: für jede Prüfung steht ein Messweg
+# oder ein fester Grund fest. Der Bericht führt nicht gemessene Prüfungen unter „Was nicht gemessen
+# wurde“ mit dem Grund aus der Messung:
+#   m1 und m2: nur mit Zugang des Kunden zu seinen Google-Konten messbar;
+#   j9: erst ab der zweiten Prüfung desselben Kunden messbar.
+daniel_entscheidet: []

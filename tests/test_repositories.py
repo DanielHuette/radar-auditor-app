@@ -33,6 +33,7 @@ from radarauditor.db.models import (
 )
 from radarauditor.db.repositories import Repositories
 from radarauditor.errors import StorageError
+from radarauditor.feedback.events import AffectedCheck, AuditEvent, Result
 
 AUDIT_ID = UUID("00000000-0000-4000-8000-000000000002")
 CUSTOMER_ID = UUID("00000000-0000-4000-8000-000000000001")
@@ -79,6 +80,7 @@ class FakeClient:
         self.queries: list[FakeQuery] = []
         self.responses: list[Any] = []
         self.executions = 0
+        self.schemas: list[str] = []
         self.storage = MagicMock()
 
     def table(self, name: str) -> FakeQuery:
@@ -86,6 +88,11 @@ class FakeClient:
         query = FakeQuery(self, name)
         self.queries.append(query)
         return query
+
+    def schema(self, name: str) -> "FakeClient":
+        """Switch to another schema; its queries are recorded in the same list."""
+        self.schemas.append(name)
+        return self
 
     def rpc(self, function: str, params: dict[str, Any]) -> FakeQuery:
         """Begin a database function call."""
@@ -453,6 +460,65 @@ def test_rankings_are_upserted(repositories: Repositories, client: FakeClient) -
     repositories.save_rankings([_ranking(), _ranking()])
 
     assert len(client.queries[0].called("upsert")[0][1][0]) == 2
+
+
+def _event(kind: str = "route", result: Result = Result.FAILED) -> AuditEvent:
+    return AuditEvent(
+        time=datetime(2026, 11, 10, 9, 30, tzinfo=UTC),
+        kind=kind,
+        phase="messung" if kind == "route" else "auswertung",
+        result=result,
+        reason="Google zeigt eine Sicherheitsabfrage",
+        stage=1,
+        route="google_search",
+        label="Google-Suche",
+        checks=[AffectedCheck(number=8, id="j1", name="Platz")] if kind == "route" else [],
+        check_number=None if kind == "route" else 8,
+        check_id=None if kind == "route" else "j1",
+    )
+
+
+def test_route_events_are_inserted_with_their_checks(
+    repositories: Repositories, client: FakeClient
+) -> None:
+    """Events of the routes are only added, in one request."""
+    client.responses = [[]]
+
+    repositories.add_audit_events(AUDIT_ID, [_event(), _event(result=Result.MEASURED)])
+
+    (query,) = client.queries
+    assert query.target == "audit_events"
+    rows = query.called("insert")[0][1][0]
+    assert [row["result"] for row in rows] == ["fehlgeschlagen", "gemessen"]
+    assert rows[0]["audit_id"] == str(AUDIT_ID)
+    assert rows[0]["occurred_at"] == "2026-11-10T09:30:00Z"
+    assert rows[0]["checks"] == [{"number": 8, "id": "j1", "name": "Platz"}]
+    assert "time" not in rows[0]
+
+
+def test_check_events_replace_the_check_events_of_an_earlier_scoring(
+    repositories: Repositories, client: FakeClient
+) -> None:
+    """A second scoring of the audit does not double the events of the checks."""
+    client.responses = [[], []]
+
+    repositories.add_audit_events(AUDIT_ID, [_event("check")])
+
+    delete, insert = client.queries
+    assert delete.called("delete") != []
+    assert ("eq", ("audit_id", str(AUDIT_ID)), {}) in delete.calls
+    assert ("eq", ("kind", "check"), {}) in delete.calls
+    assert insert.called("insert")[0][1][0][0]["check_id"] == "j1"
+
+
+def test_a_missing_events_table_is_a_storage_error(
+    repositories: Repositories, client: FakeClient
+) -> None:
+    """A database without migration 017 raises, so the caller can log it."""
+    client.responses = [APIError({"message": "relation does not exist", "code": "42P01"})]
+
+    with pytest.raises(StorageError, match="save audit events"):
+        repositories.add_audit_events(AUDIT_ID, [_event()])
 
 
 def test_saving_nothing_sends_nothing(repositories: Repositories, client: FakeClient) -> None:
@@ -1019,3 +1085,58 @@ def test_audit_reads_its_selection_of_checks(
 
     assert repositories.audit(AUDIT_ID).disabled_checks == ["a2", "n1"]
     assert repositories.audit(AUDIT_ID).disabled_checks == []
+
+
+def test_add_audit_cost_sends_the_exact_amounts_once(
+    repositories: Repositories, client: FakeClient
+) -> None:
+    client.responses = [None]
+
+    repositories.add_audit_cost(
+        AUDIT_ID, "apify", "instagram", calls=2, cost=Decimal("0.0018"), tokens_in=5, tokens_out=7
+    )
+
+    assert client.queries[0].calls[0] == (
+        "rpc",
+        (
+            "add_audit_cost",
+            {
+                "p_audit_id": str(AUDIT_ID),
+                "p_source": "apify",
+                "p_service": "instagram",
+                "p_calls": 2,
+                "p_cost": "0.0018",
+                "p_tokens_in": 5,
+                "p_tokens_out": 7,
+            },
+        ),
+        {},
+    )
+    client.responses = [httpx.ConnectError("reset")]
+    with pytest.raises(StorageError, match="add cost of apify instagram"):
+        repositories.add_audit_cost(AUDIT_ID, "apify", "instagram", calls=1, cost=Decimal(1))
+    assert client.executions == 2
+
+
+def test_audit_costs_are_read_in_source_and_service_order(
+    repositories: Repositories, client: FakeClient
+) -> None:
+    client.responses = [
+        [
+            {
+                "audit_id": str(AUDIT_ID),
+                "source": "apify",
+                "service": "x",
+                "calls": 1,
+                "cost": "0.0100",
+                "tokens_in": 0,
+                "tokens_out": 0,
+            }
+        ]
+    ]
+
+    [row] = repositories.audit_costs(AUDIT_ID)
+
+    assert (row.source, row.service, row.calls, row.cost) == ("apify", "x", 1, Decimal("0.0100"))
+    assert client.queries[0].called("eq")[0][1] == ("audit_id", str(AUDIT_ID))
+    assert [args for _, args, _ in client.queries[0].called("order")] == [("source",), ("service",)]

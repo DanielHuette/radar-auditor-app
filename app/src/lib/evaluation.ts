@@ -1,7 +1,8 @@
-// Rows, order and totals of the Auswertung page: one row per check result with its finding.
-import type { Audit, CheckOutcome, CheckResult, Finding } from "../api/types";
-import { AREA_IDS, AREA_NAMES, catalogueOrder, checkName, radarLabel, scoredAreas } from "./catalogue";
-import { formatMeasured } from "./measured";
+import type { Audit, AuditEvent, CheckOutcome, CheckResult, Finding } from "../api/types";
+import { AREA_IDS, AREA_NAMES, CATALOGUE_AREAS, catalogueOrder, checkName, isInfoCheck, radarLabel, scoredAreas, type CatalogueCheck } from "./catalogue";
+import { invalidStepReasons, stepsOfCheck } from "./checkProgress";
+import { isExcludedByControl } from "./checkVerdicts";
+import { formatMeasured, reasonText } from "./measured";
 import { areaScore } from "./scoring";
 
 export type SortMode = "potential" | "area" | "urgency";
@@ -16,8 +17,8 @@ export interface CheckRow {
   check: CheckResult;
   finding: Finding | null;
   name: string;
-  /** Finding severity 1 to 3; 0 when the analysis wrote no finding for the check. */
   urgency: number;
+  reason: string | null;
 }
 
 export interface AreaGroup {
@@ -29,10 +30,7 @@ export interface AreaGroup {
 
 export interface PotentialTotals {
   points: number;
-  upliftLow: number;
-  upliftHigh: number;
   openChecks: number;
-  /** False while no result carries a potential, for audits scored before potentials existed. */
   known: boolean;
 }
 
@@ -41,7 +39,6 @@ const SCORED_STATUSES: ReadonlySet<Audit["status"]> = new Set(["scored", "awaiti
 
 const points = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 
-/** Supabase returns numeric columns as numbers, older clients as strings; both count. */
 function amount(value: number | string | null | undefined): number | null {
   if (value === null || value === undefined) return null;
   const parsed = typeof value === "number" ? value : Number(value);
@@ -53,10 +50,55 @@ export function potentialOf(check: CheckResult): number {
 }
 
 export function isOpen(check: CheckResult): boolean {
-  return OPEN_OUTCOMES.has(check.outcome);
+  return OPEN_OUTCOMES.has(check.outcome) && !isInfoCheck(check.check_id) && !isExcludedByControl(check);
 }
 
-export function buildRows(checks: readonly CheckResult[], findings: readonly Finding[]): CheckRow[] {
+export const REASON_NOT_STORED = "Kein Grund gespeichert.";
+export const REASON_DESELECTED = "In dieser Prüfung abgewählt.";
+export const REASON_NO_RESULT = "Kein Messergebnis gespeichert.";
+
+function missingResultReason(check: CatalogueCheck): string {
+  if (check.requiresAccess) return reasonText("no_access");
+  return check.requiresPaid ? reasonText("no_paid_data") : REASON_NO_RESULT;
+}
+
+export const UNMEASURED_OUTCOMES: ReadonlySet<CheckOutcome> = new Set(["not_measurable", "skipped", "not_applicable"]);
+
+export function checkEventReasons(events: readonly AuditEvent[]): Map<string, string> {
+  const reasons = new Map(
+    events.flatMap((event) => (event.kind === "check" && event.check_id !== null && event.reason !== null ? [[event.check_id, event.reason] as const] : [])),
+  );
+  const invalid = invalidStepReasons(events);
+  for (const area of CATALOGUE_AREAS) {
+    for (const entry of area.checks) {
+      const step = stepsOfCheck(entry).find((name) => invalid.has(name));
+      if (!reasons.has(entry.id) && step !== undefined) reasons.set(entry.id, invalid.get(step) ?? "");
+    }
+  }
+  return reasons;
+}
+
+const NOT_MEASURED_PREFIX = /^(nicht gemessen:\s*)+/i;
+
+function plainReason(reason: string): string {
+  return reason.replace(NOT_MEASURED_PREFIX, "");
+}
+
+export function notMeasuredReason(check: CheckResult, eventReason: string | undefined): string | null {
+  if (!UNMEASURED_OUTCOMES.has(check.outcome)) return null;
+  const invalid = typeof check.measured.invalid_reason === "string" ? check.measured.invalid_reason.trim() : "";
+  if (invalid !== "") return plainReason(invalid);
+  const stored = typeof check.measured.reason === "string" ? check.measured.reason.trim() : "";
+  if (stored !== "") return reasonText(stored);
+  const fromEvent = eventReason?.trim() ?? "";
+  return fromEvent === "" ? REASON_NOT_STORED : plainReason(fromEvent);
+}
+
+export function buildRows(
+  checks: readonly CheckResult[],
+  findings: readonly Finding[],
+  eventReasons: ReadonlyMap<string, string> = new Map(),
+): CheckRow[] {
   const byCheck = new Map(findings.map((finding) => [finding.check_id, finding]));
   return checks.map((check) => {
     const finding = byCheck.get(check.check_id) ?? null;
@@ -65,11 +107,32 @@ export function buildRows(checks: readonly CheckResult[], findings: readonly Fin
       finding,
       name: checkName(check.check_id),
       urgency: finding?.severity ?? 0,
+      reason: notMeasuredReason(check, eventReasons.get(check.check_id)),
     };
   });
 }
 
-/** Findings whose check has no result in this audit; shown on their own so none gets lost. */
+export interface UnmeasuredCheck {
+  checkId: string;
+  area: string;
+  name: string;
+  reason: string;
+}
+
+export function unmeasuredChecks(checks: readonly CheckResult[], disabled: readonly string[]): UnmeasuredCheck[] {
+  const measured = new Set(checks.map((check) => check.check_id));
+  return CATALOGUE_AREAS.flatMap((area) =>
+    area.checks
+      .filter((check) => !measured.has(check.id))
+      .map((check) => ({
+        checkId: check.id,
+        area: area.id,
+        name: check.name,
+        reason: disabled.includes(check.id) ? REASON_DESELECTED : missingResultReason(check),
+      })),
+  );
+}
+
 export function orphanFindings(checks: readonly CheckResult[], findings: readonly Finding[]): Finding[] {
   const known = new Set(checks.map((check) => check.check_id));
   return findings.filter((finding) => !known.has(finding.check_id));
@@ -103,10 +166,6 @@ function areaRank(area: string): number {
   return index === -1 ? AREA_IDS.length : index;
 }
 
-/**
- * Rows grouped by area. Groups follow the chosen order too: by their open potential, by their
- * most urgent row, or by the catalogue; ties and "Bereich" keep the catalogue order.
- */
 export function groupRows(rows: readonly CheckRow[], mode: SortMode, onlyOpen: boolean): AreaGroup[] {
   const groups = new Map<string, CheckRow[]>();
   for (const row of sortRows(rows, mode)) {
@@ -133,15 +192,12 @@ export function groupRows(rows: readonly CheckRow[], mode: SortMode, onlyOpen: b
 export interface Lever {
   checkId: string;
   name: string;
-  /** What was measured in one line: the finding's sentence when Claude Code wrote one, else the first
-   * plain-language measured value as "Label: Wert"; null when nothing was measured. */
   measured: string | null;
   potential: number;
 }
 
 const LEVERS = 3;
 
-/** The open checks with the most open potential, largest first; ties follow the catalogue. */
 export function topLevers(checks: readonly CheckResult[], findings: readonly Finding[] = [], count = LEVERS): Lever[] {
   const explained = new Map(findings.map((finding) => [finding.check_id, finding.explanation.trim()]));
   return checks
@@ -160,12 +216,10 @@ export function topLevers(checks: readonly CheckResult[], findings: readonly Fin
     });
 }
 
-/** "+2,4" for the gold pill of a lever. */
 export function formatLeverPoints(value: number): string {
   return `+${points.format(value)}`;
 }
 
-/** Id of the row of a check in "Alle Prüfungen", the target of a lever. */
 export function checkAnchor(checkId: string): string {
   return `pruefung-${checkId}`;
 }
@@ -176,8 +230,6 @@ export function potentialTotals(checks: readonly CheckResult[]): PotentialTotals
     open.reduce((total, check) => total + (pick(check) ?? 0), 0);
   return {
     points: sum((check) => amount(check.potential_points)),
-    upliftLow: sum((check) => amount(check.uplift_low)),
-    upliftHigh: sum((check) => amount(check.uplift_high)),
     openChecks: open.length,
     known: checks.some((check) => amount(check.potential_points) !== null),
   };
@@ -187,16 +239,6 @@ export function formatPotential(value: number): string {
   return `+${points.format(value)} ${value === 1 ? "Punkt" : "Punkte"}`;
 }
 
-/** "+3 bis 7 Anfragen pro Monat (Schätzung)"; null when nothing is expected. */
-export function formatUplift(low: number | string | null, high: number | string | null): string | null {
-  const from = amount(low);
-  const to = amount(high);
-  if (from === null || to === null || to <= 0) return null;
-  const range = points.format(from) === points.format(to) ? points.format(to) : `${points.format(from)} bis ${points.format(to)}`;
-  return `+${range} ${to === 1 && from === to ? "Anfrage" : "Anfragen"} pro Monat (Schätzung)`;
-}
-
-/** The audit of the same customer before `current` that has a score, else null. */
 export function previousAudit(history: readonly Audit[], current: Audit): Audit | null {
   const earlier = history
     .filter((audit) => audit.id !== current.id && audit.requested_at < current.requested_at)
@@ -213,7 +255,6 @@ export interface RadarAxis {
   previous: number | null;
 }
 
-/** One axis per area that counts towards the total, in catalogue order. */
 export function radarAxes(current: readonly CheckResult[], previous: readonly CheckResult[] | null): RadarAxis[] {
   const scoreIn = (checks: readonly CheckResult[], area: string) => areaScore(checks.filter((check) => check.area === area));
   return scoredAreas().map((area) => ({

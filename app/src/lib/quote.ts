@@ -1,12 +1,12 @@
-// Quote positions from an audit: CRM products whose areas have failed or partial checks, totals as the CRM computes them.
-import type { CheckOutcome, CrmProduct, CrmQuoteStatus } from "../api/types";
-import { AREA_NAMES } from "./catalogue";
+import type { CheckOutcome, CheckVerdicts, CrmProduct, CrmQuoteStatus } from "../api/types";
+import { AREA_NAMES, isInfoCheck } from "./catalogue";
+import { isExcludedByControl } from "./checkVerdicts";
 
 const OPEN_OUTCOMES: ReadonlySet<CheckOutcome> = new Set(["failed", "partial"]);
 const MAX_QUANTITY = 999;
 const MAX_TITLE_LENGTH = 300;
 
-export interface CheckOutcomeRow {
+export interface CheckOutcomeRow extends CheckVerdicts {
   check_id: string;
   area: string;
   outcome: CheckOutcome;
@@ -20,9 +20,7 @@ export interface Position {
   unitPriceNet: number;
   vatRate: number;
   billing: CrmProduct["billing"];
-  /** Area ids of the audit this product covers, in catalogue order. */
   areas: string[];
-  /** Failed and partial checks in those areas. */
   openChecks: number;
   quantity: number;
   enabled: boolean;
@@ -71,16 +69,15 @@ function areaRank(area: string): number {
   return index === -1 ? AREA_ORDER.length : index;
 }
 
-/** Open checks per area id; areas without failed or partial checks are absent. */
 export function openChecksByArea(checks: readonly CheckOutcomeRow[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const check of checks) {
-    if (OPEN_OUTCOMES.has(check.outcome)) counts.set(check.area, (counts.get(check.area) ?? 0) + 1);
+    if (!OPEN_OUTCOMES.has(check.outcome) || isInfoCheck(check.check_id) || isExcludedByControl(check)) continue;
+    counts.set(check.area, (counts.get(check.area) ?? 0) + 1);
   }
   return counts;
 }
 
-/** One position per active product that covers at least one area with open checks; one-off before monthly. */
 export function proposePositions(checks: readonly CheckOutcomeRow[], products: readonly CrmProduct[]): Position[] {
   const open = openChecksByArea(checks);
   const positions: Position[] = [];
@@ -109,7 +106,6 @@ export function proposePositions(checks: readonly CheckOutcomeRow[], products: r
   );
 }
 
-/** Whole quantity between 1 and 999 from a typed value; null when it is none. */
 export function parseQuantity(input: string): number | null {
   const text = input.trim();
   if (!/^\d{1,3}$/.test(text)) return null;
@@ -121,10 +117,6 @@ function toCents(amount: number): number {
   return Math.round(amount * 100);
 }
 
-/**
- * Same rounding as crm.document_totals: each line rounded to cents, VAT per rate on the rounded sum
- * of that rate, no VAT for a small business.
- */
 export function computeTotals(positions: readonly Position[], smallBusiness: boolean): Totals {
   const byRate = new Map<number, number>();
   let onceCents = 0;
@@ -160,7 +152,6 @@ function itemDescription(position: Position): string {
   return position.description.trim() === "" ? covered : `${position.description.trim()}\n${covered}`;
 }
 
-/** Rows for crm.quote_items from the enabled positions, numbered from 1. */
 export function buildQuoteItems(quoteId: string, positions: readonly Position[]): QuoteItemRow[] {
   return positions
     .filter((position) => position.enabled)
@@ -195,7 +186,6 @@ function joinGerman(items: readonly string[]): string {
   return `${items.slice(0, -1).join(", ")} und ${items[items.length - 1] ?? ""}`;
 }
 
-/** Intro and closing text of the quote, referring to the audit score and the areas the positions cover. */
 export function quoteTexts({ score, auditDate, areas }: QuoteTextInput): { intro: string; outro: string } {
   const date = auditDate === null ? "" : germanDate(auditDate);
   const when = date === "" ? "" : ` vom ${date}`;

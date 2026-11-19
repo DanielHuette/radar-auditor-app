@@ -1,0 +1,326 @@
+blocks:
+  no_data: >-
+    Fehlen die Daten, die diese Prüfung braucht, oder lässt sie sich nicht ausführen, ist sie nicht
+    gemessen und bekommt weder passed noch failed.
+  page_grading: >-
+    Bewertung nach Seiten: Ist die Startseite betroffen, gilt failed. Sind nur Unterseiten
+    betroffen, gilt partial, mit Liste der betroffenen Seiten. Ist keine Seite betroffen, gilt
+    passed. Wie viele Unterseiten betroffen sind, ändert das Ergebnis nicht (es gibt keine
+    Anteilsregel).
+  robots_grading: >-
+    Gewertet wird nur die Gruppe der genannten Kennung in der robots.txt, gibt es sie nicht, die
+    Gruppe für alle (*). Eine leere Disallow-Zeile heißt: nichts gesperrt. Ist die Wurzeladresse
+    der Website für die Kennung gesperrt, gilt failed. Sind nur einzelne Inhaltsseiten gesperrt,
+    gilt partial, mit Liste. Ist nichts gesperrt oder gibt es keine robots.txt, gilt passed.
+    Systempfade (Anmeldung, Warenkorb, Suche, Verwaltung) zählen nicht als Inhaltsseiten; eine
+    Adresse mit Fragezeichen ist nur dann ein Systempfad, wenn andere Parameter als p und page_id
+    vorkommen (/?page_id=12 und /?p=7 sind Inhalt). Die robots.txt wird so gelesen: ein Zeichen
+    für die Bytereihenfolge (U+FEFF) am Dateianfang wird ignoriert; bei der Kennung zählt nur der
+    Name vor einem Zusatz (Googlebot/2.1 gilt als Googlebot); Regeln und Adressen werden
+    prozent-kodiert verglichen (/über-uns trifft /%C3%BCber-uns). Antwortet die robots.txt mit
+    Status 429, 500 bis 599 oder gar nicht, ist die Prüfung nicht gemessen (ein einzelner Abruf
+    kann nicht feststellen, was Google daraus macht); Status 400 bis 499 außer 429 heißt: keine
+    robots.txt, keine Einschränkung.
+  own_name: >-
+    Wer der eigene Betrieb ist, entscheiden der Reihe nach diese Merkmale; das erste, das auf
+    beiden Seiten vorliegt, gilt: dieselbe place_id, dieselbe Website-Domain, dieselbe
+    Telefonnummer (nur Ziffern, Ländervorwahl angeglichen), dieselbe Anschrift (Straße mit
+    Hausnummer und Postleitzahl). Erst wenn nichts davon auf beiden Seiten vorliegt, entscheidet
+    der Name: Rechtsformen und Zusätze (GmbH, UG, AG, KG, OHG, GbR, e. K., & Co., Inh., Inhaber)
+    entfallen, verglichen werden ganze Wörter, ein Wort mit Bindestrich ist ein Wort. Gleich ist
+    der Name, wenn die Wortmengen identisch sind oder die kleinere Menge mindestens zwei Wörter
+    hat und vollständig in der größeren enthalten ist; ein einzelnes Wort gilt nur bei genauer
+    Gleichheit des ganzen Namens. Gleicher Name bei anderer Telefonnummer oder anderer Domain
+    ist nicht derselbe Betrieb.
+  all_none_else_partial: >-
+    Trifft es bei allen betrachteten Suchbegriffen zu, gilt passed; bei keinem, gilt failed; bei
+    einem Teil, gilt partial.
+  same_text_comparison: >-
+    Die Startseite wird mit der Kennung des Dienstes und als normaler Besucher abgerufen und der
+    Text verglichen. failed bei eindeutigem Unterschied: Eine Fassung hat mindestens
+    {t:main_text_words} Wörter und die andere höchstens {t:no_text_words}, oder beide haben
+    mindestens {t:compare_from_words} Wörter und die Wortübereinstimmung (gemeinsame Wörter
+    geteilt durch alle verschiedenen Wörter) liegt unter {t:min_overlap|pct} Prozent. Haben beide
+    höchstens {t:no_text_words} Wörter, ist die Prüfung nicht gemessen. Sonst passed. Antwortet
+    der normale Besuch oder der Abruf nicht mit Status 200, ist die Prüfung nicht gemessen.
+  firewall_comparison: >-
+    Ein Abruf der Startseite mit der Kennung des Dienstes wird mit einem normalen Besuch
+    verglichen. Antwortet der normale Besuch nicht mit Status 200, ist die Prüfung nicht
+    gemessen. Antwortet der Abruf mit Status 401 oder 403, ist das ein Mangel (failed). Zeigt der
+    Abruf mit Status 200 eine Blockseite (Hinweis wie „Access denied“, „Captcha“, „Zugriff
+    verweigert“), die der normale Besuch nicht zeigt, ist das ebenfalls ein Mangel (failed).
+    Antwortet der Abruf mit Status 429, 5xx oder gar nicht oder mit einem anderen Status ungleich
+    200, ist die Prüfung nicht gemessen. Antwortet der Abruf mit Status 200 ohne Blockseite,
+    gilt passed.
+  assistant_mentions: >-
+    Gezählt werden die Antworten dieses Anbieters auf die Fragen der genannten Art. Eine
+    Empfehlungsfrage enthält eines der Wörter {c:k_assistenten.RECOMMENDATION_MARKERS|list}; alle
+    anderen Fragen sind Problembeschreibungen. Eine Antwort nennt den Betrieb, wenn sie als
+    genannt markiert ist (mentioned) oder eine ihrer Quellen von der eigenen Domain stammt.
+    Nennquote = genannte Antworten geteilt durch alle Antworten dieser Art. Es gibt keinen Grenzwert und kein Urteil (passed oder failed) und keine Punkte: Gezeigt werden die Zahl der Antworten, die den Betrieb nennen, von allen Antworten dieser Art, daneben derselbe Wert der Wettbewerber aus demselben Audit. Ohne Antworten dieser Art ist die Prüfung nicht gemessen.
+
+checks:
+  a2: >-
+    Pro Kennzahl zählt der Median aus mobilen PageSpeed-Läufen (LCP, CLS, TBT). Felddaten der
+    Adresse, sonst der ganzen Website, haben je Kennzahl Vorrang; INP ersetzt dann TBT. Grenzen
+    (gut/schlecht): LCP {t:lcp_good_ms}/{t:lcp_poor_ms} ms, CLS {t:cls_good}/{t:cls_poor}, INP
+    {t:inp_good_ms}/{t:inp_poor_ms} ms, TBT {t:tbt_good_ms}/{t:tbt_poor_ms} ms. Ein Wert bis zur
+    guten Grenze ist gut, bis zur schlechten Grenze verbesserungswürdig, darüber schlecht. Sind
+    alle Kennzahlen gut, gilt passed; ist eine Kennzahl schlecht, gilt failed; sonst partial. Das
+    Ergebnis hält fest, ob Feld- oder Labordaten gelten. Ohne Laborwerte ist die Prüfung nicht
+    gemessen. Stammen die PageSpeed-Daten aus einer älteren Messung ohne Laborwerte aus mehreren
+    Läufen, ist die Prüfung nicht gemessen (bitte neu messen).
+  a4: >-
+    Je gecrawlter Seite ist es ein Mangel, wenn die robots.txt die Kennung sperrt, wenn die
+    Startseite oder eine intern verlinkte Seite einen Statuscode ungleich 200 hat, wenn noindex
+    (oder none) in meta robots oder im X-Robots-Tag steht oder wenn die canonical-Adresse auf eine
+    andere Adresse zeigt (Fragment und Schrägstrich am Ende zählen nicht). Eine fehlende
+    robots.txt (Status 400 bis 499 außer 429) oder Sitemap ist kein Mangel; antwortet die
+    robots.txt mit 429, 5xx oder gar nicht, ist die Prüfung nicht gemessen. Ohne gesammelte
+    Sperrhinweise der Seiten (ältere Daten ohne Seitentext) ist die Prüfung nicht gemessen und
+    nie bestanden. Die robots.txt wird gelesen wie im Baustein beschrieben (Bytereihenfolge-Zeichen
+    ignoriert, Googlebot/2.1 gilt als Googlebot, Adressen prozent-kodiert verglichen).
+    {block:page_grading} Kennung: Googlebot.
+  a12: >-
+    Mangel einer Seite ist nosnippet oder max-snippet:0 in meta robots oder im X-Robots-Tag
+    (ohne Kennung oder für Googlebot); die Seite scheidet dann als Quelle für KI-Übersichten aus.
+    Ohne gesammelte Sperrhinweise der Seiten (ältere Daten ohne Seitentext) ist die Prüfung nicht
+    gemessen und nie bestanden. {block:page_grading}
+  a11: >-
+    {block:robots_grading} Kennung: Google-Extended. Das betrifft nicht die Google-Suche.
+  a13: >-
+    {block:same_text_comparison} Kennung: Googlebot.
+  a7: >-
+    Mangel einer Seite ist ein Inhaltsbild ohne Bildbeschreibung (alt); dekorative Bilder zählen
+    nicht. Gibt es keine Inhaltsbilder, trifft die Prüfung nicht zu. {block:page_grading}
+  b5: >-
+    Mangel einer Seite ist: Die Seite (außer der Startseite) hat keinen eingehenden Link (a-Element
+    mit href) von einer anderen gecrawlten Seite; die Seite steht nur in der Sitemap; oder die
+    Navigation der Seite enthält Einträge ohne a-Element mit href (javascript:, onclick ohne
+    href). Es gibt keine Grenze für die Klicktiefe. {block:page_grading}
+  c4: >-
+    Je Suchbegriff (Leistungswörter aus den Kunden-Suchbegriffen ohne Ortswörter, Ort aus dem
+    Impressum) wird gezählt, wo Leistungswörter und Ort zusammen stehen. passed: zusammen in
+    Titel oder Hauptüberschrift einer Seite und zusammen im Text einer Seite. partial: nur an
+    einer dieser beiden Stellen. failed: an keiner. Gesamt: Sind alle Suchbegriffe passed, gilt
+    passed; sind alle failed, gilt failed; sonst partial. Zusätzlicher Mangel: Seite ohne Titel
+    oder gleicher Titel auf mehreren Seiten; dann gilt höchstens partial (aus passed wird
+    partial, failed bleibt failed). Es gibt keine Längen- oder Dichtegrenze.
+  i1: >-
+    Die Zahl der verweisenden Websites des Betriebs wird mit dem Median der Wettbewerber
+    verglichen (nicht mit dem besten Wettbewerber). Mindestens Median: passed, sonst failed. Es
+    gibt kein partial.
+  f1: >-
+    Diese Prüfung ist immer nicht gemessen und nie bestanden oder durchgefallen. Hat die Suche
+    kein Profil gefunden, beweist das nicht, dass keines existiert (Grund: Profil nicht
+    feststellbar). Ob ein gefundenes Profil dem Betrieb gehört, ist von außen nicht sicher
+    feststellbar (Grund: von außen nicht prüfbar).
+  f2: >-
+    Ist im Google-Profil eine Hauptkategorie gesetzt (primary_type), gilt passed, sonst failed.
+    Liefert die Datenquelle das Feld nicht, ist die Prüfung nicht gemessen. Ein Vergleich mit
+    Wettbewerbern ist nur eine Zusatzangabe.
+  f4: >-
+    Ist im Google-Profil eine Beschreibung eingetragen, gilt passed, sonst failed. Liefert die
+    Datenquelle das Feld nicht, ist die Prüfung nicht gemessen.
+  f5: >-
+    Sind im Google-Profil Leistungen eingetragen, gilt passed, sonst failed. Liefert die
+    Datenquelle das Feld nicht, ist die Prüfung nicht gemessen.
+  f7: >-
+    Hat das Google-Profil Öffnungszeiten (has_opening_hours), gilt passed, sonst failed. Liefert
+    die Datenquelle das Feld nicht, ist die Prüfung nicht gemessen. Sonderöffnungszeiten sind laut
+    Quelle nicht feststellbar und werden nicht gewertet.
+  f8: >-
+    Sind Fotos im Google-Profil vorhanden (ja oder nein, keine Mindestzahl), gilt passed, sonst
+    failed. Liefert die Datenquelle das Feld nicht, ist die Prüfung nicht gemessen.
+  f13: >-
+    Sind im Google-Profil Merkmale eingetragen, gilt passed, sonst failed. Liefert die
+    Datenquelle das Feld nicht, ist die Prüfung nicht gemessen.
+  g1: >-
+    Die Zahl der Bewertungen des Betriebs wird mit dem Mittelwert der Bewertungszahlen der
+    anderen Betriebe auf der Karte verglichen (der eigene Eintrag zählt nicht mit; ohne
+    Kartenliste die bis zu drei stärksten Wettbewerber aus den Profilen). Mindestens der
+    Mittelwert: passed, sonst failed. Es gibt kein partial. {block:own_name} Ein eigener Eintrag
+    ohne place_id zählt nicht als Wettbewerber.
+  g2: >-
+    Die Durchschnittsbewertung wird mit dem Median der Sterne derselben Betriebe auf der Karte
+    verglichen: mindestens Median gilt passed, bis {t:partial_margin_stars} Sterne darunter
+    partial, sonst failed. Hat der Betrieb keine Sterne, gilt failed. {block:own_name} Ein
+    eigener Eintrag ohne place_id zählt nicht als Wettbewerber.
+  j1: >-
+    Je Suchbegriff (ohne Suche nach dem Firmennamen) zählt der beste organische Platz der Domain.
+    Stehen alle Suchbegriffe auf Platz {t:good} oder besser, gilt passed; steht mindestens einer
+    auf Platz {t:visible} oder besser, gilt partial; sonst failed. Platz {t:top} oder besser wird
+    nur als Angabe gezählt, nicht für das Ergebnis. Eine Trefferliste, die nur aus Adressen der
+    Suchmaschine besteht (zum Beispiel google.de), ist ungültig und zählt nicht als geprüft; sind
+    alle Listen so, ist die Prüfung nicht gemessen.
+  j2: >-
+    Je Suchbegriff mit Kartenergebnis zählt die Position des Betriebs. {block:own_name} Steht der Betrieb bei
+    allen Suchbegriffen auf Platz {t:top} oder besser, gilt passed; bei keinem, gilt failed; sonst
+    partial.
+  j3: >-
+    Das Raster misst {t:grid} mal {t:grid} Punkte rund um den Standort. Ein Punkt ist sichtbar,
+    wenn der Betrieb dort auf Platz {c:j_rankings.GRID_TOP} oder besser steht. Es gibt keinen Grenzwert, kein Urteil (passed oder failed) und keine Punkte: Gezeigt werden die Zahl der sichtbaren Punkte und derselbe Wert der Wettbewerber aus demselben Audit.
+  j4: >-
+    Steht die Domain bei der Suche nach dem Firmennamen auf Platz 1, gilt passed; der Infokasten
+    ist nur eine Zusatzangabe. Sonst failed.
+  j5: >-
+    Zahl der Suchbegriffe, bei denen die Domain des Betriebs gefunden wird, im Vergleich zum
+    besten Wettbewerber: ab {c:j_rankings.RANKED_PASS_SHARE|pct} Prozent passed, ab
+    {c:j_rankings.RANKED_PARTIAL_SHARE|pct} Prozent partial, sonst failed.
+  j6: >-
+    Je Suchbegriff mit KI-Übersicht wird geprüft, ob der Betrieb (ganze Wörter des Firmennamens)
+    oder seine Domain genannt wird. {block:own_name} {block:all_none_else_partial} Ohne
+    KI-Übersicht ist die Prüfung nicht gemessen.
+  j8: >-
+    Je Suchbegriff wird geprüft, ob irgendein Treffer der Google-Bildersuche von der eigenen
+    Domain stammt (jeder Platz zählt). {block:all_none_else_partial}
+  c12: >-
+    Gezählt werden Suchbegriffe ab {c:c_inhalt.GAP_MIN_VOLUME} Suchen im Monat, bei denen
+    Wettbewerber gefunden werden und der Betrieb nicht und die zum Angebot des Betriebs passen:
+    alle Wörter eines Suchbegriffs des Betriebs (ohne Füllwörter wie „und“ oder „in“) kommen im
+    Suchbegriff des Wettbewerbs als Wörter vor. Keiner gezählt: passed; weniger als
+    {c:c_inhalt.GAP_FAIL_COUNT}: partial; {c:c_inhalt.GAP_FAIL_COUNT} oder mehr: failed.
+  j9: >-
+    Verglichen werden die Plätze gegenüber dem letzten Audit. Mehr Verbesserungen als
+    Verschlechterungen gilt passed; gleich viele bei sichtbaren Plätzen partial; sonst failed. Ohne
+    früheren Audit ist die Prüfung offen und nicht gemessen.
+  m1: >-
+    Braucht den Zugang zum Google-Profil des Kunden; ohne Zugang nicht gemessen. Mit Zugang
+    werden Anrufe, Routenanfragen und Website-Klicks des Profils mit dem Vorzeitraum verglichen:
+    mindestens so viele wie vorher gilt passed; höchstens {c:common.TOLERANCE|pct} Prozent weniger
+    partial; sonst failed.
+  m2: >-
+    Braucht den Zugang zur Search Console des Kunden; ohne Zugang nicht gemessen. Mit Zugang gilt
+    passed, wenn mindestens eine Suchanfrage mit Klicks alle Leistungswörter eines Suchbegriffs
+    enthält; gibt es Suchanfragen, aber keine solche, partial; gibt es keine Suchanfragen, failed.
+  a14: >-
+    Je gecrawlter Seite ist es ein Mangel, wenn die robots.txt die Kennung sperrt, wenn die
+    Startseite oder eine intern verlinkte Seite einen Statuscode ungleich 200 hat, wenn noindex
+    (oder none) in meta robots der Kennung (meta_robots_bing) oder im X-Robots-Tag steht oder wenn
+    die canonical-Adresse auf eine andere Adresse zeigt (Fragment und Schrägstrich am Ende
+    zählen nicht). Eine fehlende robots.txt oder Sitemap ist kein Mangel. {block:page_grading}
+    Kennung: Bingbot; gleiche Messdaten wie Google, eigene Auswertung. Antwortet die robots.txt
+    mit 429, 5xx oder gar nicht, oder fehlen die gesammelten Sperrhinweise (ältere Daten ohne
+    Seitentext), ist die Prüfung nicht gemessen.
+  b10: >-
+    Mangel einer Seite ist noarchive (schließt aus Copilot-Antworten aus), nocache (nur Adresse,
+    Titel und Vorschautext), nosnippet, data-nosnippet oder max-snippet:0 in meta robots der
+    Kennung Bingbot oder im X-Robots-Tag (schränkt Zitate ein), je mit Grund. {block:page_grading}
+  b11: >-
+    Die Sitemap existiert (Eintrag in der robots.txt oder /sitemap.xml); gibt es keine, gilt
+    failed. Mangel eines Sitemap-Eintrags: Der Abruf liefert einen Status ungleich 200, die
+    canonical-Adresse der Seite zeigt auf eine andere Adresse oder der Eintrag hat kein lastmod.
+    {block:page_grading} (Betroffene Seite = betroffener Sitemap-Eintrag.)
+  b12: >-
+    Der Meldedienst IndexNow wird nur gewertet, wenn er von außen sicher erkennbar ist; sonst
+    nicht gemessen mit dem Grund von außen nicht prüfbar.
+  b13: >-
+    Mangel einer Seite ist ein Link, der kein gewöhnlicher a-Element-Link mit href ist, oder ein
+    Link ohne Linktext, Bildbeschreibung und aria-label (bei Bildlinks zählt die
+    Bildbeschreibung). Sprungmarken auf derselben Seite zählen nicht. {block:page_grading}
+  b14: >-
+    Die Adress-Varianten (mit und ohne www, http und https, mit und ohne Schrägstrich) werden
+    abgerufen. Antwortet die Variante der Hauptadresse (Wurzel) mit Status 200 unter einer
+    anderen als der bevorzugten Adresse, ohne weitergeleitet zu werden, gilt failed. Antwortet eine
+    andere Variante mit Status 200 unter einer anderen Adresse oder wird mit einer vorläufigen
+    Weiterleitung (302, 303, 307) statt einer dauerhaften weitergeleitet, gilt
+    partial. Sonst passed. Haben keine Varianten geantwortet, ist die Prüfung nicht gemessen.
+  b15: >-
+    Der wichtige Text steht im ausgelieferten HTML. Mangel einer Seite: Im ausgelieferten HTML
+    steht kein Text, aber es sind Skripte eingebunden (der Text entsteht erst im Browser). Es gibt
+    keine Mindestwortzahl. {block:page_grading}
+  b3: >-
+    Mangel einer Seite: kein Seitentitel, kein Vorschautext (meta description), oder ein Titel
+    oder Vorschautext, der genauso auf einer anderen Seite steht. Es gibt keine Längengrenze.
+    {block:page_grading}
+  b4: >-
+    Mangel einer Seite ist keine Hauptüberschrift (h1) oder eine übersprungene Überschriftenebene
+    (zum Beispiel h2 direkt zu h4). {block:page_grading}
+  b16: >-
+    Mangel einer Seite ist ein Inhaltsbild ohne Bildbeschreibung oder mit einem Dateinamen ohne
+    Aussage (Kameranummern, Zufallszeichen). Dekorative Bilder zählen nicht; ohne Inhaltsbilder
+    trifft die Prüfung nicht zu. {block:page_grading}
+  b17: >-
+    Gewertet werden Inhaltsseiten ohne Pfade wie Impressum, Datenschutz, AGB, Kontakt, Über uns,
+    Team, Blog, Ratgeber, Aktuelles, Sitemap, Login, Cookie. Mangel einer Seite: keine
+    Hauptüberschrift, kein Titel, oder Hauptüberschrift, Titel und Text haben kein gemeinsames
+    Wort (Wörter ab {c:b_struktur.MIN_TOPIC_WORD} Buchstaben, verglichen an den ersten
+    {c:b_struktur.STEM_LENGTH} Buchstaben, ohne Ortsnamen und Füllwörter). {block:page_grading}
+  b18: >-
+    Gewertet werden die Startseite und die Leistungsseiten (Seiten, in deren Pfad, Titel oder
+    Hauptüberschrift alle Wörter eines Kunden-Suchbegriffs stehen). Mangel einer Seite: In der
+    Hauptüberschrift und dem ersten Textabschnitt stehen nicht zugleich der Ort und alle Wörter
+    mindestens eines Suchbegriffs. {block:page_grading} Ohne Suchbegriffe oder Ort ist die
+    Prüfung nicht gemessen.
+  b19: >-
+    Gewertet werden nur Last-Modified der Seiten und lastmod der Sitemap. Trägt mindestens eine
+    Seite ein lesbares Datum, gilt passed; das Alter des Datums spielt keine Rolle, es gibt keine
+    Altersgrenze. Fehlen die gesammelten Seitendaten (ältere Daten ohne Seitentext), ist die
+    Prüfung nicht gemessen. Trägt keine Seite ein Datum, ist die Prüfung nicht gemessen; Jahreszahlen im
+    Text werden nicht geraten.
+  b20: >-
+    Maschinenlesbare Angaben zum Betrieb im Seitencode (Name, Telefon, Straße, Postleitzahl, Ort)
+    müssen im sichtbaren Text der Website stehen. Mangel einer Seite ist ein Wert, den kein Text
+    der Website enthält. Gibt es solche Angaben nicht, trifft die Prüfung nicht zu.
+    {block:page_grading}
+  b21: >-
+    Der Firmenname wird aus bis zu vier Quellen mit dem Namen des Betriebs verglichen: Fußzeile,
+    Name in den strukturierten Daten, og:site_name und Titel der Startseite. Eine Quelle stimmt,
+    wenn der Name des Betriebs (ohne Rechtsform) im Namen der Quelle steht oder umgekehrt. Stimmen
+    alle vorhandenen Quellen, gilt passed; stimmt keine, failed; sonst partial. Ohne Quelle ist
+    die Prüfung nicht gemessen.
+  b22: >-
+    {block:same_text_comparison} Kennung: Bingbot.
+  j7: >-
+    Je Suchbegriff zählt der beste Bing-Platz der Domain; ein Platz bis {t:good} gilt als
+    gefunden. {block:all_none_else_partial}
+  h2: >-
+    Gibt es einen Eintrag des Betriebs bei Bing Karten? Kein Eintrag gefunden: failed. Eintrag
+    gefunden, aber Telefonnummer oder Anschrift weichen von den Angaben des Betriebs ab: partial.
+    Eintrag gefunden und die Angaben passen: passed. Liefert der Dienst keine Einträge, ist die
+    Prüfung nicht gemessen. Wurde nichts gefunden und fehlt der Suchtext oder die Zahl der
+    gelieferten Einträge, ist die Suche nicht belegt und die Prüfung nicht gemessen.
+  h1: >-
+    Gibt es einen Eintrag des Betriebs in Apple Karten? Kein Eintrag gefunden: failed. Eintrag
+    gefunden, aber Telefonnummer oder Anschrift weichen von den Angaben des Betriebs ab: partial.
+    Eintrag gefunden und die Angaben passen: passed. Liefert der Dienst keine Einträge, ist die
+    Prüfung nicht gemessen. Wurde nichts gefunden und fehlt der Suchtext oder die Zahl der
+    gelieferten Einträge, ist die Suche nicht belegt und die Prüfung nicht gemessen.
+  a15: >-
+    {block:robots_grading} Kennung: OAI-SearchBot. GPTBot (Training) und ChatGPT-User zählen
+    nicht.
+  a16: >-
+    {block:firewall_comparison} Kennung: OAI-SearchBot.
+  k1: >-
+    Empfehlungsfragen an ChatGPT. {block:assistant_mentions}
+  k2: >-
+    Problembeschreibungen an ChatGPT. {block:assistant_mentions}
+  a17: >-
+    Die Kennungen Claude-SearchBot und Claude-User werden je für sich ausgewertet. {block:robots_grading}
+    Gesamt: Sind beide Kennungen für die ganze Website gesperrt, gilt failed; ist eine gesperrt
+    oder sind einzelne Inhaltsseiten gesperrt, gilt partial; sonst passed. ClaudeBot (Training)
+    zählt nicht.
+  a18: >-
+    {block:firewall_comparison} Kennung: Claude-SearchBot.
+  k6: >-
+    Empfehlungsfragen an Claude. {block:assistant_mentions}
+  k7: >-
+    Problembeschreibungen an Claude. {block:assistant_mentions}
+  p1: >-
+    Feststellung ohne Wertung: Schaltet der Betrieb Google-Anzeigen (Anzahl der Anzeigen der
+    Domain in Deutschland)? Es gibt keine Abstufung.
+  p3: >-
+    Feststellung ohne Wertung: bezahlte Einträge in den Google-Suchergebnissen je Suchbegriff
+    (ohne Suche nach dem Firmennamen); ob der Betrieb dabei ist (ja oder nein, Position) und
+    welche Wettbewerber werben.
+  p4: >-
+    Feststellung ohne Wertung: bezahlte Einträge fremder Domains bei der Suche nach dem
+    Firmennamen.
+  p5: >-
+    Braucht den Zugang zum Google-Ads-Konto des Kunden; ohne Zugang nicht gemessen.
+  p2: >-
+    Feststellung ohne Wertung: Anzeigen bei Facebook und Instagram. Treffer zählen nur, wenn der
+    Seitenname zur Firma passt. Solange das Ausgabeformat nicht bestätigt ist, ist die Messung
+    ungültig.
+  p6: >-
+    Braucht den Zugang zum Meta-Werbekonto des Kunden; ohne Zugang nicht gemessen.

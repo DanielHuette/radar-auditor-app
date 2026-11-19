@@ -1,11 +1,3 @@
-"""HTTP plumbing shared by the collectors: user agent, status mapping and retries.
-
-Context: Every collector that calls a JSON API sends its requests through `send` so rate limits,
-server errors and network failures are handled the same way.
-Input: An httpx client and request arguments.
-Output: Successful httpx responses or CollectionError / TransientCollectionError.
-"""
-
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -32,16 +24,6 @@ ResponseCheck = Callable[[httpx.Response], None]
 
 
 def raise_for_status(response: httpx.Response, source: str) -> None:
-    """Map an HTTP error status to the collector exception hierarchy.
-
-    Args:
-        response: Response to inspect.
-        source: Human-readable name of the data source for the message.
-
-    Raises:
-        TransientCollectionError: On 429 or any 5xx status.
-        CollectionError: On any other 4xx status.
-    """
     status = response.status_code
     if status == httpx.codes.TOO_MANY_REQUESTS or status >= httpx.codes.INTERNAL_SERVER_ERROR:
         raise TransientCollectionError(f"{source} answered HTTP {status}")
@@ -71,26 +53,9 @@ async def send(
     *,
     source: str,
     check: ResponseCheck | None = None,
+    accepted_statuses: frozenset[int] = frozenset(),
     **request_arguments: Any,
 ) -> httpx.Response:
-    """Send one request, retrying transient failures with exponential backoff.
-
-    Args:
-        client: Open httpx client.
-        method: HTTP method.
-        url: Absolute URL.
-        source: Name of the data source used in error messages.
-        check: Optional extra validation of a successful response, run inside the retry loop so
-            it may raise TransientCollectionError to trigger another attempt.
-        **request_arguments: Passed to `httpx.AsyncClient.request`.
-
-    Returns:
-        The successful response.
-
-    Raises:
-        TransientCollectionError: If every attempt failed temporarily.
-        CollectionError: On a permanent failure.
-    """
     retrying = AsyncRetrying(
         stop=stop_after_attempt(RETRY_ATTEMPTS),
         wait=RETRY_WAIT,
@@ -99,7 +64,9 @@ async def send(
     )
     async for attempt in retrying:
         with attempt:
-            response = await _request_once(client, method, url, source, request_arguments)
+            response = await _request_once(
+                client, method, url, source, accepted_statuses, request_arguments
+            )
             if check is not None:
                 check(response)
             return response
@@ -111,6 +78,7 @@ async def _request_once(
     method: str,
     url: str,
     source: str,
+    accepted_statuses: frozenset[int],
     request_arguments: dict[str, Any],
 ) -> httpx.Response:
     try:
@@ -118,5 +86,6 @@ async def _request_once(
     except httpx.TransportError as error:
         logger.info("%s unreachable: %s", source, type(error).__name__)
         raise TransientCollectionError(f"{source} unreachable: {type(error).__name__}") from error
-    raise_for_status(response, source)
+    if response.status_code not in accepted_statuses:
+        raise_for_status(response, source)
     return response

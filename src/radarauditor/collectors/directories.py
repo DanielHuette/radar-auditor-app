@@ -1,30 +1,34 @@
-"""Check German business directories for a listing and compare the spelling of the NAP.
-
-Context: Directory list and search patterns live in config/verzeichnisse.yaml.
-Input: Location.
-Output: DirectoryHit per directory.
-"""
-
 import asyncio
 import logging
 from collections.abc import Iterator
 from pathlib import Path
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
 import yaml
 from bs4 import BeautifulSoup, Tag
 from pydantic import BaseModel, ConfigDict, HttpUrl, ValidationError
 
+from radarauditor.collectors.paid_rankings import (
+    GERMANY_LOCATION_CODE,
+    LANGUAGE_CODE,
+    ORGANIC_TASKS,
+    RESULTS_PER_PAGE,
+    DataForSeoClient,
+    organic_pages,
+    run_tasks,
+)
 from radarauditor.collectors.patterns import (
     POSTAL_CITY_PATTERN,
     collapse_whitespace,
     find_address,
     find_phone,
+    host_of,
     normalise_address,
     normalise_name,
     normalise_phone,
     parse_http_url,
+    site_key,
 )
 from radarauditor.collectors.snapshot import DirectoryHit
 from radarauditor.collectors.transport import USER_AGENT, send
@@ -40,33 +44,19 @@ INVISIBLE_TAGS = ("script", "style", "noscript", "template", "svg")
 
 
 class DirectoryEntry(BaseModel):
-    """One directory from the catalogue."""
-
     model_config = ConfigDict(coerce_numbers_to_str=True)
 
     name: str
     kind: str
     search_url: str | None = None
+    no_hits_status: int | None = None
 
 
 class DirectoryCatalogue(BaseModel):
-    """The part of config/verzeichnisse.yaml this collector reads."""
-
     directories: list[DirectoryEntry]
 
 
 def load_catalogue(path: Path) -> DirectoryCatalogue:
-    """Read and validate the directory catalogue.
-
-    Args:
-        path: Location of verzeichnisse.yaml.
-
-    Returns:
-        The validated catalogue.
-
-    Raises:
-        ConfigurationError: If the file is missing or malformed.
-    """
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
         return DirectoryCatalogue.model_validate(raw)
@@ -75,22 +65,6 @@ def load_catalogue(path: Path) -> DirectoryCatalogue:
 
 
 async def check_directories(location: Location, catalogue: Path) -> list[DirectoryHit]:
-    """Query every directory from the catalogue by name and city, read the listing if found.
-
-    Directories without a search URL are returned with found=False; they are checked by hand or
-    by other collectors. A directory whose search fails after retries is left out of the result
-    and logged, so a missing entry means "not measured" rather than "not listed".
-
-    Args:
-        location: The location whose listing is searched.
-        catalogue: Path of verzeichnisse.yaml.
-
-    Returns:
-        One hit per directory that could be checked, in catalogue order.
-
-    Raises:
-        ConfigurationError: If the catalogue is missing or malformed.
-    """
     entries = load_catalogue(catalogue).directories
     semaphore = asyncio.Semaphore(CONCURRENT_DIRECTORIES)
     async with httpx.AsyncClient(
@@ -111,31 +85,68 @@ async def _check_one(
     location: Location,
 ) -> DirectoryHit | None:
     if entry.search_url is None:
-        return _not_found(entry.name)
+        return None
     url = entry.search_url.format(
         name=quote(location.name, safe=""), city=quote(location.city, safe="")
     )
+    no_hits = frozenset() if entry.no_hits_status is None else frozenset({entry.no_hits_status})
     async with semaphore:
         try:
-            response = await send(client, "GET", url, source=entry.name)
+            response = await send(client, "GET", url, source=entry.name, accepted_statuses=no_hits)
         except CollectionError as error:
             logger.warning("Directory %s could not be checked: %s", entry.name, error)
             return None
+    if response.status_code == entry.no_hits_status:
+        return _not_found(entry.name)
     return find_listing(entry.name, str(response.url), response.text, location.name)
 
 
+async def search_through_google(
+    client: DataForSeoClient, entries: list[DirectoryEntry], location: Location
+) -> tuple[list[DirectoryHit], dict[str, str]]:
+    searchable = [entry for entry in entries if entry.search_url is not None]
+    hosts = [site_key(urlsplit(entry.search_url or "").netloc) for entry in searchable]
+    tasks = [
+        {
+            "keyword": f'site:{host} "{location.name}"',
+            "language_code": LANGUAGE_CODE,
+            "location_code": GERMANY_LOCATION_CODE,
+            "depth": RESULTS_PER_PAGE,
+        }
+        for host in hosts
+    ]
+    batch = await run_tasks(client, ORGANIC_TASKS, tasks)
+    hits: list[DirectoryHit] = []
+    failed = {searchable[index].name: reason for index, reason in batch.failed.items()}
+    for index, rows in sorted(batch.results.items()):
+        try:
+            pages = organic_pages(rows)
+        except CollectionError as error:
+            failed[searchable[index].name] = str(error)
+            continue
+        hits.append(_google_hit(searchable[index].name, hosts[index], pages))
+    return hits, failed
+
+
+def _google_hit(
+    directory: str, host: str, pages: list[tuple[str, str, str | None]]
+) -> DirectoryHit:
+    match = next((page for page in pages if page[0] == host), None)
+    if match is None:
+        return _not_found(directory)
+    _, url, title = match
+    on_host = host_of(url) is not None and site_key(host_of(url) or "") == host
+    return DirectoryHit(
+        directory=directory,
+        found=True,
+        listing_url=parse_http_url(url) if on_host else None,
+        name=collapse_whitespace(title) if title else None,
+        address=None,
+        phone=None,
+    )
+
+
 def find_listing(directory: str, page_url: str, html: str, business_name: str) -> DirectoryHit:
-    """Look for the business on a directory search page and read the first matching listing.
-
-    Args:
-        directory: Directory name.
-        page_url: Address of the search page, used to resolve the listing link.
-        html: Source of the search page.
-        business_name: Name as the customer writes it.
-
-    Returns:
-        The hit; found=False when the name does not appear on the page.
-    """
     soup = BeautifulSoup(html, "lxml")
     for tag in soup.find_all(INVISIBLE_TAGS):
         tag.decompose()
@@ -226,19 +237,6 @@ def _not_found(directory: str) -> DirectoryHit:
 
 
 def nap_matches(expected: Location, found: DirectoryHit) -> dict[str, bool]:
-    """Compare name, address and phone after normalising spacing, case and phone format.
-
-    Legal forms (GmbH, e.K., UG, KG and similar) are ignored in names; street suffixes
-    ("Straße", "Str.") are unified in addresses; phone numbers compare as digits with +49 or 0049
-    turned into a leading 0.
-
-    Args:
-        expected: The location as the customer writes it.
-        found: The directory listing.
-
-    Returns:
-        Keys name, address and phone; False when the listing lacks the value.
-    """
     expected_address = f"{expected.street} {expected.postal_code} {expected.city}"
     return {
         "name": found.name is not None

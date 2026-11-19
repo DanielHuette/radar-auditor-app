@@ -1,0 +1,488 @@
+{
+	"nodes": [
+		{
+			"id": "grp",
+			"type": "group",
+			"label": "Messungen und Prüfungen · alle gleichzeitig · 62 Prüfungen nach Anbietern",
+			"x": 1710,
+			"y": -40,
+			"width": 1410,
+			"height": 1317
+		},
+		{
+			"id": "t",
+			"type": "text",
+			"text": "**Audit in der App gestartet**\n\nWebseite-Adresse, Prüfungen gewählt",
+			"x": 0,
+			"y": 900,
+			"width": 230,
+			"height": 110,
+			"color": "2"
+		},
+		{
+			"id": "p1",
+			"type": "text",
+			"text": "**Webseite und Betrieb erfassen**\n\nSeiten lesen, Name, Anschrift, Telefon, Branche, Suchbegriffe örtlich und bundesweit",
+			"x": 300,
+			"y": 900,
+			"width": 230,
+			"height": 110,
+			"color": "5"
+		},
+		{
+			"id": "p2",
+			"type": "text",
+			"text": "**Kosten hochrechnen**\n\njede bezahlte Messung, Guthaben lesen",
+			"x": 600,
+			"y": 900,
+			"width": 230,
+			"height": 110,
+			"color": "5"
+		},
+		{
+			"id": "if1",
+			"type": "text",
+			"text": "**Guthaben reicht?**\n\n",
+			"x": 900,
+			"y": 900,
+			"width": 170,
+			"height": 110,
+			"color": "3"
+		},
+		{
+			"id": "p3",
+			"type": "text",
+			"text": "**Probeabruf je bezahlter Messung**\n\neine Abfrage, Agent prüft die Antwort selbst",
+			"x": 1140,
+			"y": 900,
+			"width": 230,
+			"height": 110,
+			"color": "6"
+		},
+		{
+			"id": "if2",
+			"type": "text",
+			"text": "**Antwort brauchbar?**\n\n",
+			"x": 1440,
+			"y": 900,
+			"width": 170,
+			"height": 110,
+			"color": "3"
+		},
+		{
+			"id": "no1",
+			"type": "text",
+			"text": "**Meldung aufs Handy**\n\nFehlbetrag, Audit startet nicht",
+			"x": 870,
+			"y": 1160,
+			"width": 230,
+			"height": 110,
+			"color": "1"
+		},
+		{
+			"id": "no2",
+			"type": "text",
+			"text": "**Messung als fehlgeschlagen vermerken**\n\nmit Grund, nicht weiter bezahlen, Audit läuft weiter",
+			"x": 1410,
+			"y": 1160,
+			"width": 230,
+			"height": 110,
+			"color": "5"
+		},
+		{
+			"id": "f1",
+			"type": "text",
+			"text": "**Schritt gescheitert?**\n\n",
+			"x": 1740,
+			"y": 1367,
+			"width": 200,
+			"height": 110,
+			"color": "3"
+		},
+		{
+			"id": "f2",
+			"type": "text",
+			"text": "**Neustart nur dieses Schritts**\n\nerst derselbe Weg, dann zweiter Weg; bezahlt höchstens 3 Mal; Google Ads und Meta Ads blockieren nicht",
+			"x": 2010,
+			"y": 1367,
+			"width": 250,
+			"height": 130,
+			"color": "5"
+		},
+		{
+			"id": "f3",
+			"type": "text",
+			"text": "**Geklappt?**\n\n",
+			"x": 2330,
+			"y": 1367,
+			"width": 190,
+			"height": 110,
+			"color": "3"
+		},
+		{
+			"id": "f4",
+			"type": "text",
+			"text": "**Agent übernimmt den Schritt**\n\nFehler und Rohantwort lesen, Ursache beheben, neu ausführen, Prüfungen neu bewerten; bezahlt erst nach Probeabruf",
+			"x": 2590,
+			"y": 1367,
+			"width": 270,
+			"height": 150,
+			"color": "6"
+		},
+		{
+			"id": "f5",
+			"type": "text",
+			"text": "**Warnung ans Cockpit**\n\nnach 5 Fehlversuchen, Arbeit geht weiter",
+			"x": 2590,
+			"y": 1567,
+			"width": 270,
+			"height": 110,
+			"color": "1"
+		},
+		{
+			"id": "mg",
+			"type": "text",
+			"text": "**Alle Messwerte zusammenführen**\n\njede Rohantwort gespeichert",
+			"x": 3200,
+			"y": 900,
+			"width": 230,
+			"height": 150,
+			"color": "5"
+		},
+		{
+			"id": "s1",
+			"type": "text",
+			"text": "**Jede Prüfung bewerten**\n\nbestanden, teils, nicht bestanden, nicht gemessen mit Grund; geplant nicht messbar: m1 m2 p5 p6",
+			"x": 3500,
+			"y": 900,
+			"width": 230,
+			"height": 150,
+			"color": "6"
+		},
+		{
+			"id": "s2",
+			"type": "text",
+			"text": "**Auswertung schreiben**\n\nWichtigstes in Kürze, was gut ist, Bezahlte Sichtbarkeit, Kontrolltabelle mit Quelle",
+			"x": 4100,
+			"y": 900,
+			"width": 230,
+			"height": 150,
+			"color": "6"
+		},
+		{
+			"id": "s3",
+			"type": "text",
+			"text": "**Handlungsempfehlung schreiben**\n\nnur aus Prüfungen mit drei Haken, je Prüfung eine Maßnahme",
+			"x": 4400,
+			"y": 900,
+			"width": 230,
+			"height": 150,
+			"color": "6"
+		},
+		{
+			"id": "s4",
+			"type": "text",
+			"text": "**PDF erstellen**\n\nAuswertung_<Webseite>.pdf und Empfehlung_<Webseite>.pdf",
+			"x": 4700,
+			"y": 900,
+			"width": 230,
+			"height": 150,
+			"color": "5"
+		},
+		{
+			"id": "s5",
+			"type": "text",
+			"text": "**Selbstprüfung**\n\njede Zahl gegen die Rohantworten, jede PDF-Seite angesehen",
+			"x": 5000,
+			"y": 900,
+			"width": 230,
+			"height": 150,
+			"color": "6"
+		},
+		{
+			"id": "s6",
+			"type": "text",
+			"text": "**Meldung aufs Handy und ins Cockpit**\n\nfertig, Urteil, Punkte, Link zur Auswertung",
+			"x": 5300,
+			"y": 900,
+			"width": 230,
+			"height": 150,
+			"color": "1"
+		},
+		{
+			"id": "s7",
+			"type": "text",
+			"text": "**Auswertung in der App**\n\nalles aus dem Bericht, Kostenvoranschlag, Kosten",
+			"x": 5600,
+			"y": 900,
+			"width": 230,
+			"height": 150,
+			"color": "1"
+		},
+		{
+			"id": "P_google",
+			"type": "text",
+			"x": 1740,
+			"y": 0,
+			"width": 430,
+			"height": 846,
+			"color": "4",
+			"text": "**Google  (29)**\n\na2  Die Seite lädt am Handy schnell und ruhig\na4  Google kann jede Seite aufnehmen\na12  Der Vorschautext ist nicht gesperrt\na11  Googles künstliche Intelligenz (Gemini) darf die Inhalte verwenden\na13  Google sieht dieselbe Seite wie Besucher\na7  Die Bilder sind beschrieben\nb5  Jede Seite ist über einen lesbaren Link erreichbar\nc4  Die Suchwörter der Kunden stehen an den auffälligen Stellen\ni1  Verweise von anderen Websites im Vergleich zu den Wettbewerbern\nf1  Das Profil ist bestätigt\nf2  Die Hauptkategorie ist gesetzt\nf4  Die Beschreibung ist vorhanden\nf5  Die Leistungen sind eingetragen\nf7  Die Öffnungszeiten sind vollständig\nf8  Fotos sind vorhanden\nf13  Die Merkmale sind eingetragen\ng1  Zahl der Rezensionen im Vergleich zu den Betrieben auf der Karte\ng2  Durchschnittsbewertung im Vergleich zu den Betrieben auf der Karte\nj1  Platz bei den wichtigsten Suchen im eigenen Ort\nj2  Unter den drei Betrieben auf der Karte\nj3  Sichtbarkeit rund um den Standort\nj4  Platz 1 bei der Suche nach dem eigenen Namen\nj5  Anzahl der Suchen, bei denen der Betrieb gefunden wird\nj6  Genannt in Googles Antwort mit künstlicher Intelligenz\nj8  Eigene Bilder in der Google-Bildersuche\nc12  Suchbegriffe, bei denen der Wettbewerber gefunden wird und der eigene Betrieb nicht\nj9  Entwicklung über die Zeit\nm1  Anrufe, Routen und Aufrufe aus dem Google-Profil\nm2  Suchwörter, bei denen wirklich geklickt wird"
+		},
+		{
+			"id": "P_bing",
+			"type": "text",
+			"x": 2200,
+			"y": 0,
+			"width": 430,
+			"height": 560,
+			"color": "4",
+			"text": "**Bing  (18)**\n\na14  Bing kann jede Seite aufnehmen\nb10  Keine Sperrvermerke für Copilot\nb11  Das Seitenverzeichnis (Sitemap) ist vorhanden und sauber\nb12  Der Meldedienst IndexNow ist eingerichtet\nb13  Links sind lesbar und beschriftet\nb14  Keine doppelten Adressen\nb15  Der Inhalt ist ohne Skripte lesbar\nb3  Seitentitel und Vorschautext sind je Seite vorhanden und nicht doppelt\nb4  Die Überschriften sind logisch gegliedert\nb16  Bilder sind beschrieben und sprechend benannt\nb17  Jede Seite behandelt ein Thema\nb18  Wichtiges steht oben\nb19  Die Inhalte sind aktuell\nb20  Angaben im Seitencode stimmen mit dem sichtbaren Text überein\nb21  Der Firmenname ist einheitlich geschrieben\nb22  Bing sieht dieselbe Seite wie Besucher\nj7  Gefunden bei Bing\nh2  Eintrag bei Bing"
+		},
+		{
+			"id": "P_apple",
+			"type": "text",
+			"x": 2660,
+			"y": 0,
+			"width": 430,
+			"height": 150,
+			"color": "4",
+			"text": "**Apple  (1)**\n\nh1  Eintrag in Apple Karten"
+		},
+		{
+			"id": "P_openai",
+			"type": "text",
+			"x": 2660,
+			"y": 190,
+			"width": 430,
+			"height": 196,
+			"color": "4",
+			"text": "**OpenAI (ChatGPT)  (4)**\n\na15  Die ChatGPT-Suche darf die Website lesen\na16  Die Firewall lässt die ChatGPT-Suche durch\nk1  Genannt, wenn Kunden ChatGPT nach einem Betrieb fragen\nk2  Genannt, wenn Kunden ChatGPT ihr Problem beschreiben"
+		},
+		{
+			"id": "P_anthropic",
+			"type": "text",
+			"x": 2660,
+			"y": 410,
+			"width": 430,
+			"height": 196,
+			"color": "4",
+			"text": "**Anthropic (Claude)  (4)**\n\na17  Claude darf die Website lesen\na18  Die Firewall lässt Claude durch\nk6  Genannt, wenn Kunden Claude nach einem Betrieb fragen\nk7  Genannt, wenn Kunden Claude ihr Problem beschreiben"
+		},
+		{
+			"id": "P_google_ads",
+			"type": "text",
+			"x": 2660,
+			"y": 630,
+			"width": 430,
+			"height": 196,
+			"color": "4",
+			"text": "**Google Ads  (4)**\n\np1  Der Betrieb schaltet Anzeigen bei Google\np3  Anzeigen bei den Suchbegriffen des Betriebs\np4  Wettbewerber werben auf den Firmennamen\np5  Zahlen aus dem Google-Ads-Konto"
+		},
+		{
+			"id": "P_meta_ads",
+			"type": "text",
+			"x": 2660,
+			"y": 850,
+			"width": 430,
+			"height": 150,
+			"color": "4",
+			"text": "**Meta Ads  (2)**\n\np2  Anzeigen bei Facebook und Instagram\np6  Zahlen aus dem Meta-Werbekonto"
+		},
+		{
+			"id": "k1",
+			"type": "text",
+			"x": 3800,
+			"y": 900,
+			"width": 230,
+			"height": 150,
+			"color": "6",
+			"text": "**Kontrolle je Prüfung**\n\nDaten eingeholt, Daten korrekt, Auswertung korrekt; je Haken ein Beleg, X nimmt die Prüfung aus dem Gesamtwert"
+		}
+	],
+	"edges": [
+		{
+			"id": "e0",
+			"fromNode": "t",
+			"fromSide": "right",
+			"toNode": "p1",
+			"toSide": "left"
+		},
+		{
+			"id": "e1",
+			"fromNode": "p1",
+			"fromSide": "right",
+			"toNode": "p2",
+			"toSide": "left"
+		},
+		{
+			"id": "e2",
+			"fromNode": "p2",
+			"fromSide": "right",
+			"toNode": "if1",
+			"toSide": "left"
+		},
+		{
+			"id": "e3",
+			"fromNode": "if1",
+			"fromSide": "right",
+			"toNode": "p3",
+			"toSide": "left",
+			"label": "ja"
+		},
+		{
+			"id": "e4",
+			"fromNode": "p3",
+			"fromSide": "right",
+			"toNode": "if2",
+			"toSide": "left"
+		},
+		{
+			"id": "e5",
+			"fromNode": "if1",
+			"fromSide": "bottom",
+			"toNode": "no1",
+			"toSide": "top",
+			"label": "nein"
+		},
+		{
+			"id": "e6",
+			"fromNode": "if2",
+			"fromSide": "bottom",
+			"toNode": "no2",
+			"toSide": "top",
+			"label": "nein"
+		},
+		{
+			"id": "e7",
+			"fromNode": "if2",
+			"fromSide": "right",
+			"toNode": "grp",
+			"toSide": "left",
+			"label": "ja"
+		},
+		{
+			"id": "e8",
+			"fromNode": "no2",
+			"fromSide": "right",
+			"toNode": "grp",
+			"toSide": "left"
+		},
+		{
+			"id": "e9",
+			"fromNode": "grp",
+			"fromSide": "bottom",
+			"toNode": "f1",
+			"toSide": "top"
+		},
+		{
+			"id": "e10",
+			"fromNode": "f1",
+			"fromSide": "right",
+			"toNode": "f2",
+			"toSide": "left",
+			"label": "ja"
+		},
+		{
+			"id": "e11",
+			"fromNode": "f2",
+			"fromSide": "right",
+			"toNode": "f3",
+			"toSide": "left"
+		},
+		{
+			"id": "e12",
+			"fromNode": "f3",
+			"fromSide": "right",
+			"toNode": "f4",
+			"toSide": "left",
+			"label": "nein"
+		},
+		{
+			"id": "e13",
+			"fromNode": "f4",
+			"fromSide": "bottom",
+			"toNode": "f5",
+			"toSide": "top"
+		},
+		{
+			"id": "e14",
+			"fromNode": "grp",
+			"fromSide": "right",
+			"toNode": "mg",
+			"toSide": "left"
+		},
+		{
+			"id": "e15",
+			"fromNode": "f4",
+			"fromSide": "right",
+			"toNode": "mg",
+			"toSide": "left",
+			"label": "erledigt"
+		},
+		{
+			"id": "e16",
+			"fromNode": "f3",
+			"fromSide": "right",
+			"toNode": "mg",
+			"toSide": "left",
+			"label": "ja"
+		},
+		{
+			"id": "e17",
+			"fromNode": "mg",
+			"fromSide": "right",
+			"toNode": "s1",
+			"toSide": "left"
+		},
+		{
+			"id": "e19",
+			"fromNode": "s2",
+			"fromSide": "right",
+			"toNode": "s3",
+			"toSide": "left"
+		},
+		{
+			"id": "e20",
+			"fromNode": "s3",
+			"fromSide": "right",
+			"toNode": "s4",
+			"toSide": "left"
+		},
+		{
+			"id": "e21",
+			"fromNode": "s4",
+			"fromSide": "right",
+			"toNode": "s5",
+			"toSide": "left"
+		},
+		{
+			"id": "e22",
+			"fromNode": "s5",
+			"fromSide": "right",
+			"toNode": "s6",
+			"toSide": "left"
+		},
+		{
+			"id": "e23",
+			"fromNode": "s6",
+			"fromSide": "right",
+			"toNode": "s7",
+			"toSide": "left"
+		},
+		{
+			"id": "e18a",
+			"fromNode": "s1",
+			"fromSide": "right",
+			"toNode": "k1",
+			"toSide": "left"
+		},
+		{
+			"id": "e18b",
+			"fromNode": "k1",
+			"fromSide": "right",
+			"toNode": "s2",
+			"toSide": "left"
+		}
+	]
+}

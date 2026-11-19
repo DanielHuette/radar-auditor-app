@@ -1,0 +1,224 @@
+{
+ "version": "0.1.20261103",
+ "status_code": 20000,
+ "status_message": "Ok.",
+ "time": "0 sec.",
+ "cost": 0,
+ "tasks_count": 1,
+ "tasks_error": 0,
+ "tasks": [
+  {
+   "id": "11131211-3135-0626-2000-f089a2f7b8d5",
+   "status_code": 20000,
+   "status_message": "Ok.",
+   "time": "0 sec.",
+   "cost": 0,
+   "result_count": 1,
+   "path": [
+    "v3",
+    "ai_optimization",
+    "chat_gpt",
+    "llm_scraper",
+    "task_get",
+    "advanced",
+    "11131211-3135-0626-2000-f089a2f7b8d5"
+   ],
+   "data": {},
+   "result": [
+    {
+     "keyword": "albert einstein",
+     "location_code": 2840,
+     "language_code": "en",
+     "model": "gpt-6",
+     "check_url": "https://chatgpt.com/?prompt=albert%20einstein&hints=search",
+     "datetime": "2026-11-12 22:17:42 +00:00",
+     "markdown": "# Albert Einstein \\(1879–1955)\n![File:Albert Einstein 1947.jpg - Wikimedia Commons](https://images.openai.com/static-rsc-4/Zi5yxVznWjaLYuTB-89um_kRAxxUXLO8ooyRYDtubYpqjWzMiwCsajgUjO9TIpxOW351_YStiEd42BvSHJakX7L7y604lTwLw75wteMvL2EUGi7XJ-kJ0Cl8lm_miwBsdTZrwK6y66zcf4eGm3VA-HMBFSfwcvIVV-Jd3afJpc_oqQlHXa5OfmEEQgWAb77C?purpose=fullsize)![Inteligentni częściej mają bałagan na biurku, zarywają noce i prz",
+     "search_results": [
+      {
+       "type": "chatgpt_search_result",
+       "url": "https://www.nobelprize.org/prizes/physics/1921/einstein/facts/?trk=public_post_comment-text&utm_source=chatgpt.com",
+       "domain": "www.nobelprize.org",
+       "title": "Albert Einstein – Facts - NobelPrize.org",
+       "description": "ALBERT EINSTEIN  FACTS  [Select]  Image: Albert Einstein  Photo from the Nobel Foundation archive.  Albert Einstein Nobel Prize in Physics 1921  Born: 14 March 1879, Ulm, Germany  Died: 18 April 1955...",
+       "breadcrumb": "nobelprize.org"
+      }
+     ],
+     "sources": [
+      {
+       "type": "chat_gpt_source",
+       "title": "Albert Einstein – Facts",
+       "snippet": null,
+       "domain": "www.nobelprize.org",
+       "url": "https://www.nobelprize.org/prizes/physics/1921/einstein/facts/?trk=public_post_comment-text&utm_source=chatgpt.com",
+       "thumbnail": null,
+       "source_name": "Nobel Prize",
+       "publication_date": "2026-05-18 00:00:00 +00:00",
+       "markdown": null
+      },
+      {
+       "type": "chat_gpt_source",
+       "title": "Albert Einstein – Biographical",
+       "snippet": null,
+       "domain": "www.nobelprize.org",
+       "url": "https://www.nobelprize.org/prizes/physics/1921/einstein/biographical/?source=interbiznet&utm_source=chatgpt.com",
+       "thumbnail": null,
+       "source_name": "Nobel Prize",
+       "publication_date": null,
+       "markdown": null
+      },
+      {
+       "type": "chat_gpt_source",
+       "title": "Nobel Laureates",
+       "snippet": null,
+       "domain": "www.mpg.de",
+       "url": "https://www.mpg.de/nobel-prize?utm_source=chatgpt.com",
+       "thumbnail": null,
+       "source_name": "Max-Planck-Gesellschaft",
+       "publication_date": null,
+       "markdown": null
+      },
+      {
+       "type": "chat_gpt_source",
+       "title": "Max Planck Society – Einstein",
+       "snippet": null,
+       "domain": "www.nobel.mpg.de",
+       "url": "https://www.nobel.mpg.de/en/albert-einstein?utm_source=chatgpt.com",
+       "thumbnail": null,
+       "source_name": null,
+       "publication_date": null,
+       "markdown": "[Max Planck Society – Einstein](https://www.nobel.mpg.de/en/albert-einstein?utm_source=chatgpt.com)"
+      },
+      {
+       "type": "chat_gpt_source",
+       "title": "History – Albert Einstein",
+       "snippet": null,
+       "domain": "www.history.com",
+       "url": "https://www.history.com/articles/albert-einstein?utm_source=chatgpt.com",
+       "thumbnail": null,
+       "source_name": null,
+       "publication_date": null,
+       "markdown": "[History – Albert Einstein](https://www.history.com/articles/albert-einstein?utm_source=chatgpt.com)"
+      }
+     ],
+     "fan_out_queries": [
+      "Albert Einstein biography scientific contributions Nobel Prize reliable sources"
+     ],
+     "brand_entities": [
+      {
+       "type": "chat_gpt_brand_entity",
+       "title": "Theoretical physicist and Nobel Prize laureate",
+       "category": "people",
+       "markdown": "Albert Einstein",
+       "urls": null
+      }
+     ],
+     "se_results_count": 0,
+     "item_types": [
+      "chat_gpt_text",
+      "chat_gpt_images",
+      "chat_gpt_table"
+     ],
+     "items_count": 13,
+     "items": [
+      {
+       "type": "chat_gpt_text",
+       "rank_group": 1,
+       "rank_absolute": 1,
+       "markdown": "# Albert Einstein \\(1879–1955)\n",
+       "sources": null,
+       "brand_entities": [
+        {
+         "type": "chat_gpt_brand_entity",
+         "title": "Theoretical physicist and Nobel Prize laureate",
+         "category": "people",
+         "markdown": "Albert Einstein",
+         "urls": null
+        }
+       ]
+      },
+      {
+       "type": "chat_gpt_images",
+       "rank_group": 1,
+       "rank_absolute": 2,
+       "markdown": "![File:Albert Einstein 1947.jpg - Wikimedia Commons](https://images.openai.com/static-rsc-4/Zi5yxVznWjaLYuTB-89um_kRAxxUXLO8ooyRYDtubYpqjWzMiwCsajgUjO9TIpxOW351_YStiEd42BvSHJakX7L7y604lTwLw75wteMvL2EU",
+       "items": [
+        {
+         "type": "chat_gpt_images_element",
+         "url": "https://commons.wikimedia.org/wiki/File%3AAlbert_Einstein_1947.jpg",
+         "alt": "File:Albert Einstein 1947.jpg - Wikimedia Commons",
+         "image_url": "https://images.openai.com/static-rsc-4/Zi5yxVznWjaLYuTB-89um_kRAxxUXLO8ooyRYDtubYpqjWzMiwCsajgUjO9TIpxOW351_YStiEd42BvSHJakX7L7y604lTwLw75wteMvL2EUGi7XJ-kJ0Cl8lm_miwBsdTZrwK6y66zcf4eGm3VA-HMBFSfwcvIVV-Jd3afJpc_oqQlHXa5OfmEEQgWAb77C?purpose=fullsize",
+         "markdown": "![File:Albert Einstein 1947.jpg - Wikimedia Commons](https://images.openai.com/static-rsc-4/Zi5yxVznWjaLYuTB-89um_kRAxxUXLO8ooyRYDtubYpqjWzMiwCsajgUjO9TIpxOW351_YStiEd42BvSHJakX7L7y604lTwLw75wteMvL2EUGi7XJ-kJ0Cl8lm_miwBsdTZrwK6y66zcf4eGm3VA-HMBFSfwcvIVV-Jd3afJpc_oqQlHXa5OfmEEQgWAb77C?purpose=fullsize)"
+        },
+        {
+         "type": "chat_gpt_images_element",
+         "url": "https://zdrowie.radiozet.pl/psychologia/inteligentni-czesciej-maja-balagan-na-biurku-zarywaja-noce-i-przeklinaja",
+         "alt": "Inteligentni częściej mają bałagan na biurku, zarywają noce i przeklinają? - Zdrowie Radio ZET",
+         "image_url": "https://images.openai.com/static-rsc-4/N5wz0KUw7TH4jJHVia8V-zOnRBZiiBPwcHoM7mHaRGMv6JX_8TInFY_EnICTozDL8MD5allwdnpYK1fcqIZgOa8hu1gxeWvMhowQ5ZfynSXvlidKx5HgVC57CbGlns9_cNXVgsR4VUZoQiMF15YBXvRKobPiPNHuwrqaZxY3pRmCXLRGLdyT1T9xBAjyRL8h?purpose=fullsize",
+         "markdown": "![Inteligentni częściej mają bałagan na biurku, zarywają noce i przeklinają? - Zdrowie Radio ZET](https://images.openai.com/static-rsc-4/N5wz0KUw7TH4jJHVia8V-zOnRBZiiBPwcHoM7mHaRGMv6JX_8TInFY_EnICTozDL8MD5allwdnpYK1fcqIZgOa8hu1gxeWvMhowQ5ZfynSXvlidKx5HgVC57CbGlns9_cNXVgsR4VUZoQiMF15YBXvRKobPiPNHuwrqaZxY3pRmCXLRGLdyT1T9xBAjyRL8h?purpose=fullsize)"
+        },
+        {
+         "type": "chat_gpt_images_element",
+         "url": "https://letterpile.com/humor/Top-30-Funny-Einstein-Jokes-15-Einstein-Jokes-about-Relativity-Absent-Minded-Lecturer-and-Confusing-Jokes",
+         "alt": "15 Funny Jokes About Einstein and Relativity - LetterPile",
+         "image_url": "https://images.openai.com/static-rsc-4/J3L-GU5xCNGV6qyEyFLgtwRSTXbCKXLBoMJWIf5UWbj65l6AezaitQ_o3ULC2X3o7Rj2TgUNCLsqyUxsJuvW5g7It4IpTIoVyJbACNXcjCG2mXAuM2Z2By1I_pRWzWi0Ma5jtsFVuPOs-5MvHi7mLSgNONrIv4WZHjj6BFbE8QBGAwmrm-sY1McttEia58RO?purpose=fullsize",
+         "markdown": "![15 Funny Jokes About Einstein and Relativity - LetterPile](https://images.openai.com/static-rsc-4/J3L-GU5xCNGV6qyEyFLgtwRSTXbCKXLBoMJWIf5UWbj65l6AezaitQ_o3ULC2X3o7Rj2TgUNCLsqyUxsJuvW5g7It4IpTIoVyJbACNXcjCG2mXAuM2Z2By1I_pRWzWi0Ma5jtsFVuPOs-5MvHi7mLSgNONrIv4WZHjj6BFbE8QBGAwmrm-sY1McttEia58RO?purpose=fullsize)"
+        },
+        {
+         "type": "chat_gpt_images_element",
+         "url": "https://www.wsj.com/articles/what-could-be-lost-as-einsteins-papers-go-online-1417790386",
+         "alt": "What Could Be Lost as Einstein’s Papers Go Online - WSJ",
+         "image_url": "https://images.openai.com/static-rsc-4/dWpv3BKAhYhLcNbM6rk_i0gXDnVjFlmwAcxEf6_Jwc3RzJjgwVrI2xQPUsvC3PXl5MYfHx_OSdblUk-dPiYuus1q5lwioqpbOY6qx4j8zbn0hkFM2Ih5_euvAWaeW4_iibDLJCxeD3GAs8v1Po7w0V_c5ynAlp5XMIwtCLdQfYoKWuWByXz_Fw8sMXBgPkgS?purpose=fullsize",
+         "markdown": "![What Could Be Lost as Einstein’s Papers Go Online - WSJ](https://images.openai.com/static-rsc-4/dWpv3BKAhYhLcNbM6rk_i0gXDnVjFlmwAcxEf6_Jwc3RzJjgwVrI2xQPUsvC3PXl5MYfHx_OSdblUk-dPiYuus1q5lwioqpbOY6qx4j8zbn0hkFM2Ih5_euvAWaeW4_iibDLJCxeD3GAs8v1Po7w0V_c5ynAlp5XMIwtCLdQfYoKWuWByXz_Fw8sMXBgPkgS?purpose=fullsize)"
+        },
+        {
+         "type": "chat_gpt_images_element",
+         "url": "https://www.1stdibs.com/art/photography/roman-vishniac-einstein-at-work-1942/id-a_38426/",
+         "alt": "Roman Vishniac - Einstein at Work, 1942 at 1stDibs | einstein 1942, 1942 einstein",
+         "image_url": "https://images.openai.com/static-rsc-4/iqPhgwgp7OEYG6bpFBl1SaNTJzXIO9WEh1_A3WFgaFoHaA0GFgg5A0ejYSm9RXvjhJmtVx1njyoDzyCQu_b4YPPxAW6YuvFIVWp0IszX0O7umXEoH_7JflxcsCV9qt3qokbEg4Jv_-Ev_p8sOHxSYm0tWPC2pEiTDIDcKmZLbPPIaVTYP5hdpbn96yIQHrIs?purpose=fullsize",
+         "markdown": "![Roman Vishniac - Einstein at Work, 1942 at 1stDibs | einstein 1942, 1942 einstein](https://images.openai.com/static-rsc-4/iqPhgwgp7OEYG6bpFBl1SaNTJzXIO9WEh1_A3WFgaFoHaA0GFgg5A0ejYSm9RXvjhJmtVx1njyoDzyCQu_b4YPPxAW6YuvFIVWp0IszX0O7umXEoH_7JflxcsCV9qt3qokbEg4Jv_-Ev_p8sOHxSYm0tWPC2pEiTDIDcKmZLbPPIaVTYP5hdpbn96yIQHrIs?purpose=fullsize)"
+        },
+        {
+         "type": "chat_gpt_images_element",
+         "url": "https://rarehistoricalphotos.com/albert-einstein-old-photos/",
+         "alt": "These Candid Photographs Capture the Daily Life of Albert Einstein, 1930s-1950s - Rare Historical Photos",
+         "image_url": "https://images.openai.com/static-rsc-4/X0vL2dwxC3vcQ0E_3xSlWA48unMrN0vZ49xZgtLda1pCMCKQklxFVZhwW4EbSqK-t2osSY9V-Ts0JRnT6bgrbzCqlepj2ibgtbsDfSzaY5vjWWhWkECX0lBBKlqsnEnFcmujzOflkdBEd_Pxpf6-CgJ_VR43wuSKDc5Jj0WT8z92fTcOtX0CCWJpq_CkDcKC?purpose=fullsize",
+         "markdown": "![These Candid Photographs Capture the Daily Life of Albert Einstein, 1930s-1950s - Rare Historical Photos](https://images.openai.com/static-rsc-4/X0vL2dwxC3vcQ0E_3xSlWA48unMrN0vZ49xZgtLda1pCMCKQklxFVZhwW4EbSqK-t2osSY9V-Ts0JRnT6bgrbzCqlepj2ibgtbsDfSzaY5vjWWhWkECX0lBBKlqsnEnFcmujzOflkdBEd_Pxpf6-CgJ_VR43wuSKDc5Jj0WT8z92fTcOtX0CCWJpq_CkDcKC?purpose=fullsize)"
+        },
+        {
+         "type": "chat_gpt_images_element",
+         "url": "https://onlineonly.christies.com/s/shoulders-giants-making-modern-world/deep-thought-his-study-39/70066",
+         "alt": "Deep in thought in his study, Albert Einstein. c.1950 | Christie’s",
+         "image_url": "https://images.openai.com/static-rsc-4/Ycf2ZkItWF4o2kyh2LOx0YdjkEaCxzd033I5sJklUEBaIdAwIYqulu63tOQvATiFTUb88cr9d2dqaZrpeM79HgLK13-J-WUIHVD1Vh491bbfQQBC4FkAcRxuAcZIC4k2ln5U4qHNpoCh8mMWfMvV7cIRNYWG5Mk6kHzdzF28UEwnOz5n7XPQp1fvH2jrscD9?purpose=fullsize",
+         "markdown": "![Deep in thought in his study, Albert Einstein. c.1950 | Christie’s](https://images.openai.com/static-rsc-4/Ycf2ZkItWF4o2kyh2LOx0YdjkEaCxzd033I5sJklUEBaIdAwIYqulu63tOQvATiFTUb88cr9d2dqaZrpeM79HgLK13-J-WUIHVD1Vh491bbfQQBC4FkAcRxuAcZIC4k2ln5U4qHNpoCh8mMWfMvV7cIRNYWG5Mk6kHzdzF28UEwnOz5n7XPQp1fvH2jrscD9?purpose=fullsize)"
+        }
+       ]
+      },
+      {
+       "type": "chat_gpt_text",
+       "rank_group": 2,
+       "rank_absolute": 3,
+       "markdown": "\n\n**Albert Einstein** was a German-born theoretical physicist widely regarded as one of the greatest scientists in history. He revolutionized our understanding of space, time, gravity, and energy.\n\n##",
+       "sources": null,
+       "brand_entities": null
+      },
+      {
+       "type": "chat_gpt_images",
+       "rank_group": 2,
+       "rank_absolute": 4,
+       "markdown": "![The Most Beautiful Equations in Physics | by Sunny Labh | Medium](https://images.openai.com/static-rsc-4/912us2etzJFxiNE8IhgCmazP20xnWgKwk6__Yqm_W14TQDcpBw9eS6pgYoa6PYGMYQFAwHCH5sOf2dCiv4IFuD7bLVI6N",
+       "items": [
+        {
+         "type": "chat_gpt_images_element",
+         "url": "https://piggsboson.medium.com/the-most-beautiful-equations-in-physics-48d08bf55b95",
+         "alt": "The Most Beautiful Equations in Physics | by Sunny Labh | Medium",
+         "image_url": "https://images.openai.com/static-rsc-4/912us2etzJFxiNE8IhgCmazP20xnWgKwk6__Yqm_W14TQDcpBw9eS6pgYoa6PYGMYQFAwHCH5sOf2dCiv4IFuD7bLVI6NKBkNd0Qws6iFYkk5xrp-3T7dfX7nj1O-s7eIhj7vNIQCwvYjlgChtHepyuPpO4k3B4RIk-LAz0KOE8Q2cP9cqoVnG4kiOoWxGpq?purpose=fullsize",
+         "markdown": "![The Most Beautiful Equations in Physics | by Sunny Labh | Medium](https://images.openai.com/static-rsc-4/912us2etzJFxiNE8IhgCmazP20xnWgKwk6__Yqm_W14TQDcpBw9eS6pgYoa6PYGMYQFAwHCH5sOf2dCiv4IFuD7bLVI6NKBkNd0Qws6iFYkk5xrp-3T7dfX7nj1O-s7eIhj7vNIQCwvYjlgChtHepyuPpO4k3B4RIk-LAz0KOE8Q2cP9cqoVnG4kiOoWxGpq?purpose=fullsize)"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

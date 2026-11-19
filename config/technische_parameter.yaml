@@ -1,0 +1,16 @@
+parameters:
+  - name: utm_
+    prefix: true
+    source: https://support.google.com/analytics/answer/1033863
+  - name: gclid
+    source: https://support.wix.com/en/article/about-external-url-parameters
+  - name: fbclid
+    source: https://support.wix.com/en/article/about-external-url-parameters
+  - name: sessionid
+    source: https://ahrefs.com/blog/url-parameters
+  - name: sort
+    source: https://ahrefs.com/blog/url-parameters
+  - name: order
+    source: https://ahrefs.com/blog/url-parameters
+  - name: replytocom
+    source: https://wordpress.org/plugins/replytocom-controller/

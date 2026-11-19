@@ -1,9 +1,3 @@
-"""Tests for the worker's analysis step.
-
-Context: Fake repositories and a fake Claude Code; the real CLI never runs. | Input: Fixtures. |
-Output: Assertions.
-"""
-
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -28,7 +22,6 @@ JobFactory = Callable[..., Job]
 VALID_TEXTS = {
     "introduction": "Sie werden gefunden.",
     "summary": "Gut. Lückenhaft. Teuer.",
-    "forecast_note": "Eine Schätzung.",
     "subscription_reason": "Ihre Wettbewerber holen auf.",
     "offer_text": "Erstoptimierung.",
     "talk_text": "Sie stehen auf der Karte hinter drei Nachbarn.",
@@ -37,7 +30,6 @@ VALID_TEXTS = {
 
 @pytest.fixture
 def repositories(fake_repositories: MagicMock, sample_raw_audit: RawAudit) -> MagicMock:
-    """Fake repositories whose download writes the sample RawAudit."""
 
     def write(bucket: str, remote_path: str, local_file: Path) -> Path:
         local_file.write_text(sample_raw_audit.model_dump_json(), encoding="utf-8")
@@ -48,7 +40,6 @@ def repositories(fake_repositories: MagicMock, sample_raw_audit: RawAudit) -> Ma
 
 
 def writing_runner(texts: object) -> Callable[[Path, Settings], None]:
-    """A runner that writes one finding for a1 and the given texts, like Claude Code."""
 
     def run(folder: Path, settings: Settings) -> None:
         audit_id = json.loads((folder / "audit.json").read_text(encoding="utf-8"))["audit"]["id"]
@@ -70,7 +61,6 @@ def writing_runner(texts: object) -> Callable[[Path, Settings], None]:
 
 
 def failing_runner(failure: ClaudeCodeFailure) -> Callable[[Path, Settings], None]:
-    """A runner that fails like Claude Code does with the given kind of failure."""
 
     def run(folder: Path, settings: Settings) -> None:
         raise ClaudeCodeError("exit code 1: something", failure)
@@ -79,7 +69,6 @@ def failing_runner(failure: ClaudeCodeFailure) -> Callable[[Path, Settings], Non
 
 
 def uploaded_record(repositories: MagicMock, settings: Settings, job: Job) -> dict[str, object]:
-    """The auswertung.json that was uploaded, read from the done folder."""
     remote_paths = [c.args[1] for c in repositories.upload.call_args_list]
     assert remote_paths == [f"{job.audit_id}/texte.json", f"{job.audit_id}/auswertung.json"]
     done = settings.radar_work_dir / "erledigt" / str(job.id) / "auswertung.json"
@@ -90,7 +79,6 @@ def uploaded_record(repositories: MagicMock, settings: Settings, job: Job) -> di
 def test_claude_code_path_delivers_its_files(
     repositories: MagicMock, settings: Settings, make_job: JobFactory
 ) -> None:
-    """Valid output from Claude Code is pushed unchanged and recorded as claude_code."""
     job = make_job(JobKind.ANALYSE)
 
     record = analyse_job(job, repositories, settings, writing_runner(VALID_TEXTS))
@@ -123,7 +111,6 @@ def test_no_substitute_when_claude_code_fails_or_writes_invalid_files(
     runner: Callable[[Path, Settings], None],
     reason: str,
 ) -> None:
-    """Nothing is delivered; the German reason is raised and the folder removed."""
     job = make_job(JobKind.ANALYSE)
 
     with pytest.raises(AnalysisUnavailableError) as caught:
@@ -140,7 +127,6 @@ def test_no_substitute_when_claude_code_fails_or_writes_invalid_files(
 def test_missing_cli_is_reported_as_not_installed(
     repositories: MagicMock, settings: Settings, make_job: JobFactory
 ) -> None:
-    """The test settings name a command that does not exist."""
     with pytest.raises(AnalysisUnavailableError, match="nicht installiert"):
         analyse_job(make_job(JobKind.ANALYSE), repositories, settings)
 
@@ -148,7 +134,6 @@ def test_missing_cli_is_reported_as_not_installed(
 def test_failed_delivery_removes_the_folder(
     repositories: MagicMock, settings: Settings, make_job: JobFactory
 ) -> None:
-    """A storage error propagates for a retry and leaves no folder behind for `jobs push`."""
     repositories.save_findings.side_effect = StorageError("database down")
     job = make_job(JobKind.ANALYSE)
 
@@ -177,7 +162,6 @@ def test_with_the_fake_cli(
     mode: str,
     reason: str | None,
 ) -> None:
-    """The real subprocess call: success, missing login, invalid files, timeout and an error."""
     monkeypatch.setenv("FAKE_CLAUDE_MODE", mode)
     quick = claude_settings.model_copy(update={"analysis_timeout_seconds": 1})
 
@@ -204,7 +188,6 @@ def test_with_the_fake_cli(
     ],
 )
 def test_backoff_steps_then_every_six_hours(attempts: int, wait: timedelta) -> None:
-    """10 min, 30 min, 2 h, then 6 h for good; the job never gives up."""
     now = datetime(2026, 10, 23, 8, 0, tzinfo=UTC)
 
     assert retry_at(attempts, now) == now + wait

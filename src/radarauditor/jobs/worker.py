@@ -1,38 +1,13 @@
-"""Poll the queue and run the audit, serp_retry, optimize and apply jobs.
-
-Context: Long-running process in the container; one job at a time; failures are recorded on the job
-and the audit. A serp_retry job follows its own backoff and never fails the audit. An analyse job
-without an answer from Claude Code is re-queued with its own backoff and the audit keeps waiting.
-A background pulse writes the heartbeat every poll interval, also while a long job runs, and touches
-the alive file for the container health check; while it reports analysis_available false, no new
-collect jobs are claimed (the other kinds go on). Every job starts by reading the app settings
-(source switches and caps). While the queue is empty it first issues the documents the app
-requested, delivers events, and then lets Claude Code read one of the mails the CRM queued (only
-while the heartbeat says mails can be read; after a problem only once Claude Code was checked again,
-which happens at once when it lost its login or its subscription is used up). An audit with
-purpose monthly (queued by the CRM for a subscription) that has an earlier reported audit gets the
-before-after report, every other audit the sales report.
-Before every claim a waiting customer search runs (prospects/search.py), so it waits at most for
-the job that is running. Document requests run in a thread, because the review reply drafts let
-Claude Code write for minutes and the heartbeat must go on meanwhile. A reported monthly audit
-queues the monthly service (public.queue_monthly_service): one optimize job that drafts replies to
-new reviews and profile care for the order of the customer's subscription.
-An audit carries its own selection of checks (audits.disabled_checks), the only one that counts;
-an empty selection runs every check. A collect job whose business has no findable city fails its
-audit at once with a German message instead of being retried. Beside the jobs, the requests of the
-Cockpit assistant are answered one after the other (jobs/assistant.py), unless
-COCKPIT_ASSISTANT_POLL_SECONDS is 0.
-Input: Settings.
-Output: Nothing; side effects in Supabase.
-"""
-
 import asyncio
 import contextlib
 import functools
+import itertools
 import logging
 import signal
 import tempfile
+import threading
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
@@ -40,9 +15,11 @@ from uuid import UUID
 from radarauditor.collectors.browser import BrowserService
 from radarauditor.collectors.quota import SourceGate
 from radarauditor.collectors.snapshot import RawAudit
+from radarauditor.collectors.steps import StepStore, raw_answer_path
 from radarauditor.config import Settings
 from radarauditor.db.app_settings import (
     WORKER_SETTINGS_KEYS,
+    Source,
     WorkerCapabilities,
     WorkerSettings,
     parse_worker_settings,
@@ -52,6 +29,7 @@ from radarauditor.db.models import (
     AuditKind,
     AuditPurpose,
     AuditStatus,
+    CheckResult,
     Job,
     JobKind,
     JobStatus,
@@ -59,23 +37,28 @@ from radarauditor.db.models import (
 from radarauditor.db.repositories import Repositories
 from radarauditor.errors import (
     AnalysisUnavailableError,
+    AuditHalted,
     IdentificationError,
     RadarError,
     SearchBlockedError,
 )
-from radarauditor.jobs import serp_retry
+from radarauditor.jobs import claude_code, serp_retry
 from radarauditor.jobs.analysis import retry_at as analysis_retry_at
 from radarauditor.jobs.heartbeat import (
     CapabilityProbe,
     build_heartbeat,
     detect_capabilities,
+    run_watchdog,
     touch_alive_file,
     with_mail_problem,
     write_heartbeat,
 )
+from radarauditor.jobs.notify import Notifier
+from radarauditor.jobs.repair import blocking_failures
 
 if TYPE_CHECKING:
     from radarauditor.jobs.mail_triage import MailReader, ReadOutcome
+    from radarauditor.scoring.catalog import Catalogue
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +66,7 @@ POLL_SECONDS = 15
 MAX_ATTEMPTS = 3
 PRIORITY = (
     JobKind.COLLECT,
+    JobKind.REPAIR,
     JobKind.SCORE,
     JobKind.ANALYSE,
     JobKind.REPORT,
@@ -90,14 +74,20 @@ PRIORITY = (
     JobKind.APPLY,
     JobKind.OPTIMIZE,
 )
-# Without Claude Code an audit could not be analysed, so none is started.
 NEEDS_ANALYSIS = frozenset({JobKind.COLLECT})
 RESCORED_STATUSES = frozenset(
-    {AuditStatus.SCORED, AuditStatus.AWAITING_ANALYSIS, AuditStatus.ANALYSED, AuditStatus.REPORTED}
+    {
+        AuditStatus.SCORED,
+        AuditStatus.CONTROLLING,
+        AuditStatus.AWAITING_ANALYSIS,
+        AuditStatus.ANALYSED,
+        AuditStatus.REPORTED,
+    }
 )
-# Only a failure of these marks the audit failed; optimize and apply belong to an order.
 AUDIT_PIPELINE = frozenset({JobKind.COLLECT, JobKind.SCORE, JobKind.ANALYSE, JobKind.REPORT})
+MANAGED_KINDS = AUDIT_PIPELINE | {JobKind.SERP_RETRY, JobKind.REPAIR}
 RAW_BUCKET = "raw"
+NO_UPLIFT = (0.0, 0.0)
 REPORTS_BUCKET = "reports"
 RAW_FILE = "raw.json"
 AUDIT_REPORTED_EVENT = "audit.reported"
@@ -105,7 +95,6 @@ INTERRUPTED_ERROR = "Der Server wurde während des Auftrags neu gestartet"
 
 
 async def run_forever(settings: Settings) -> None:
-    """Claim and run jobs until stopped."""
     repositories = Repositories(settings)
     stop = asyncio.Event()
     installed = _install_stop_handlers(stop)
@@ -124,7 +113,6 @@ def _install_stop_handlers(stop: asyncio.Event) -> list[signal.Signals]:
         try:
             loop.add_signal_handler(stop_signal, stop.set)
         except NotImplementedError:
-            # Windows event loops have no add_signal_handler; fall back to the plain handler.
             signal.signal(stop_signal, lambda *_: loop.call_soon_threadsafe(stop.set))
             continue
         installed.append(stop_signal)
@@ -138,24 +126,21 @@ def _remove_stop_handlers(installed: list[signal.Signals]) -> None:
 
 
 async def serve(repositories: Repositories, settings: Settings, stop: asyncio.Event) -> None:
-    """Run jobs until the stop event is set; the current job always finishes first.
-
-    Args:
-        repositories: Database access.
-        settings: Runtime settings.
-        stop: Set by a signal handler or a test to end the loop.
-    """
     _requeue_interrupted(repositories)
     probe = CapabilityProbe(functools.partial(detect_capabilities, settings))
     pulse = Pulse(repositories, probe, settings.worker_alive_file)
     await pulse.beat()
+    watchdog_stop = _start_watchdog(settings)
     background = [asyncio.create_task(pulse.run(stop))]
     if settings.cockpit_assistant_poll_seconds > 0:
         background.append(asyncio.create_task(_answer_assistant(repositories, settings, stop)))
+    if settings.audit_manager_enabled:
+        background.append(asyncio.create_task(_manage_audits(repositories, settings, stop)))
+    background.append(asyncio.create_task(_control_audits(repositories, settings, stop)))
     try:
         await _claim_and_run(repositories, settings, stop, pulse)
     finally:
-        # A request being answered in its thread finishes there; asyncio.run waits for it.
+        watchdog_stop.set()
         for task in background:
             task.cancel()
         for task in background:
@@ -163,18 +148,49 @@ async def serve(repositories: Repositories, settings: Settings, stop: asyncio.Ev
                 await task
 
 
+def _start_watchdog(settings: Settings) -> threading.Event:
+    stop = threading.Event()
+    if settings.worker_alive_file is not None:
+        threading.Thread(
+            target=run_watchdog, args=(settings.worker_alive_file, stop), daemon=True
+        ).start()
+    return stop
+
+
 async def _answer_assistant(
     repositories: Repositories, settings: Settings, stop: asyncio.Event
 ) -> None:
-    """Answer the Cockpit assistant beside the jobs, so a request never waits for an audit."""
     from radarauditor.jobs import assistant
 
     desk = assistant.AssistantDesk(repositories, settings)
     await assistant.run_assistant(desk, settings.cockpit_assistant_poll_seconds, stop)
 
 
+async def _control_audits(
+    repositories: Repositories, settings: Settings, stop: asyncio.Event
+) -> None:
+    from radarauditor.jobs.control_run import run_control_loop
+
+    await run_control_loop(repositories, settings, stop)
+
+
+async def _manage_audits(
+    repositories: Repositories, settings: Settings, stop: asyncio.Event
+) -> None:
+    from radarauditor.jobs.audit_manager import run_audit_manager
+    from radarauditor.jobs.job_signal import open_jobs_subscription
+    from radarauditor.jobs.manager_agent import run_manager_agent
+
+    await run_audit_manager(
+        repositories,
+        settings,
+        stop,
+        functools.partial(open_jobs_subscription, settings),
+        run_manager_agent,
+    )
+
+
 def _requeue_interrupted(repositories: Repositories) -> None:
-    """Put jobs a previous run of the container left running back into the queue."""
     try:
         count = repositories.requeue_running_jobs(INTERRUPTED_ERROR)
     except RadarError as exc:
@@ -197,8 +213,9 @@ async def _claim_and_run(
         if now_paused != paused:
             _log_pause(now_paused, pulse.capabilities)
             paused = now_paused
+        held = paused | MANAGED_KINDS if settings.audit_manager_enabled else paused
         try:
-            job = claim_next(repositories, paused)
+            job = claim_next(repositories, held)
         except RadarError as exc:
             logger.error("Claiming jobs failed: %s", exc)
             job = None
@@ -213,26 +230,23 @@ async def _claim_and_run(
 
 
 async def _run_customer_search(repositories: Repositories, settings: Settings) -> None:
-    """Run the oldest waiting customer search; it records its own failures."""
     from radarauditor.prospects import search
 
     await search.run_next_search(repositories, settings)
 
 
 class MailProblem(NamedTuple):
-    """Why mail reading pauses, and since when."""
-
     reason: str
     since: datetime
 
 
 class Pulse:
-    """Writes the heartbeat every poll interval, independent of how long the current job takes."""
-
     def __init__(
-        self, repositories: Repositories, probe: CapabilityProbe, alive_file: Path | None
+        self,
+        repositories: Repositories,
+        probe: CapabilityProbe,
+        alive_file: Path | None,
     ) -> None:
-        """Remember where to write; capabilities stay unknown until the first beat."""
         self._repositories = repositories
         self._probe = probe
         self._alive_file = alive_file
@@ -240,12 +254,10 @@ class Pulse:
         self.mail_problem: MailProblem | None = None
 
     async def beat(self) -> None:
-        """Write one heartbeat with the last mail problem and keep the capabilities it detected."""
         problem = self.mail_problem.reason if self.mail_problem is not None else None
         self.capabilities = await beat(self._repositories, self._probe, self._alive_file, problem)
 
     def may_read_mail(self, enabled: bool) -> bool:
-        """Whether mails may be read: switched on, readable, no problem since the last check."""
         if not enabled or self.capabilities is None or not self.capabilities.mail_reading_available:
             return False
         if self.mail_problem is None:
@@ -254,13 +266,11 @@ class Pulse:
         return detected is not None and detected > self.mail_problem.since
 
     def record_mail(self, outcome: "ReadOutcome", now: datetime) -> None:
-        """Keep the problem of a mail poll; have Claude Code checked again when it was missing."""
         self.mail_problem = None if outcome.problem is None else MailProblem(outcome.problem, now)
         if outcome.claude_unavailable:
             self._probe.invalidate()
 
     async def run(self, stop: asyncio.Event) -> None:
-        """Beat after every poll interval until the stop event is set."""
         while not stop.is_set():
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(stop.wait(), timeout=POLL_SECONDS)
@@ -274,17 +284,6 @@ async def beat(
     alive_file: Path | None = None,
     mail_problem: str | None = None,
 ) -> WorkerCapabilities | None:
-    """Write the heartbeat and, once it is stored, touch the alive file; failures are logged.
-
-    Args:
-        repositories: Database access.
-        probe: Cached capability detection.
-        alive_file: File the container health check reads; None writes none.
-        mail_problem: German reason why the last mail run could not read mails, or None.
-
-    Returns:
-        The detected capabilities without the mail problem, or None when detection failed.
-    """
     now = datetime.now(UTC)
     try:
         detected = await asyncio.to_thread(probe.current, now)
@@ -315,48 +314,18 @@ def _log_pause(paused: frozenset[JobKind], capabilities: WorkerCapabilities | No
 
 
 def paused_kinds(capabilities: WorkerCapabilities | None) -> frozenset[JobKind]:
-    """Return the job kinds not to claim now: collect while Claude Code cannot analyse.
-
-    Args:
-        capabilities: Current capabilities; None (unknown) pauses nothing.
-
-    Returns:
-        Kinds to skip when claiming.
-    """
     return frozenset() if claude_code_answers(capabilities) else NEEDS_ANALYSIS
 
 
 def claude_code_answers(capabilities: WorkerCapabilities | None) -> bool:
-    """Whether Claude Code answered the last check; unknown capabilities count as answering."""
     return capabilities is None or capabilities.analysis_available
 
 
 def read_worker_settings(repositories: Repositories) -> WorkerSettings:
-    """Read the source switches with caps from table settings.
-
-    Args:
-        repositories: Database access.
-
-    Returns:
-        The validated switches; keys without a row keep their defaults.
-
-    Raises:
-        StorageError: If the rows cannot be read.
-        ConfigurationError: If a row has the wrong shape.
-    """
     return parse_worker_settings(repositories.settings_values(WORKER_SETTINGS_KEYS))
 
 
 def claim_next(repositories: Repositories, paused: frozenset[JobKind] = frozenset()) -> Job | None:
-    """Claim one job of the most urgent kind that has queued work.
-
-    Args:
-        repositories: Database access.
-        paused: Kinds that are not claimed now.
-
-    Returns:
-        The claimed job, or None when the queue is empty.
-    """
     for kind in PRIORITY:
         if kind in paused:
             continue
@@ -367,7 +336,6 @@ def claim_next(repositories: Repositories, paused: frozenset[JobKind] = frozense
 
 
 async def _read_mail(mails: "MailReader", settings: Settings, pulse: Pulse) -> None:
-    """Let Claude Code read one queued mail; claimed mails would only lose attempts otherwise."""
     if not pulse.may_read_mail(settings.mail_triage_batch > 0):
         return
     now = datetime.now(UTC)
@@ -396,15 +364,6 @@ async def _deliver_events(repositories: Repositories, settings: Settings) -> Non
 
 
 def run_document_requests(repositories: Repositories, settings: Settings) -> None:
-    """Issue the documents the app requested; errors are logged, not raised.
-
-    The job_kind enum has no value for these, so the app leaves documents rows without a file
-    instead of jobs.
-
-    Args:
-        repositories: Database access.
-        settings: Runtime settings.
-    """
     from radarauditor.documents.requests import process_pending_requests
 
     try:
@@ -417,14 +376,9 @@ def run_document_requests(repositories: Repositories, settings: Settings) -> Non
 
 
 async def process_job(job: Job, repositories: Repositories, settings: Settings) -> None:
-    """Run one job and record success, a retry or the final failure.
-
-    Args:
-        job: A claimed job; its attempts counter already includes this run.
-        repositories: Database access.
-        settings: Runtime settings.
-    """
     logger.info("Running %s job %s (attempt %d)", job.kind.value, job.id, job.attempts)
+    if job.kind is JobKind.COLLECT and job.attempts == 1 and job.audit_id is not None:
+        Notifier(repositories, settings).audit_started(job.audit_id, job.customer_id)
     try:
         await run_job(job, repositories, settings)
     except SearchBlockedError as exc:
@@ -434,13 +388,14 @@ async def process_job(job: Job, repositories: Repositories, settings: Settings) 
     except AnalysisUnavailableError as exc:
         _requeue_analysis(job, repositories, str(exc))
         return
+    except AuditHalted as exc:
+        logger.warning("Job %s: %s", job.id, exc)
+        _hold(job, repositories, str(exc))
     except IdentificationError as exc:
-        # Another attempt would read the same website; the German message goes to the app as is.
         logger.warning("Job %s: %s", job.id, exc)
         _fail_at_once(job, repositories, str(exc))
         return
     except Exception as exc:
-        # The loop must survive any failure of a single job; the error is stored on the job.
         logger.exception("Job %s failed", job.id)
         _record_failure(job, repositories, f"{type(exc).__name__}: {exc}")
         return
@@ -450,8 +405,16 @@ async def process_job(job: Job, repositories: Repositories, settings: Settings) 
         logger.error("Job %s finished but could not be marked done: %s", job.id, exc)
 
 
+def _hold(job: Job, repositories: Repositories, message: str) -> None:
+    if job.audit_id is None:
+        return
+    try:
+        repositories.set_audit_status(job.audit_id, AuditStatus.HALTED, message)
+    except RadarError as exc:
+        logger.error("Halt of audit %s could not be recorded: %s", job.audit_id, exc)
+
+
 def _requeue_analysis(job: Job, repositories: Repositories, reason: str) -> None:
-    """Put an analyse job back after its backoff; the audit stays awaiting_analysis."""
     run_after = analysis_retry_at(job.attempts, datetime.now(UTC))
     logger.warning("Analyse job %s waits until %s: %s", job.id, run_after, reason)
     try:
@@ -461,7 +424,6 @@ def _requeue_analysis(job: Job, repositories: Repositories, reason: str) -> None
 
 
 def _fail_at_once(job: Job, repositories: Repositories, message: str) -> None:
-    """Fail the job and its audit without another attempt."""
     try:
         repositories.finish_job(job.id, JobStatus.FAILED, message)
         if job.audit_id is not None and job.kind in AUDIT_PIPELINE:
@@ -472,6 +434,9 @@ def _fail_at_once(job: Job, repositories: Repositories, message: str) -> None:
 
 def _record_failure(job: Job, repositories: Repositories, message: str) -> None:
     try:
+        if job.kind is JobKind.REPAIR:
+            repositories.requeue_job(job.id, message)
+            return
         if job.kind is JobKind.SERP_RETRY:
             serp_retry.record_failure(job, repositories, message, datetime.now(UTC))
             return
@@ -488,19 +453,35 @@ def _record_failure(job: Job, repositories: Repositories, message: str) -> None:
         logger.error("Failure of job %s could not be recorded: %s", job.id, exc)
 
 
+CLAUDE_SERVICES = {JobKind.COLLECT: "assistants", JobKind.ANALYSE: "analysis"}
+
+
+def _usage_sink(job: Job, repositories: Repositories) -> claude_code.UsageSink | None:
+    service = CLAUDE_SERVICES.get(job.kind)
+    if job.audit_id is None or service is None:
+        return None
+    audit_id = job.audit_id
+
+    def book(tokens_in: int, tokens_out: int) -> None:
+        repositories.add_audit_cost(
+            audit_id,
+            Source.CLAUDE.value,
+            service,
+            calls=1,
+            cost=Decimal(0),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+        )
+
+    return book
+
+
 async def run_job(job: Job, repositories: Repositories, settings: Settings) -> None:
-    """Dispatch one job by kind.
+    with claude_code.counting_usage(_usage_sink(job, repositories)):
+        await _dispatch(job, repositories, settings)
 
-    COLLECT stores the raw data and rankings and enqueues SCORE; SCORE stores check results with
-    potential and uplift and enqueues ANALYSE; ANALYSE writes findings and texts with headless
-    Claude Code and enqueues REPORT. SERP_RETRY runs the deferred Google searches and re-scores
-    the audit with what it found. OPTIMIZE drafts changes for a CRM order with headless Claude
-    Code; APPLY performs the approved ones. The app settings are read first, so a switch changed in
-    the app applies from the next job on.
 
-    Raises:
-        SearchBlockedError: If a SERP_RETRY run leaves searches deferred.
-    """
+async def _dispatch(job: Job, repositories: Repositories, settings: Settings) -> None:
     job_settings = read_worker_settings(repositories)
     if job.kind is JobKind.OPTIMIZE:
         from radarauditor.optimization.prepare import optimize_order
@@ -519,6 +500,8 @@ async def run_job(job: Job, repositories: Repositories, settings: Settings) -> N
         raise RadarError(f"job {job.id}: {job.kind.value} job has no audit id")
     if job.kind is JobKind.COLLECT:
         await _collect(job.audit_id, job.customer_id, repositories, settings, job_settings)
+    elif job.kind is JobKind.REPAIR:
+        await _repair(job.audit_id, job.customer_id, repositories, settings, job_settings)
     elif job.kind is JobKind.SCORE:
         _score(job.audit_id, job.customer_id, repositories, settings, job_settings)
     elif job.kind is JobKind.SERP_RETRY:
@@ -536,10 +519,15 @@ async def _collect(
 ) -> None:
     from radarauditor.collectors.run import collect_audit
 
+    _require_migrations(repositories)
     repositories.set_audit_status(audit_id, AuditStatus.COLLECTING)
-    gate = SourceGate(job_settings.sources, repositories.consume_source_quota, repositories)
-    raw = await collect_audit(audit_id, repositories, settings, gate)
+    gate = audit_gate(job_settings, repositories, audit_id)
+    unattended = settings.model_copy(update={"assistant_handoff": False, "halt_stages": ()})
+    raw = await collect_audit(audit_id, repositories, unattended, gate)
     _store_raw(audit_id, raw, repositories)
+    if blocking_failures(StepStore(audit_id, repositories)):
+        repositories.enqueue(JobKind.REPAIR, customer_id, audit_id)
+        return
     _save_rankings(audit_id, customer_id, raw, repositories)
     if raw.deferred_searches:
         serp_retry.schedule(repositories, customer_id, audit_id, datetime.now(UTC))
@@ -547,15 +535,56 @@ async def _collect(
     repositories.enqueue(JobKind.SCORE, customer_id, audit_id)
 
 
+def _require_migrations(repositories: Repositories) -> None:
+    missing = repositories.missing_migrations()
+    if missing:
+        raise AuditHalted(
+            f"Datenbank-Änderung {', '.join(missing)} fehlt. Der Audit startet erst, wenn sie "
+            "eingespielt ist; es wurde nichts gesammelt und nichts bezahlt"
+        )
+
+
+def audit_gate(
+    job_settings: WorkerSettings, repositories: Repositories, audit_id: UUID
+) -> SourceGate:
+    counter = itertools.count(1)
+
+    def keep_raw(name: str, body: bytes) -> None:
+        stamped = f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{next(counter):05d}-{name}"
+        repositories.upload_bytes(RAW_BUCKET, raw_answer_path(audit_id, stamped), body)
+
+    return SourceGate(
+        job_settings.sources, repositories.consume_source_quota, repositories, audit_id, keep_raw
+    )
+
+
+async def _repair(
+    audit_id: UUID,
+    customer_id: UUID,
+    repositories: Repositories,
+    settings: Settings,
+    job_settings: WorkerSettings,
+) -> None:
+    from radarauditor.jobs.repair import repair_failed_steps
+    from radarauditor.jobs.repair_agent import run_repair_agent
+
+    outcome = await repair_failed_steps(audit_id, repositories, settings, run_repair_agent)
+    if not outcome.done:
+        repositories.enqueue(JobKind.REPAIR, customer_id, audit_id, run_after=outcome.run_after)
+        return
+    await _collect(audit_id, customer_id, repositories, settings, job_settings)
+
+
 def _store_raw(audit_id: UUID, raw: RawAudit, repositories: Repositories) -> None:
     with tempfile.TemporaryDirectory() as scratch:
         raw_file = Path(scratch) / RAW_FILE
         raw_file.write_text(raw.model_dump_json(), encoding="utf-8")
         raw_path = repositories.upload(RAW_BUCKET, f"{audit_id}/{RAW_FILE}", raw_file)
-    repositories.update_audit(audit_id, raw_data_path=raw_path)
+    social = raw.social.model_dump(mode="json") if raw.social is not None else None
+    repositories.update_audit(audit_id, raw_data_path=raw_path, social=social)
 
 
-def _load_raw(audit: Audit, repositories: Repositories) -> RawAudit:
+def load_raw(audit: Audit, repositories: Repositories) -> RawAudit:
     if audit.raw_data_path is None:
         raise RadarError(f"audit {audit.id} has no raw data")
     with tempfile.TemporaryDirectory() as scratch:
@@ -571,18 +600,21 @@ async def _retry_searches(
     job_settings: WorkerSettings,
 ) -> None:
     audit = repositories.audit(audit_id)
-    raw = _load_raw(audit, repositories)
+    raw = load_raw(audit, repositories)
     if not raw.deferred_searches:
         logger.info("Audit %s has no deferred Google searches left", audit_id)
         return
-    gate = SourceGate(job_settings.sources, repositories.consume_source_quota, repositories)
-    async with BrowserService(settings.browser_profile_dir) as browser:
-        run = await serp_retry.search_deferred(raw, browser, gate)
+    gate = SourceGate(
+        job_settings.sources, repositories.consume_source_quota, repositories, audit_id
+    )
+    async with BrowserService(
+        settings.browser_profile_dir, channel=settings.browser_channel
+    ) as browser:
+        run = await serp_retry.search_deferred(raw, browser, gate, settings)
     if run.found:
         logger.info("Retry found %d Google results for audit %s", run.found, audit_id)
         _store_raw(audit_id, run.raw, repositories)
         _save_rankings(audit_id, customer_id, run.raw, repositories)
-        # An audit that was not scored yet picks the new data up with its queued SCORE job.
         if audit.status in RESCORED_STATUSES:
             _score(audit_id, customer_id, repositories, settings, job_settings)
     if run.remaining:
@@ -623,11 +655,12 @@ def _score(
     job_settings: WorkerSettings,
 ) -> None:
     from radarauditor.scoring.catalog import load_catalogue
-    from radarauditor.scoring.evaluator import evaluate, total_score
+    from radarauditor.scoring.evaluator import evaluate
     from radarauditor.scoring.potential import with_potential
 
     audit = repositories.audit(audit_id)
-    raw = _load_raw(audit, repositories)
+    _announce_evaluation(audit, settings, repositories)
+    raw = _with_ranking_history(audit, load_raw(audit, repositories), repositories)
     catalogue = load_catalogue(settings.catalogue_path)
     results = evaluate(
         audit_id,
@@ -637,27 +670,63 @@ def _score(
         with_access=audit.kind is AuditKind.WITH_ACCESS,
         disabled_checks=disabled_checks_of(audit),
     )
-    gain = _forecast_gain(audit_id, customer_id, repositories, settings)
-    results = with_potential(results, catalogue, gain)
+    results = with_potential(results, catalogue, NO_UPLIFT)
     repositories.save_check_results(results)
-    repositories.update_audit(audit_id, total_score=total_score(results, catalogue))
-    repositories.set_audit_status(audit_id, AuditStatus.SCORED)
-    repositories.enqueue(JobKind.ANALYSE, customer_id, audit_id)
-    repositories.set_audit_status(audit_id, AuditStatus.AWAITING_ANALYSIS)
+    _report_checks(audit, raw, results, catalogue, settings, repositories, job_settings)
+    repositories.set_total_score(audit_id, None)
+    repositories.set_audit_status(audit_id, AuditStatus.CONTROLLING)
+
+
+def _announce_evaluation(audit: Audit, settings: Settings, repositories: Repositories) -> None:
+    from radarauditor.feedback.hub import Feedback
+
+    try:
+        business = repositories.customer(audit.customer_id).name
+        Feedback.create(audit.id, business, settings, repositories).evaluation_running()
+    except RadarError as exc:
+        logger.warning("Evaluation event of audit %s not written: %s", audit.id, exc)
+
+
+def _with_ranking_history(audit: Audit, raw: RawAudit, repositories: Repositories) -> RawAudit:
+    from radarauditor.scoring.rankings import ranking_history
+
+    previous = repositories.previous_audit(audit)
+    if previous is None:
+        return raw
+    phrases = {keyword.id: keyword.phrase for keyword in repositories.keywords(audit.customer_id)}
+    history = ranking_history(
+        previous, repositories.rankings(previous.id), repositories.rankings(audit.id), phrases
+    )
+    return raw.model_copy(update={"ranking_history": history})
+
+
+def _report_checks(
+    audit: Audit,
+    raw: RawAudit,
+    results: list[CheckResult],
+    catalogue: "Catalogue",
+    settings: Settings,
+    repositories: Repositories,
+    job_settings: WorkerSettings,
+) -> None:
+    from radarauditor.feedback.hub import Feedback
+    from radarauditor.reporting.report import load_pending
+
+    try:
+        business = repositories.customer(audit.customer_id).name
+        feedback = Feedback.create(audit.id, business, settings, repositories)
+        feedback.checks_done(
+            results,
+            catalogue,
+            load_pending(settings.catalogue_path),
+            raw.route_reports,
+            paid_enabled=job_settings.sources.dataforseo.enabled,
+        )
+    except RadarError as exc:
+        logger.warning("Check events of audit %s not written: %s", audit.id, exc)
 
 
 def disabled_checks_of(audit: Audit) -> frozenset[str]:
-    """Checks switched off for an audit: its own selection only.
-
-    The app sends the selection with every audit and stores it in audits.disabled_checks (migration
-    011); an empty selection means every check runs.
-
-    Args:
-        audit: The audit being scored.
-
-    Returns:
-        Ids of the checks to skip.
-    """
     return frozenset(audit.disabled_checks)
 
 
@@ -667,42 +736,13 @@ def _analyse(job: Job, repositories: Repositories, settings: Settings) -> None:
     analyse_job(job, repositories, settings)
 
 
-def _forecast_gain(
-    audit_id: UUID, customer_id: UUID, repositories: Repositories, settings: Settings
-) -> tuple[float, float]:
-    from radarauditor.reporting.forecast import enquiry_gain, report_forecast
-
-    forecast = report_forecast(
-        repositories.customer(customer_id).industry,
-        repositories.keywords(customer_id),
-        repositories.rankings(audit_id),
-        settings.forecast_path,
-        settings.industries_path,
-    )
-    return enquiry_gain(forecast)
-
-
 def is_follow_up(audit: Audit, repositories: Repositories) -> bool:
-    """Whether an audit gets the before-after report instead of the sales report.
-
-    Args:
-        audit: The audit being reported.
-        repositories: Database access, asked for an earlier reported audit only when needed.
-
-    Returns:
-        True for a monthly audit with an earlier reported audit of the same business.
-    """
     if audit.purpose is not AuditPurpose.MONTHLY:
         return False
     return repositories.previous_audit(audit) is not None
 
 
 def _queue_monthly_service(audit_id: UUID, repositories: Repositories) -> None:
-    """Queue the drafts of the month; a failure fails the report job, which is then retried.
-
-    Raises:
-        StorageError: If the job cannot be queued.
-    """
     job_id = repositories.queue_monthly_service(audit_id)
     if job_id is None:
         logger.warning(
@@ -717,13 +757,19 @@ def _queue_monthly_service(audit_id: UUID, repositories: Repositories) -> None:
 def _report(
     audit_id: UUID, customer_id: UUID, repositories: Repositories, settings: Settings
 ) -> None:
-    from radarauditor.reporting.report import build_monthly_report, build_sales_report
+    from radarauditor.reporting.report import (
+        build_monthly_report,
+        build_recommendation,
+        build_sales_report,
+    )
 
     audit = repositories.audit(audit_id)
     if is_follow_up(audit, repositories):
         pdf = build_monthly_report(audit_id, repositories, settings)
     else:
         pdf = build_sales_report(audit_id, repositories, settings)
+        recommendation = build_recommendation(audit_id, repositories, settings)
+        repositories.upload(REPORTS_BUCKET, f"{audit_id}/{recommendation.name}", recommendation)
     report_path = repositories.upload(REPORTS_BUCKET, f"{audit_id}/{pdf.name}", pdf)
     repositories.update_audit(audit_id, report_path=report_path)
     if audit.purpose is AuditPurpose.MONTHLY:

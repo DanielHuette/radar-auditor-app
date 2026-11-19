@@ -1,5 +1,8 @@
-import type { Audit, CheckOutcome, CheckResult, Customer, Doc, Finding, Keyword, Ranking } from "../api/types";
+import type { Audit, CheckOutcome, CheckResult, Customer, Doc, Finding, Keyword, KeywordScope, Ranking } from "../api/types";
 import type { CatalogueCheck } from "./catalogue";
+import type { LineContext } from "./checkLine";
+
+export const EMPTY_CONTEXT: LineContext = { auditStatus: "reported", states: new Map(), eventReasons: new Map() };
 
 let sequence = 0;
 
@@ -58,8 +61,8 @@ export function ranking(overrides: Partial<Ranking>): Ranking {
   };
 }
 
-export function keyword(id: string, phrase: string): Keyword {
-  return { id, customer_id: "customer-1", phrase, city: "Münster", monthly_volume: null, is_primary: false };
+export function keyword(id: string, phrase: string, scope: KeywordScope = "local"): Keyword {
+  return { id, customer_id: "customer-1", phrase, city: "Münster", monthly_volume: null, is_primary: false, scope };
 }
 
 export function audit(overrides: Partial<Audit>): Audit {
@@ -97,7 +100,11 @@ export function catalogueCheck(id: string, overrides: Partial<CatalogueCheck> = 
     area: id.slice(0, 1),
     name: `Prüfung ${id}`,
     why: "Weil.",
-    source: "crawler",
+    provider: "google",
+    kind: "kriterium",
+    source: "https://developers.google.com/search",
+    measurement: "crawler",
+    steps: ["website"],
     weight: 1,
     requiresPaid: false,
     requiresAccess: false,

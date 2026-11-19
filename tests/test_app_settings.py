@@ -1,8 +1,3 @@
-"""Tests for the settings rows shared by the app and the worker.
-
-Context: Pure model tests. | Input: JSON values as the app writes them. | Output: Assertions.
-"""
-
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -27,7 +22,7 @@ def test_missing_rows_give_the_defaults() -> None:
     assert all(settings.sources.of(source).enabled for source in Source)
     assert settings.sources.places.daily_cap == 500
     assert settings.sources.dataforseo.monthly_cost_cap_eur == Decimal(50)
-    assert settings.sources.chatgpt.monthly_cost_cap_eur is None
+    assert settings.sources.chatgpt.monthly_cost_cap_eur == Decimal(5)
 
 
 def test_null_rows_give_the_defaults() -> None:
@@ -36,13 +31,13 @@ def test_null_rows_give_the_defaults() -> None:
 
 def test_partial_source_keeps_the_other_defaults() -> None:
     settings = parse_worker_settings(
-        {"sources": {"places": {"enabled": True}, "gemini": {"daily_cap": 5}, "x": {}}}
+        {"sources": {"places": {"enabled": True}, "chatgpt": {"daily_cap": 5}, "x": {}}}
     )
 
     assert settings.sources.places.enabled is True
     assert settings.sources.places.daily_cap == DEFAULT_SOURCES[Source.PLACES].daily_cap
-    assert settings.sources.gemini.enabled is True
-    assert settings.sources.gemini.daily_cap == 5
+    assert settings.sources.chatgpt.enabled is True
+    assert settings.sources.chatgpt.daily_cap == 5
 
 
 def test_only_the_sources_row_is_read() -> None:
@@ -114,7 +109,9 @@ def test_the_places_api_and_the_customer_search_have_their_own_euro_caps() -> No
     )
 
 
-@pytest.mark.parametrize("source", [Source.PLACES, Source.PROSPECT_SEARCH, Source.DATAFORSEO])
+@pytest.mark.parametrize(
+    "source", [Source.PLACES, Source.PROSPECT_SEARCH, Source.DATAFORSEO, Source.CHATGPT]
+)
 def test_a_stored_null_never_lifts_the_euro_cap_of_a_paid_source(source: Source) -> None:
     stored = {source.value: {"enabled": True, "daily_cap": 5, "monthly_cost_cap_eur": None}}
 
@@ -125,6 +122,18 @@ def test_a_stored_null_never_lifts_the_euro_cap_of_a_paid_source(source: Source)
 
 
 def test_a_stored_null_keeps_a_free_source_without_euro_cap() -> None:
-    stored = {"chatgpt": {"enabled": True, "monthly_cost_cap_eur": None}}
+    stored = {"claude": {"enabled": True, "monthly_cost_cap_eur": None}}
 
-    assert parse_worker_settings({"sources": stored}).sources.chatgpt.monthly_cost_cap_eur is None
+    assert parse_worker_settings({"sources": stored}).sources.claude.monthly_cost_cap_eur is None
+
+
+def test_the_openai_interface_has_its_own_euro_cap_under_chatgpt() -> None:
+    assert parse_worker_settings({}).sources.chatgpt == SourceSetting(
+        enabled=True, daily_cap=200, monthly_cost_cap_eur=Decimal(5)
+    )
+
+
+def test_a_stored_euro_cap_of_chatgpt_replaces_the_default() -> None:
+    stored = {"chatgpt": {"enabled": True, "monthly_cost_cap_eur": 2}}
+
+    assert parse_worker_settings({"sources": stored}).sources.chatgpt.monthly_cost_cap_eur == 2

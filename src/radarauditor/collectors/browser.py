@@ -44,6 +44,7 @@ from radarauditor.errors import SearchBlockedError
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_CHANNEL = "chromium"
 LOCALE = "de-DE"
 TIMEZONE = "Europe/Berlin"
 ACCEPT_LANGUAGE = "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7"
@@ -63,7 +64,7 @@ CHROME_VERSION = re.compile(r"Chrome/(\d+)\.[\d.]+")
 NOT_A_BRAND = {"brand": "Not)A;Brand", "version": "24"}
 
 CONSENT_HOSTS = ("consent.google.com", "consent.youtube.com")
-REJECT_LABELS = ("Alle ablehnen", "Reject all")
+REJECT_LABELS = ("Alle ablehnen", "Nur notwendige", "Reject all")
 ACCEPT_LABELS = ("Alle akzeptieren", "Accept all")
 BLOCK_PATH_MARKERS = ("/sorry/",)
 BLOCK_MARKERS = (
@@ -116,6 +117,7 @@ class BrowserService:
         headless: bool = True,
         pacing: Pacing | None = None,
         context_factory: ContextFactory | None = None,
+        channel: str = DEFAULT_CHANNEL,
     ) -> None:
         """Remember where the profile lives; nothing starts before the first page.
 
@@ -124,15 +126,23 @@ class BrowserService:
             headless: False only for the one-time interactive logins.
             pacing: Human pauses; tests pass zero waits.
             context_factory: Opens the browser context; tests pass a fake.
+            channel: Browser Playwright starts, "chromium" (its own build) or an installed one
+                such as "chrome"; ignored with a context factory.
         """
         self._profile_dir = profile_dir
         self._headless = headless
+        self._channel = channel
         self.pacing = pacing if pacing is not None else Pacing()
-        self._context_factory = context_factory or persistent_chromium
+        self._context_factory = context_factory or self._open_channel
         self._stack = AsyncExitStack()
         self._context: BrowserContext | None = None
         self._tab = asyncio.Lock()
         self._identity: tuple[str, dict[str, object]] | None = None
+
+    def _open_channel(
+        self, profile_dir: Path, headless: bool
+    ) -> AbstractAsyncContextManager[BrowserContext]:
+        return persistent_chromium(profile_dir, headless, self._channel)
 
     async def __aenter__(self) -> Self:
         """Return the service; Chromium starts with the first page."""
@@ -197,7 +207,7 @@ class BrowserService:
             raise SearchBlockedError(f"{urlsplit(url).hostname} answered HTTP 429", page.url)
         html = await page.content()
         ensure_not_blocked(page.url, html)
-        if await self._answer_consent(page, html):
+        if await self.answer_consent(page, html):
             if urlsplit(page.url).hostname in CONSENT_HOSTS:
                 await page.goto(url, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS)
             html = await page.content()
@@ -249,7 +259,16 @@ class BrowserService:
         session = await context.new_cdp_session(page)
         await session.send("Emulation.setUserAgentOverride", self._identity[1])
 
-    async def _answer_consent(self, page: Page, html: str) -> bool:
+    async def answer_consent(self, page: Page, html: str) -> bool:
+        """Answer a cookie dialog shown in html with the most data-saving choice.
+
+        Args:
+            page: Tab from `page()`.
+            html: Source of the page as it is now.
+
+        Returns:
+            True if a dialog was answered, False if none was shown.
+        """
         label = find_consent_choice(html)
         if label is None:
             return False
@@ -264,15 +283,19 @@ class BrowserService:
 
 
 @asynccontextmanager
-async def persistent_chromium(profile_dir: Path, headless: bool) -> AsyncIterator[BrowserContext]:
-    """Start Playwright and open Chromium on the persistent profile.
+async def persistent_chromium(
+    profile_dir: Path, headless: bool, channel: str = DEFAULT_CHANNEL
+) -> AsyncIterator[BrowserContext]:
+    """Start Playwright and open the browser on the persistent profile.
 
     The "chromium" channel runs the full browser in the new headless mode, which differs far less
-    from a visible Chrome than the separate headless shell.
+    from a visible Chrome than the separate headless shell. Another channel such as "chrome"
+    starts the browser installed on the machine, for hosts where Playwright's own build cannot run.
 
     Args:
         profile_dir: Persistent profile directory.
         headless: Whether to run without a window.
+        channel: Playwright browser channel.
 
     Yields:
         The persistent browser context.
@@ -280,7 +303,7 @@ async def persistent_chromium(profile_dir: Path, headless: bool) -> AsyncIterato
     async with async_playwright() as playwright:
         context = await playwright.chromium.launch_persistent_context(
             str(profile_dir),
-            channel="chromium",
+            channel=channel,
             headless=headless,
             locale=LOCALE,
             timezone_id=TIMEZONE,

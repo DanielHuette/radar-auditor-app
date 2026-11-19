@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { INDUSTRY_GROUPS, INDUSTRY_OPTIONS, industryLabel, resolveIndustry } from "./industries";
 
 describe("industry groups", () => {
-  it("lists the twelve groups of config/branchen.yaml in order", () => {
+  it("lists the thirteen groups of config/branchen.yaml in order", () => {
     expect(INDUSTRY_GROUPS.map((group) => group.id)).toEqual([
       "bauhandwerk",
       "haustechnik",
@@ -16,6 +16,7 @@ describe("industry groups", () => {
       "recht_steuern_beratung",
       "fitness_sport",
       "handel_dienstleistung",
+      "kunst_kreativ",
     ]);
   });
 

@@ -22,6 +22,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.47.0",
     "chart.js": "^4.4.7",
+    "pdf-lib": "^1.17.1",
     "preact": "^10.25.0",
     "preact-iso": "^2.8.0",
     "three": "0.170.0"

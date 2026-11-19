@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CATALOGUE_AREAS, type CatalogueArea } from "./catalogue";
 import {
   AREA_ORDER,
+  NO_RATING_TAG,
   SELECTION_STORAGE_KEY,
   areaState,
   areaTags,
@@ -18,10 +19,10 @@ import {
 } from "./checkSelection";
 import { catalogueCheck as check } from "./testRows";
 
-const g: CatalogueArea = { id: "g", name: "Bewertungen", weight: 10, checks: [check("g1"), check("g2")] };
+const g: CatalogueArea = { id: "google", name: "Google", weight: 10, checks: [check("g1"), check("g2")] };
 const m: CatalogueArea = {
-  id: "m",
-  name: "Wirkung mit Kundenzugang",
+  id: "ads",
+  name: "Bezahlte Sichtbarkeit",
   weight: 0,
   checks: [check("m1", { requiresAccess: true }), check("m2", { requiresAccess: true })],
 };
@@ -47,10 +48,10 @@ const throwing = {
 };
 
 describe("the catalogue on the Prüfen page", () => {
-  it("lists the 14 areas in the agreed order with 108 checks", () => {
-    expect(orderedAreas().map((area) => area.id)).toEqual(["f", "g", "a", "b", "c", "d", "e", "h", "i", "j", "k", "l", "n", "m"]);
+  it("lists the six providers in the agreed order with 62 checks", () => {
+    expect(orderedAreas().map((area) => area.id)).toEqual(["google", "bing", "apple", "openai", "anthropic", "ads"]);
     expect(orderedAreas().map((area) => area.id)).toEqual(AREA_ORDER);
-    expect(enabledCount([], CATALOGUE_AREAS).total).toBe(108);
+    expect(enabledCount([], CATALOGUE_AREAS).total).toBe(62);
   });
 
   it("gives every check a name and a reason", () => {
@@ -61,26 +62,25 @@ describe("the catalogue on the Prüfen page", () => {
 
   it("puts areas missing from the order after the known ones", () => {
     const z: CatalogueArea = { id: "z", name: "Neu", weight: 1, checks: [check("z1")] };
-    expect(orderedAreas([z, m, g]).map((area) => area.id)).toEqual(["g", "m", "z"]);
+    expect(orderedAreas([z, m, g]).map((area) => area.id)).toEqual(["google", "ads", "z"]);
   });
 });
 
 describe("tags", () => {
   const byId = (id: string) => CATALOGUE_AREAS.find((area) => area.id === id);
 
-  it("marks the new area, paid checks and the customer-access area", () => {
-    expect(areaTags(byId("n") ?? g)).toEqual([{ label: "neu", isNew: true }]);
-    expect(areaTags(byId("i") ?? g)).toEqual([{ label: "4 kosten Geld", isNew: false }]);
-    expect(areaTags(byId("j") ?? g)).toEqual([{ label: "1 kostet Geld", isNew: false }]);
-    expect(areaTags(byId("m") ?? g)).toEqual([{ label: "braucht Kundenzugang", isNew: false }]);
-    expect(areaTags(byId("a") ?? m)).toEqual([]);
+  it("marks paid checks and the customer-access checks of an area", () => {
+    expect(areaTags(byId("google") ?? g)).toEqual([{ label: "3 kosten Geld" }, { label: "braucht Kundenzugang" }]);
+    expect(areaTags(byId("ads") ?? g)).toEqual([{ label: "2 kosten Geld" }, { label: "braucht Kundenzugang" }]);
+    expect(areaTags(byId("bing") ?? g)).toEqual([]);
   });
 
-  it("marks the new checks and the paid ones", () => {
+  it("marks information checks as unrated and paid checks as costly", () => {
     const checks = new Map(CATALOGUE_AREAS.flatMap((area) => area.checks.map((item) => [item.id, item] as const)));
-    for (const id of ["f15", "n1", "n2", "n3"]) expect(checkTags(checks.get(id) ?? check(id))).toContainEqual({ label: "neu", isNew: true });
-    expect(checkTags(checks.get("c2") ?? check("c2"))).toEqual([{ label: "kostet Geld", isNew: false }]);
-    expect(checkTags(checks.get("a1") ?? check("a1"))).toEqual([]);
+    expect(checkTags(checks.get("p1") ?? check("p1"))).toEqual([{ label: NO_RATING_TAG }, { label: "kostet Geld" }]);
+    expect(checkTags(checks.get("p3") ?? check("p3"))).toEqual([{ label: NO_RATING_TAG }]);
+    expect(checkTags(checks.get("c12") ?? check("c12"))).toEqual([{ label: "kostet Geld" }]);
+    expect(checkTags(checks.get("a2") ?? check("a2"))).toEqual([]);
   });
 });
 
@@ -108,8 +108,8 @@ describe("switching checks", () => {
 describe("default and remembered selection", () => {
   it("switches on everything except the customer-access area by default", () => {
     expect(defaultDisabled([g, m])).toEqual(["m1", "m2"]);
-    expect(defaultDisabled()).toEqual(["m1", "m2", "m3", "m4"]);
-    expect(enabledCount(defaultDisabled(), CATALOGUE_AREAS)).toEqual({ enabled: 104, total: 108 });
+    expect(defaultDisabled()).toEqual(["m1", "m2", "p5", "p6"]);
+    expect(enabledCount(defaultDisabled(), CATALOGUE_AREAS)).toEqual({ enabled: 58, total: 62 });
   });
 
   it("uses the default without storage, with nothing stored or with unreadable data", () => {

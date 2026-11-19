@@ -1,0 +1,150 @@
+{
+ "version": "0.1.20261103",
+ "status_code": 20000,
+ "status_message": "Ok.",
+ "time": "0 sec.",
+ "cost": 0,
+ "tasks_count": 1,
+ "tasks_error": 0,
+ "tasks": [
+  {
+   "id": "11131211-3135-0066-2000-e2321f5a7f87",
+   "status_code": 20000,
+   "status_message": "Ok.",
+   "time": "0 sec.",
+   "cost": 0,
+   "result_count": 1,
+   "path": [
+    "v3",
+    "serp",
+    "google",
+    "maps",
+    "task_get",
+    "advanced",
+    "11131211-3135-0066-2000-e2321f5a7f87"
+   ],
+   "data": {},
+   "result": [
+    {
+     "keyword": "pizza",
+     "type": "maps",
+     "se_domain": "google.com",
+     "location_code": 1006886,
+     "language_code": "en",
+     "check_url": "https://google.co.uk/maps/search/pizza/@51.5072178,-0.1275862,10z?hl=en&gl=GB&uule=w+CAIQIFISCXXeIa8LoNhHEZkq1d1aOpZS",
+     "datetime": "2026-11-12 12:21:22 +00:00",
+     "spell": null,
+     "refinement_chips": null,
+     "item_types": [
+      "maps_paid_item",
+      "maps_search"
+     ],
+     "se_results_count": 0,
+     "items_count": 102,
+     "items": [
+      {
+       "type": "maps_paid_item",
+       "rank_group": 1,
+       "rank_absolute": 1,
+       "domain": null,
+       "title": "Fatto a Mano Covent Garden",
+       "url": null,
+       "rating": {
+        "rating_type": "Max5",
+        "value": 4.7,
+        "votes_count": 2070,
+        "rating_max": null
+       }
+      },
+      {
+       "type": "maps_paid_item",
+       "rank_group": 2,
+       "rank_absolute": 2,
+       "domain": null,
+       "title": "Fireaway Clapham",
+       "url": null,
+       "rating": {
+        "rating_type": "Max5",
+        "value": 4.7,
+        "votes_count": 667,
+        "rating_max": null
+       }
+      },
+      {
+       "type": "maps_search",
+       "rank_group": 1,
+       "rank_absolute": 3,
+       "domain": "www.50kalo.it",
+       "title": "50 Kalò di Ciro Salvo Pizzeria London🍕",
+       "url": "https://www.50kalo.it/ciro__salvo.php",
+       "rating": {
+        "rating_type": "Max5",
+        "value": 4.5,
+        "votes_count": 6239,
+        "rating_max": null
+       },
+       "address": "7 Northumberland Ave, London WC2N 5DU",
+       "place_id": "ChIJ76-IInUFdkgR5bH-0ABH0Zo",
+       "category": "Pizza restaurant",
+       "cid": "11155775820805353957"
+      },
+      {
+       "type": "maps_search",
+       "rank_group": 2,
+       "rank_absolute": 4,
+       "domain": "locations.pizzaexpress.com",
+       "title": "PizzaExpress",
+       "url": "https://locations.pizzaexpress.com/london-450-strand?utm_source=GMB&utm_medium=Website&utm_campaign=GMB-WEB-2091",
+       "rating": {
+        "rating_type": "Max5",
+        "value": 4.4,
+        "votes_count": 3708,
+        "rating_max": null
+       },
+       "address": "450 Strand, London WC2R 0RG",
+       "place_id": "ChIJjQlM9c4EdkgRPu9M3C4I0J8",
+       "category": "Pizza restaurant",
+       "cid": "11515713244543905598"
+      },
+      {
+       "type": "maps_search",
+       "rank_group": 3,
+       "rank_absolute": 5,
+       "domain": "www.fattoamanopizza.com",
+       "title": "Fatto a Mano Covent Garden",
+       "url": "https://www.fattoamanopizza.com/locations/covent-garden-london/",
+       "rating": {
+        "rating_type": "Max5",
+        "value": 4.7,
+        "votes_count": 2070,
+        "rating_max": null
+       },
+       "address": "30 St Martin's Ln, London WC2N 4ER",
+       "place_id": "ChIJ1awQuSYFdkgRsVNky4bQvLg",
+       "category": "Pizza restaurant",
+       "cid": "13311743875956888497"
+      },
+      {
+       "type": "maps_search",
+       "rank_group": 4,
+       "rank_absolute": 6,
+       "domain": "vasinikopizza.co.uk",
+       "title": "Vasiniko",
+       "url": "https://vasinikopizza.co.uk/trafalgar",
+       "rating": {
+        "rating_type": "Max5",
+        "value": 4.9,
+        "votes_count": 3262,
+        "rating_max": null
+       },
+       "address": "9 Adelaide St, London WC2N 4HZ",
+       "place_id": "ChIJH_WWHgAFdkgRTCp0OSLObAk",
+       "category": "Pizza restaurant",
+       "cid": "679144290214226508"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

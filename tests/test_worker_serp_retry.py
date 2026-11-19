@@ -1,16 +1,10 @@
-"""Tests for deferred Google searches in the worker: scheduling, retry runs and re-scoring.
-
-Context: Unit tests with fake repositories; the search run and the scoring are monkeypatched.
-| Input: Fixtures. | Output: Assertions.
-"""
-
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
-from conftest import JobFactory
+from conftest import JobFactory, keep_files_in_memory
 
 from radarauditor.collectors.browser import BrowserService
 from radarauditor.collectors.quota import SourceGate
@@ -37,13 +31,11 @@ def _serp(phrase: str) -> SerpResult:
 
 @pytest.fixture
 def deferred_raw(sample_raw_audit: RawAudit) -> RawAudit:
-    """Raw data whose Google searches were deferred."""
     return sample_raw_audit.model_copy(update={"serps": [], "deferred_searches": DEFERRED})
 
 
 @pytest.fixture
 def stored_raw(fake_repositories: MagicMock, deferred_raw: RawAudit) -> list[RawAudit]:
-    """Serve deferred_raw, or the last upload, from storage and collect every raw upload."""
     uploads: list[RawAudit] = []
 
     def download(bucket: str, remote_path: str, local_file: Path) -> Path:
@@ -62,7 +54,6 @@ def stored_raw(fake_repositories: MagicMock, deferred_raw: RawAudit) -> list[Raw
 
 @pytest.fixture
 def scoring(monkeypatch: pytest.MonkeyPatch, sample_check_results: list[CheckResult]) -> MagicMock:
-    """Replace the catalogue evaluation; returns the evaluate mock."""
     evaluate = MagicMock(return_value=sample_check_results)
     monkeypatch.setattr("radarauditor.scoring.catalog.load_catalogue", MagicMock())
     monkeypatch.setattr("radarauditor.scoring.evaluator.evaluate", evaluate)
@@ -101,8 +92,8 @@ async def test_collect_with_deferred_searches_queues_a_retry(
     deferred_raw: RawAudit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """COLLECT finishes and queues a serp_retry job for the audit 15 minutes later."""
     job = make_job(JobKind.COLLECT)
+    keep_files_in_memory(fake_repositories)
     monkeypatch.setattr(
         "radarauditor.collectors.run.collect_audit", AsyncMock(return_value=deferred_raw)
     )
@@ -127,7 +118,7 @@ async def test_collect_without_deferred_searches_queues_no_retry(
     sample_raw_audit: RawAudit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Without a block only scoring is queued."""
+    keep_files_in_memory(fake_repositories)
     monkeypatch.setattr(
         "radarauditor.collectors.run.collect_audit", AsyncMock(return_value=sample_raw_audit)
     )
@@ -148,28 +139,25 @@ async def test_retry_success_rescores_a_reported_audit(
     scoring: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Found rankings are stored, the audit is re-scored and analysis and report run again."""
     job = make_job(JobKind.SERP_RETRY)
     fake_repositories.audit.return_value = _with_status(sample_audit, AuditStatus.REPORTED)
     search = _retry_run(monkeypatch, deferred_raw, [_serp(item.phrase) for item in DEFERRED], 0)
 
     await worker.process_job(job, fake_repositories, settings)
 
-    raw, browser, gate = search.await_args.args
+    raw, browser, gate, retry_settings = search.await_args.args
     assert raw == deferred_raw
     assert isinstance(browser, BrowserService)
     assert isinstance(gate, SourceGate)
+    assert retry_settings == settings
     assert stored_raw[0].deferred_searches == []
     assert [serp.phrase for serp in stored_raw[0].serps] == [item.phrase for item in DEFERRED]
     fake_repositories.save_rankings.assert_called_once()
     assert scoring.call_args.args[1] == stored_raw[0]
     fake_repositories.save_check_results.assert_called_once()
-    fake_repositories.enqueue.assert_called_once_with(
-        JobKind.ANALYSE, job.customer_id, job.audit_id
-    )
+    fake_repositories.enqueue.assert_not_called()
     assert fake_repositories.set_audit_status.call_args_list == [
-        call(job.audit_id, AuditStatus.SCORED),
-        call(job.audit_id, AuditStatus.AWAITING_ANALYSIS),
+        call(job.audit_id, AuditStatus.CONTROLLING)
     ]
     fake_repositories.finish_job.assert_called_once_with(job.id, JobStatus.DONE)
 
@@ -184,7 +172,6 @@ async def test_retry_success_before_scoring_only_stores_the_data(
     scoring: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An audit whose SCORE job is still queued scores the merged data itself."""
     fake_repositories.audit.return_value = _with_status(sample_audit, AuditStatus.COLLECTED)
     _retry_run(monkeypatch, deferred_raw, [_serp(item.phrase) for item in DEFERRED], 0)
 
@@ -204,7 +191,6 @@ async def test_retry_still_blocked_keeps_partial_results_and_waits(
     scoring: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A partial run stores what it found, re-scores and requeues for one hour later."""
     job = make_job(JobKind.SERP_RETRY, attempts=1)
     _retry_run(monkeypatch, deferred_raw, [_serp(DEFERRED[0].phrase)], 1)
     before = datetime.now(UTC)
@@ -234,7 +220,6 @@ async def test_retry_gives_up_after_the_fourth_run_without_failing_the_audit(
     scoring: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The last unsuccessful run fails only the job, with the reason; nothing is re-scored."""
     job = make_job(JobKind.SERP_RETRY, attempts=4)
     _retry_run(monkeypatch, deferred_raw, [], 2)
 
@@ -258,7 +243,6 @@ async def test_retry_follows_the_backoff_on_other_errors(
     make_job: JobFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A storage error in a retry run waits for the next step instead of retrying at once."""
     job = make_job(JobKind.SERP_RETRY, attempts=3)
     fake_repositories.download.side_effect = StorageError("offline")
 
@@ -277,7 +261,6 @@ async def test_retry_without_deferred_searches_is_done(
     sample_raw_audit: RawAudit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When nothing is deferred any more, the job ends without searching."""
     search = AsyncMock()
     monkeypatch.setattr(serp_retry, "search_deferred", search)
 
@@ -295,6 +278,5 @@ async def test_retry_without_deferred_searches_is_done(
 
 
 def test_retry_jobs_are_claimed_after_the_audit_pipeline() -> None:
-    """Due retries run after new audits and before order work."""
     assert worker.PRIORITY.index(JobKind.SERP_RETRY) == worker.PRIORITY.index(JobKind.REPORT) + 1
     assert worker.PRIORITY.index(JobKind.SERP_RETRY) < worker.PRIORITY.index(JobKind.APPLY)

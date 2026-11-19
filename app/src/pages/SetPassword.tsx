@@ -1,6 +1,6 @@
 import { useState } from "preact/hooks";
 import { supabase } from "../api/supabase";
-import { Logo } from "../components/Logo";
+import { Lockup } from "../components/Logo";
 import { ErrorAlert, Field } from "../components/ui";
 import { useAuthRequest } from "../hooks/authRequest";
 
@@ -36,21 +36,19 @@ export function SetPassword({ onDone }: { onDone: () => void }) {
 
   return (
     <main class="signin">
-      <div class="signin__card">
-        <Logo size={56} />
-        <form class="panel form" onSubmit={(event) => void submit(event)}>
-          <div>
-            <h1>Neues Passwort</h1>
-            <p class="muted">Lege dein Passwort fest. Es gilt für RadarAuditor und das Agentic-Marketing-Cockpit.</p>
-          </div>
-          <Field label="Neues Passwort" type="password" autoComplete="new-password" value={password} onInput={setPassword} required />
-          <Field label="Passwort wiederholen" type="password" autoComplete="new-password" value={repeat} onInput={setRepeat} required />
-          <ErrorAlert message={request.error} />
-          <button type="submit" class="btn btn--primary btn--main btn--block" disabled={request.busy}>
-            {request.busy ? "Wird gespeichert …" : "Passwort speichern"}
-          </button>
-        </form>
-      </div>
+      <Lockup />
+      <form class="signin__card panel stack" onSubmit={(event) => void submit(event)}>
+        <div>
+          <h1>Neues Passwort</h1>
+          <p class="muted">Lege dein Passwort fest. Es gilt für RadarAuditor und das Agentic-Marketing-Cockpit.</p>
+        </div>
+        <Field label="Neues Passwort" type="password" autoComplete="new-password" value={password} onInput={setPassword} required />
+        <Field label="Passwort wiederholen" type="password" autoComplete="new-password" value={repeat} onInput={setRepeat} required />
+        <ErrorAlert message={request.error} />
+        <button type="submit" class="btn btn--primary btn--main btn--block" disabled={request.busy}>
+          {request.busy ? "Wird gespeichert …" : "Passwort speichern"}
+        </button>
+      </form>
     </main>
   );
 }

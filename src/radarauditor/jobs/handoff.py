@@ -1,29 +1,20 @@
-"""Hand ANALYSE jobs to Claude Code and take its results back.
-
-Context: `radarauditor jobs pull` writes one folder per job with raw data, check results, rankings
-of this and the previous audit and the catalogue wording; Claude Code writes findings.json and
-texts; `radarauditor jobs push` validates and uploads them. The worker runs the same steps itself
-(jobs/analysis.py). auswertung.json records whether the worker or a manual push delivered the
-files and is uploaded next to texte.json.
-Input: Work directory.
-Output: Findings, texts, audit status.
-"""
-
 import json
 import logging
 import shutil
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
+from typing import Literal
 from uuid import UUID
 
 import yaml
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from radarauditor.config import Settings
 from radarauditor.db.models import (
     Audit,
     AuditStatus,
+    CheckOutcome,
     CheckResult,
     Competitor,
     Customer,
@@ -36,8 +27,10 @@ from radarauditor.db.models import (
     Ranking,
 )
 from radarauditor.db.repositories import Repositories
-from radarauditor.errors import HandoffError, RenderError, StorageError
+from radarauditor.errors import HandoffError, RenderError, ScoringError, StorageError
 from radarauditor.reporting.texts import parse_texts
+from radarauditor.scoring.catalog import AGENT_PENDING_REASON, Catalogue, catalogue_from_document
+from radarauditor.scoring.evaluator import total_score
 
 logger = logging.getLogger(__name__)
 
@@ -54,27 +47,32 @@ RANKINGS_FILE = "rankings.json"
 FINDINGS_FILE = "findings.json"
 TEXTS_FILE = "texte.json"
 ANALYSIS_FILE = "auswertung.json"
+JUDGEMENTS_FILE = "urteile.json"
+JUDGED_BY_AGENT = "audit_agent"
 
 _FINDINGS_ADAPTER = TypeAdapter(list[Finding])
 _CHECK_RESULTS_ADAPTER = TypeAdapter(list[CheckResult])
 
 
-class AnalysisPath(StrEnum):
-    """Who delivered findings.json and texte.json: the worker's Claude Code run or `jobs push`."""
+class Judgement(BaseModel):
+    check_id: str
+    outcome: Literal[CheckOutcome.PASSED, CheckOutcome.PARTIAL, CheckOutcome.FAILED]
+    evidence: str = Field(min_length=1)
 
+
+_JUDGEMENTS_ADAPTER = TypeAdapter(list[Judgement])
+
+
+class AnalysisPath(StrEnum):
     CLAUDE_CODE = "claude_code"
     MANUAL = "manual"
 
 
 class AnalysisRecord(BaseModel):
-    """Content of auswertung.json: the path that delivered the analysis."""
-
     path: AnalysisPath
 
 
 class AnalysisInput(BaseModel):
-    """Content of audit.json: the audit and everything known about its customer."""
-
     audit: Audit
     customer: Customer
     locations: list[Location]
@@ -83,16 +81,12 @@ class AnalysisInput(BaseModel):
 
 
 class PreviousAudit(BaseModel):
-    """Content of vorheriges_audit.json: the last reported audit for comparison."""
-
     audit: Audit
     total_score: Decimal | None
     check_results: list[CheckResult]
 
 
 class RankingHistory(BaseModel):
-    """Content of rankings.json: positions of this audit and of the previous one, for j9."""
-
     audit_id: UUID
     rankings: list[Ranking]
     previous_audit_id: UUID | None
@@ -100,7 +94,6 @@ class RankingHistory(BaseModel):
 
 
 def pull(repositories: Repositories, settings: Settings) -> list[Path]:
-    """Claim ANALYSE jobs and materialise them as folders; return the folder paths."""
     catalogue_json = load_catalogue_json(settings.catalogue_path)
     folders: list[Path] = []
     for job in repositories.claim_jobs(JobKind.ANALYSE, PULL_LIMIT):
@@ -118,17 +111,6 @@ def pull(repositories: Repositories, settings: Settings) -> list[Path]:
 
 
 def load_catalogue_json(path: Path) -> str:
-    """Read the YAML catalogue and serialise it unchanged as JSON.
-
-    Args:
-        path: Location of pruefkatalog.yaml.
-
-    Returns:
-        Indented JSON text.
-
-    Raises:
-        HandoffError: If the file cannot be read or is not valid YAML.
-    """
     try:
         content = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
@@ -137,18 +119,6 @@ def load_catalogue_json(path: Path) -> str:
 
 
 def materialise(job: Job, folder: Path, catalogue_json: str, repositories: Repositories) -> None:
-    """Write every input file of one ANALYSE job into its folder.
-
-    Args:
-        job: Claimed ANALYSE job.
-        folder: Target folder, created when missing.
-        catalogue_json: Catalogue as JSON text (load_catalogue_json).
-        repositories: Database and storage access.
-
-    Raises:
-        HandoffError: If the job has no audit or the audit has no raw data.
-        StorageError: If a database read or the raw data download fails.
-    """
     if job.audit_id is None:
         raise HandoffError(f"job {job.id} has no audit id")
     audit = repositories.audit(job.audit_id)
@@ -176,18 +146,6 @@ def materialise(job: Job, folder: Path, catalogue_json: str, repositories: Repos
 
 
 def analysis_input(audit: Audit, repositories: Repositories) -> AnalysisInput:
-    """Load the audit's customer, locations, competitors and keywords.
-
-    Args:
-        audit: Audit the job works on.
-        repositories: Database access.
-
-    Returns:
-        The audit with everything stored about its customer.
-
-    Raises:
-        StorageError: If a database read fails.
-    """
     return AnalysisInput(
         audit=audit,
         customer=repositories.customer(audit.customer_id),
@@ -209,23 +167,12 @@ def _ranking_history(
 
 
 def write_atomic(target: Path, text: str) -> None:
-    """Write text through a temporary file so readers never see a half-written file."""
     partial = target.with_name(f".{target.name}.part")
     partial.write_text(text, encoding="utf-8")
     partial.replace(target)
 
 
 def push(repositories: Repositories, settings: Settings) -> list[Path]:
-    """Read every folder with a findings.json, validate, upload, mark the job done.
-
-    Valid folders are processed even when others fail; invalid folders stay in place.
-
-    Returns:
-        The folders moved to the done directory.
-
-    Raises:
-        HandoffError: After processing, if at least one folder was invalid.
-    """
     analyse_root = settings.radar_work_dir / ANALYSE_DIR
     if not analyse_root.is_dir():
         return []
@@ -254,29 +201,18 @@ def _push_folder(folder: Path, repositories: Repositories, done_root: Path) -> P
 def deliver(
     folder: Path, repositories: Repositories, done_root: Path, record: AnalysisRecord
 ) -> Path:
-    """Validate a finished folder, upload texts and record, save findings, queue the report.
-
-    The job itself is not marked done; `jobs push` and the worker do that.
-
-    Args:
-        folder: Folder with input files, findings.json and texte.json.
-        repositories: Database and storage access.
-        done_root: Directory the folder is moved into afterwards.
-        record: Path that produced the analysis, written to auswertung.json after validation.
-
-    Returns:
-        The folder's new location under done_root.
-
-    Raises:
-        HandoffError: If a file is missing or invalid.
-        StorageError: If an upload or database write fails.
-    """
     job_id = _job_id(folder)
     audit = read_analysis_input(folder).audit
     findings = validate_outputs(folder)
+    judgements = validate_judgements(folder)
     write_atomic(folder / ANALYSIS_FILE, record.model_dump_json(indent=2))
     repositories.upload(RAW_BUCKET, f"{audit.id}/{TEXTS_FILE}", folder / TEXTS_FILE)
     repositories.upload(RAW_BUCKET, f"{audit.id}/{ANALYSIS_FILE}", folder / ANALYSIS_FILE)
+    if judgements:
+        repositories.upload(RAW_BUCKET, f"{audit.id}/{JUDGEMENTS_FILE}", folder / JUDGEMENTS_FILE)
+        results = judged_results(read_check_results(folder), judgements)
+        repositories.save_check_results(results)
+        repositories.update_audit(audit.id, total_score=total_score(results, _catalogue(folder)))
     repositories.save_findings(findings)
     repositories.set_audit_status(audit.id, AuditStatus.ANALYSED)
     repositories.enqueue(JobKind.REPORT, audit.customer_id, audit.id)
@@ -297,11 +233,6 @@ def _job_id(folder: Path) -> UUID:
 
 
 def read_analysis_input(folder: Path) -> AnalysisInput:
-    """Parse audit.json of a hand-off folder.
-
-    Raises:
-        HandoffError: If the file is missing or invalid.
-    """
     path = folder / AUDIT_FILE
     try:
         return AnalysisInput.model_validate_json(path.read_text(encoding="utf-8"))
@@ -312,17 +243,54 @@ def read_analysis_input(folder: Path) -> AnalysisInput:
 
 
 def validate_outputs(folder: Path) -> list[Finding]:
-    """Check findings.json and texte.json exactly as `jobs push` does.
-
-    Returns:
-        The validated findings.
-
-    Raises:
-        HandoffError: If either file is missing or invalid.
-    """
     findings = validate_findings(folder)
     _validate_texts(folder)
+    validate_judgements(folder)
     return findings
+
+
+def validate_judgements(folder: Path) -> list[Judgement]:
+    waiting = sorted(
+        result.check_id
+        for result in read_check_results(folder)
+        if result.measured.get("reason") == AGENT_PENDING_REASON
+    )
+    if not waiting:
+        return []
+    path = folder / JUDGEMENTS_FILE
+    try:
+        judgements = _JUDGEMENTS_ADAPTER.validate_json(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise HandoffError(f"{path}: cannot be read: {exc}") from exc
+    except ValidationError as exc:
+        raise HandoffError(f"{path}: invalid: {_first_error(exc)}") from exc
+    judged = sorted(judgement.check_id for judgement in judgements)
+    if judged != waiting:
+        raise HandoffError(f"{path}: judges {judged}, the audit waits for {waiting}")
+    return judgements
+
+
+def judged_results(results: list[CheckResult], judgements: list[Judgement]) -> list[CheckResult]:
+    by_check = {judgement.check_id: judgement for judgement in judgements}
+    return [
+        result.model_copy(
+            update={
+                "outcome": judgement.outcome,
+                "measured": {"judged_by": JUDGED_BY_AGENT, "evidence": judgement.evidence},
+            }
+        )
+        if (judgement := by_check.get(result.check_id)) is not None
+        else result
+        for result in results
+    ]
+
+
+def _catalogue(folder: Path) -> Catalogue:
+    path = folder / CATALOGUE_FILE
+    try:
+        return catalogue_from_document(json.loads(path.read_text(encoding="utf-8")), str(path))
+    except (OSError, json.JSONDecodeError, ScoringError) as exc:
+        raise HandoffError(f"{path}: catalogue unreadable: {exc}") from exc
 
 
 def _validate_texts(folder: Path) -> None:
@@ -335,17 +303,11 @@ def _validate_texts(folder: Path) -> None:
         texts = parse_texts(content)
     except RenderError as exc:
         raise HandoffError(f"{path}: {exc}") from exc
-    # Optional only for texte.json files of earlier evaluations; every new one carries it.
     if texts.talk_text is None:
         raise HandoffError(f"{path}: texte.json invalid at talk_text: Field required")
 
 
 def validate_findings(folder: Path) -> list[Finding]:
-    """Parse findings.json against the Finding model and the audit's check ids.
-
-    Raises:
-        HandoffError: If the file is missing, malformed or references unknown checks.
-    """
     path = folder / FINDINGS_FILE
     audit_id = read_analysis_input(folder).audit.id
     known_check_ids = _known_check_ids(folder)
@@ -375,11 +337,6 @@ def _known_check_ids(folder: Path) -> set[str]:
 
 
 def read_check_results(folder: Path) -> list[CheckResult]:
-    """Parse check_results.json of a hand-off folder.
-
-    Raises:
-        HandoffError: If the file is missing or invalid.
-    """
     path = folder / CHECK_RESULTS_FILE
     try:
         return _CHECK_RESULTS_ADAPTER.validate_json(path.read_text(encoding="utf-8"))

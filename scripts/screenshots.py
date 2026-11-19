@@ -85,7 +85,7 @@ VIEWPORTS = (
 )
 
 ROOFER_FAILED = {
-    "a5", "b3", "b9", "c1", "c3", "c10", "d4", "e1", "e3", "e5", "e8", "f3", "f8", "f9", "f10",
+    "b3", "b9", "c1", "c3", "c10", "d4", "e1", "e3", "e5", "e8", "f3", "f8", "f9", "f10",
     "g1", "g3", "h2", "h4", "h7", "j4", "k1", "k2", "k3", "l2",
 }  # fmt: skip
 ROOFER_PARTIAL = {
@@ -93,7 +93,7 @@ ROOFER_PARTIAL = {
     "k4", "l3",
 }  # fmt: skip
 PROSPECT_FAILED = {
-    "a1", "a2", "a3", "a5", "a6", "a7", "b2", "b3", "b5", "b6", "b9", "c1", "c3", "c5", "c7",
+    "a2", "a7", "b2", "b3", "b5", "b6", "b9", "c1", "c3", "c5", "c7",
     "c8", "c9", "c10", "d2", "d3", "d4", "d5", "e1", "e2", "e3", "e4", "e5", "e8", "f2", "f3",
     "f8", "f9", "f10", "g1", "g3", "g4", "g6", "h1", "h2", "h4", "h5", "h7", "i4", "j1", "j4",
     "j7", "j8", "k1", "k2", "k4", "l2", "l3",
@@ -306,11 +306,10 @@ def findings() -> list[Row]:
         (
             "a7",
             1,
-            "Viele Bilder sind größer als nötig.",
-            "14 Bilder sind zusammen 6,2 Megabyte groß; 9 davon haben keinen Alternativtext.",
-            "Die Seite lädt auf dem Handy langsamer; Suchmaschinen verstehen die Bilder nicht.",
-            "Bilder auf höchstens 1600 Pixel Breite verkleinern und jedem Bild einen kurzen "
-            "beschreibenden Text geben.",
+            "Viele Bilder sind nicht beschrieben.",
+            "9 von 14 Bildern haben keinen Alternativtext.",
+            "Google versteht nicht, was die Bilder zeigen, und zeigt sie in der Bildersuche seltener.",
+            "Jedem Bild einen kurzen beschreibenden Text geben.",
             None,
         ),
     ]

@@ -1,14 +1,3 @@
-"""Read Google Maps pages: a business profile with its review and info tabs, and a result list.
-
-Context: Pure parsers behind the browser Maps collector, kept apart so they run on saved pages in
-tests. Google Maps renders obfuscated class names, so the parsers lean on what stays stable:
-data-item-id attributes, ARIA roles and labels, headings and German labels.
-Input: HTML of a Maps place page, its "Rezensionen" and "Info" tabs, its photo viewer, or a
-search result list.
-Output: PlaceSnapshot with every read field marked as read in the browser, MapListings and the
-capture dates of the photos shown in the viewer.
-"""
-
 import calendar
 import re
 from collections.abc import Iterable, Iterator
@@ -19,7 +8,8 @@ from bs4 import BeautifulSoup, Tag
 from bs4.element import NavigableString
 from pydantic import HttpUrl
 
-from radarauditor.collectors.patterns import collapse_whitespace, normalise_name, parse_http_url
+from radarauditor.collectors.identity import Identity, identity, same_business
+from radarauditor.collectors.patterns import collapse_whitespace, parse_http_url
 from radarauditor.collectors.snapshot import DataRoute, PlaceSnapshot
 
 BROWSER: DataRoute = "browser"
@@ -94,20 +84,17 @@ GERMAN_MONTHS = {
     "dezember": 12,
     "dez": 12,
 }
-# Longest names first, so "Juni" is not read as "Jun" followed by a stray letter.
 MONTH_YEAR_PATTERN = re.compile(
     r"(?<![\wäöüÄÖÜ])("
     + "|".join(sorted(GERMAN_MONTHS, key=len, reverse=True))
     + r")\.?\s+((?:19|20)\d{2})(?!\d)",
     re.IGNORECASE,
 )
-# A photo date stands alone or with a short label; longer texts are captions or reviews.
 MAX_DATE_TEXT_CHARS = 40
 PHOTO_BUTTONS = ("Fotos ansehen", "Alle Fotos ansehen", "See photos", "Foto von ")
 GALLERY_TABS = (("Vom Inhaber", "By owner"), ("Alle", "All"))
 NEXT_PHOTO_BUTTONS = ("Nächstes Foto", "Nächstes Bild", "Weiter", "Next photo", "Next")
 STREET_VIEW_MARKERS = ("street view", "360°", "360 °", "fotokugel", "photo sphere")
-# The gallery tab "Street View & 360°" names the category, not the photo on display.
 GALLERY_TAB_LABEL = re.compile(r"street view\s*(?:&|und|and)\s*360", re.IGNORECASE)
 VIEWER_EXCLUDED = '[role="tab"], [role="tablist"], [data-review-id]'
 REVIEW_TEXT_CLASS = "wiI7pd"
@@ -118,8 +105,6 @@ MAX_REPLY_CLIMB = 3
 
 @dataclass(frozen=True)
 class MapListing:
-    """One entry of a Maps result list; place_id is a ChIJ id or a Maps feature id when shown."""
-
     name: str
     url: str
     place_id: str | None
@@ -129,34 +114,17 @@ class MapListing:
 
 @dataclass(frozen=True)
 class ViewerPhoto:
-    """The photo the Maps viewer shows: its capture date if shown, and whether it is Street View."""
-
     taken: date | None
     street_view: bool
 
 
 @dataclass(frozen=True)
 class PhotoDates:
-    """Capture dates read in the photo viewer: the newest and how many dated photos were seen."""
-
     newest: date | None
     dated_count: int
 
 
 def photo_date(text: str, now: datetime) -> date | None:
-    """Return the capture date a Maps photo label stands for.
-
-    A month and year such as "Apr. 2022" or "März 2025" counts as the last day of that month, at
-    most today, so a photo is never judged older than it can be; a relative date such as
-    "vor 3 Monaten" counts back from now.
-
-    Args:
-        text: Label of a photo, e.g. "Apr. 2022", "vor einem Jahr", "vor 2 Wochen".
-        now: Moment the viewer was read.
-
-    Returns:
-        The date, or None when the text holds no date or is too long to be a date label.
-    """
     text = collapse_whitespace(text)
     if not text or len(text) > MAX_DATE_TEXT_CHARS:
         return None
@@ -171,32 +139,10 @@ def photo_date(text: str, now: datetime) -> date | None:
 
 
 def page_texts(html: str) -> frozenset[str]:
-    """Short texts and labels a page shows outside tabs and reviews, e.g. before the viewer opens.
-
-    The viewer keeps the place panel in the page, so texts already there (post dates or a
-    "Street View" tile, for example) say nothing about the displayed photo.
-
-    Args:
-        html: Page source before the photo viewer opens.
-
-    Returns:
-        The texts, for viewer_photo to ignore.
-    """
     return frozenset(_viewer_texts(html))
 
 
 def viewer_photo(html: str, before: frozenset[str], now: datetime) -> ViewerPhoto:
-    """Read the date and kind of the photo the opened Maps viewer displays.
-
-    Args:
-        html: Page source with the photo viewer open.
-        before: page_texts of the page before the viewer opened; those texts are ignored.
-        now: Moment the viewer was read; relative dates count back from it.
-
-    Returns:
-        The first new date text of the viewer, and whether the photo is a Street View or 360°
-        image, which the viewer names in its text outside the gallery tabs.
-    """
     texts = [text for text in _viewer_texts(html) if text not in before]
     taken = next((found for text in texts if (found := photo_date(text, now)) is not None), None)
     folded = " ".join(text for text in texts if not GALLERY_TAB_LABEL.search(text)).casefold()
@@ -205,14 +151,6 @@ def viewer_photo(html: str, before: frozenset[str], now: datetime) -> ViewerPhot
 
 
 def photo_button(html: str) -> str | None:
-    """Accessible name of the control that opens the photo viewer of a place page, if shown.
-
-    Args:
-        html: Source of a place page.
-
-    Returns:
-        The first name of PHOTO_BUTTONS some control's label starts with, else None.
-    """
     labels = [_label(element) for element in BeautifulSoup(html, "lxml").select("[aria-label]")]
     return next(
         (name for name in PHOTO_BUTTONS if any(label.startswith(name) for label in labels)), None
@@ -220,14 +158,6 @@ def photo_button(html: str) -> str | None:
 
 
 def gallery_tab(html: str) -> str | None:
-    """The gallery tab to read: "Vom Inhaber" when the owner uploaded photos, else "Alle".
-
-    Args:
-        html: Source of the page with the photo viewer open.
-
-    Returns:
-        The tab name to click, or None when the viewer offers neither tab.
-    """
     offered = tab_labels(html)
     for names in GALLERY_TABS:
         for name in names:
@@ -237,40 +167,16 @@ def gallery_tab(html: str) -> str | None:
 
 
 def next_photo_button(html: str) -> str | None:
-    """Accessible name of the viewer's control for the next photo, if the viewer shows one.
-
-    Args:
-        html: Source of the page with the photo viewer open.
-
-    Returns:
-        The name of NEXT_PHOTO_BUTTONS the viewer shows, else None.
-    """
     labels = {_label(element) for element in BeautifulSoup(html, "lxml").select("[aria-label]")}
     return next((name for name in NEXT_PHOTO_BUTTONS if name in labels), None)
 
 
 def newest_photo(photos: Iterable[ViewerPhoto]) -> PhotoDates:
-    """Newest capture date and count of the dated photos, Street View and 360° images left out.
-
-    Args:
-        photos: Photos read in the viewer.
-
-    Returns:
-        The newest date (None without any dated photo) and the number of dated photos.
-    """
     dates = [photo.taken for photo in photos if photo.taken is not None and not photo.street_view]
     return PhotoDates(newest=max(dates, default=None), dated_count=len(dates))
 
 
 def relative_age_days(text: str) -> float | None:
-    """Return the age in days that a relative date such as "vor 2 Wochen" stands for.
-
-    Args:
-        text: Text containing a German or English relative date.
-
-    Returns:
-        Days, or None when the text holds no relative date.
-    """
     match = RELATIVE_GERMAN.search(text) or RELATIVE_ENGLISH.search(text)
     if match is None:
         return None
@@ -280,27 +186,11 @@ def relative_age_days(text: str) -> float | None:
 
 
 def is_place_page(html: str) -> bool:
-    """Tell a single business profile from a result list or an empty search.
-
-    Args:
-        html: Page source of a Google Maps page.
-
-    Returns:
-        True for a single business profile, False for a result list or an empty search.
-    """
     soup = BeautifulSoup(html, "lxml")
     return soup.select_one('div[role="feed"]') is None and _main(soup).select_one("h1") is not None
 
 
 def tab_labels(html: str) -> list[str]:
-    """Read the tab labels of a place page, e.g. "Übersicht", "Rezensionen".
-
-    Args:
-        html: Page source of a Google Maps place page.
-
-    Returns:
-        The labels in page order; empty when the page has no tabs.
-    """
     soup = BeautifulSoup(html, "lxml")
     return [
         label
@@ -310,15 +200,6 @@ def tab_labels(html: str) -> list[str]:
 
 
 def place_id_from(url: str, html: str = "") -> str | None:
-    """Find the place id of a Maps address or page.
-
-    Args:
-        url: Address of the Maps page.
-        html: Page source, searched when the address carries no id.
-
-    Returns:
-        The ChIJ place id, else the feature id, else None.
-    """
     match = CHIJ_PATTERN.search(url) or CHIJ_PATTERN.search(html)
     if match is not None:
         return match.group(0)
@@ -327,15 +208,6 @@ def place_id_from(url: str, html: str = "") -> str | None:
 
 
 def parse_listings(html: str) -> list[MapListing]:
-    """Return the organic entries of a Maps result list in order; sponsored entries are dropped.
-
-    Args:
-        html: Source of a Maps search page.
-
-    Returns:
-        Listings in Google's order, each business once; a business marked "Keine Rezensionen"
-        has a review count of 0, one whose count is not shown None.
-    """
     soup = BeautifulSoup(html, "lxml")
     feed = soup.select_one('div[role="feed"]')
     if feed is None:
@@ -367,39 +239,15 @@ def parse_listings(html: str) -> list[MapListing]:
     return listings
 
 
-def listing_position(listings: list[MapListing], name: str, place_ids: Iterable[str]) -> int | None:
-    """Return the 1-based position of a business in a result list, matched by id, then by name.
+def listing_identity(listing: MapListing) -> Identity:
+    return identity(name=listing.name, place_ids=[listing.place_id])
 
-    Args:
-        listings: Organic entries in order.
-        name: Business name; matches when one normalised name contains the other.
-        place_ids: Known ChIJ or feature ids of the business.
 
-    Returns:
-        The position, or None when the business is not listed.
-    """
-    known = set(place_ids)
+def listing_position(listings: list[MapListing], own: Identity) -> int | None:
     for position, listing in enumerate(listings, start=1):
-        if listing.place_id is not None and listing.place_id in known:
-            return position
-    for position, listing in enumerate(listings, start=1):
-        if same_business(listing.name, name):
+        if same_business(own, listing_identity(listing)):
             return position
     return None
-
-
-def same_business(left: str, right: str) -> bool:
-    """Compare two business names after normalisation.
-
-    Args:
-        left: One business name.
-        right: The other business name.
-
-    Returns:
-        True if both are non-empty and one normalised name contains the other.
-    """
-    first, second = normalise_name(left), normalise_name(right)
-    return bool(first) and bool(second) and (first in second or second in first)
 
 
 def parse_place(
@@ -411,20 +259,6 @@ def parse_place(
     about_html: str | None = None,
     photos: PhotoDates | None = None,
 ) -> PlaceSnapshot:
-    """Build a snapshot from a place page and, where they were opened, its review and info tabs.
-
-    Args:
-        overview_html: Source of the place page ("Übersicht").
-        url: Address of the place page.
-        now: Moment the pages were read; relative review dates count back from it.
-        reviews_html: Source after opening "Rezensionen" sorted by newest, or None.
-        about_html: Source after opening "Info", or None.
-        photos: Capture dates read in the photo viewer, or None when it was not read.
-
-    Returns:
-        The snapshot; fields that none of the given pages show stay unread (None) and get no
-        route.
-    """
     soup = BeautifulSoup(overview_html, "lxml")
     main = _main(soup)
     about = _main(BeautifulSoup(about_html, "lxml")) if about_html is not None else None
@@ -476,7 +310,6 @@ def _overview_values(
 
 
 def _place_description(main: Tag, about: Tag | None) -> str | None:
-    """The owner's description; an opened info tab without one gives "" (read, but empty)."""
     description = _description(main) or (_description(about) if about is not None else None)
     if description is None and about is not None:
         return ""
@@ -484,18 +317,6 @@ def _place_description(main: Tag, about: Tag | None) -> str | None:
 
 
 def parse_reviews(html: str, now: datetime) -> list[dict[str, object]]:
-    """Return the reviews of an opened "Rezensionen" tab in page order.
-
-    Every review carries reviewReply, None when the owner did not answer, so the reply checks
-    can tell an unanswered review from a source without replies.
-
-    Args:
-        html: Source of the review tab.
-        now: Moment the page was read.
-
-    Returns:
-        Reviews with publishTime, relativePublishTimeDescription, rating, text and reviewReply.
-    """
     soup = BeautifulSoup(html, "lxml")
     reviews: list[dict[str, object]] = []
     seen: set[str] = set()
@@ -569,7 +390,6 @@ def _moment(now: datetime, relative: str | None) -> str | None:
 
 
 def _viewer_texts(html: str) -> list[str]:
-    """Short texts and labels of a page in order, without tabs, reviews, scripts and styles."""
     soup = BeautifulSoup(html, "lxml")
     for element in soup.select(VIEWER_EXCLUDED):
         element.decompose()

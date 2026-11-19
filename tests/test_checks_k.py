@@ -1,8 +1,3 @@
-"""Tests for the checks of area k (assistenten).
-
-Context: Pure rule tests on RawAudit fixtures. | Input: Fixtures. | Output: Assertions.
-"""
-
 from collections.abc import Callable
 
 import pytest
@@ -16,11 +11,10 @@ from radarauditor.scoring.checks.k_assistenten import (
 )
 
 THRESHOLDS: dict[str, dict[str, float | int | str]] = {
-    "k1": {"min_rate": 0.3},
-    "k2": {"min_rate": 0.1},
-    "k3": {},
-    "k4": {},
-    "k5": {},
+    "k1": {},
+    "k2": {},
+    "k6": {},
+    "k7": {},
 }
 RECOMMENDATION = "Welchen Dachdecker in Münster empfiehlst du?"
 PROBLEM = "Mein Dach ist undicht, was tun?"
@@ -72,72 +66,136 @@ def test_question_classification(question: str, expected: bool) -> None:
     assert is_recommendation_question(question) is expected
 
 
-def test_k1_rate_per_provider(raw_audit_full: RawAudit) -> None:
+def test_k1_counts_only_chatgpt_answers(raw_audit_full: RawAudit) -> None:
     answers = [
-        _answer(RECOMMENDATION, mentioned=index < 2, provider="openai") for index in range(5)
-    ] + [_answer(RECOMMENDATION, mentioned=False, provider="gemini") for _ in range(5)]
+        _answer(RECOMMENDATION, mentioned=index < 1, provider="openai") for index in range(5)
+    ]
+    answers += [_answer(RECOMMENDATION, mentioned=True, provider="google_ai") for _ in range(5)]
+    answers += [_answer(RECOMMENDATION, mentioned=True, provider="claude") for _ in range(5)]
     answers.append(_answer(PROBLEM, mentioned=True))
     outcome, measured = run("k1", _with_answers(raw_audit_full, answers), THRESHOLDS["k1"])
-    assert outcome is CheckOutcome.FAILED
-    assert measured["mention_rate"] == 0.2
-    assert measured["answers"] == 10
-    assert measured["by_provider"] == {"openai": 0.4, "gemini": 0.0}
+    assert outcome is CheckOutcome.PASSED
+    assert measured["mentioned"] == 1
+    assert measured["answers"] == 5
+    assert measured["by_provider"] == {"openai": {"mentioned": 1, "answers": 5}}
+    assert "mention_rate" not in measured
 
 
-def test_k1_within_tolerance_is_partial(raw_audit_full: RawAudit) -> None:
-    answers = [_answer(RECOMMENDATION, mentioned=index < 6) for index in range(25)]
+def test_k1_counts_a_chatgpt_provider_named_chatgpt(raw_audit_full: RawAudit) -> None:
+    answers = [_answer(RECOMMENDATION, mentioned=True, provider="chatgpt")]
     outcome, measured = run("k1", _with_answers(raw_audit_full, answers), THRESHOLDS["k1"])
-    assert measured["mention_rate"] == 0.24
-    assert outcome is CheckOutcome.PARTIAL
+    assert outcome is CheckOutcome.PASSED
+    assert measured["answers"] == 1
+
+
+def test_k6_counts_only_claude_answers(raw_audit_full: RawAudit) -> None:
+    answers = [
+        _answer(RECOMMENDATION, mentioned=index < 2, provider="claude") for index in range(5)
+    ]
+    answers += [_answer(RECOMMENDATION, mentioned=True, provider="openai") for _ in range(5)]
+    outcome, measured = run("k6", _with_answers(raw_audit_full, answers), THRESHOLDS["k6"])
+    assert outcome is CheckOutcome.PASSED
+    assert measured["mentioned"] == 2
+    assert measured["answers"] == 5
+
+
+def test_k6_gives_no_verdict_however_rarely_the_business_is_named(
+    raw_audit_full: RawAudit,
+) -> None:
+    answers = [
+        _answer(RECOMMENDATION, mentioned=index < 1, provider="claude") for index in range(10)
+    ]
+    outcome, measured = run("k6", _with_answers(raw_audit_full, answers), THRESHOLDS["k6"])
+    assert outcome is CheckOutcome.PASSED
+    assert (measured["mentioned"], measured["answers"]) == (1, 10)
+
+
+def test_k7_counts_problem_questions_of_claude_only(raw_audit_full: RawAudit) -> None:
+    answers = [
+        _answer(PROBLEM, mentioned=False, provider="claude"),
+        _answer(PROBLEM, mentioned=True, provider="openai"),
+        _answer(RECOMMENDATION, mentioned=True, provider="claude"),
+    ]
+    outcome, measured = run("k7", _with_answers(raw_audit_full, answers), THRESHOLDS["k7"])
+    assert outcome is CheckOutcome.PASSED
+    assert (measured["mentioned"], measured["answers"]) == (0, 1)
+
+
+def test_k6_and_k7_are_not_measured_without_claude_answers(raw_audit_full: RawAudit) -> None:
+    answers = [_answer(RECOMMENDATION, mentioned=True), _answer(PROBLEM, mentioned=True)]
+    raw = _with_answers(raw_audit_full, answers)
+    assert run("k6", raw, THRESHOLDS["k6"])[1] == {"reason": "no_recommendation_answers"}
+    assert run("k7", raw, THRESHOLDS["k7"])[1] == {"reason": "no_problem_answers"}
+
+
+def test_a_cited_page_of_the_customer_counts_as_a_mention(raw_audit_full: RawAudit) -> None:
+    cited = ["https://www.dachdeckerei-muster.de/dachsanierung/"]
+    answers = [_answer(RECOMMENDATION, mentioned=False, sources=cited)]
+    outcome, measured = run("k1", _with_answers(raw_audit_full, answers), THRESHOLDS["k1"])
+    assert outcome is CheckOutcome.PASSED
+    assert measured["mentioned"] == 1
+
+
+def test_an_unrelated_source_is_no_mention(raw_audit_full: RawAudit) -> None:
+    answers = [_answer(RECOMMENDATION, mentioned=False, sources=["https://www.gelbeseiten.de/"])]
+    _, measured = run("k1", _with_answers(raw_audit_full, answers), THRESHOLDS["k1"])
+    assert measured["mentioned"] == 0
+
+
+def test_the_rate_names_examples_with_question_and_excerpt(raw_audit_full: RawAudit) -> None:
+    answers = [_answer(RECOMMENDATION, mentioned=False, excerpt="Dach Schmidt ist bekannt.")]
+    _, measured = run("k1", _with_answers(raw_audit_full, answers), THRESHOLDS["k1"])
+    assert measured["examples"] == [
+        {
+            "provider": "openai",
+            "question": RECOMMENDATION,
+            "mentioned": False,
+            "excerpt": "Dach Schmidt ist bekannt.",
+        }
+    ]
+
+
+def test_the_competitors_of_the_same_audit_are_counted_in_the_same_answers(
+    raw_audit_full: RawAudit,
+) -> None:
+    template = raw_audit_full.competitor_places[0]
+    competitors = [
+        template.model_copy(update={"name": "Dach Schmidt", "website": None}),
+        template.model_copy(update={"name": "Bedachung Weber", "website": None}),
+    ]
+    answers = [
+        _answer(RECOMMENDATION, mentioned=index < 3, excerpt=text)
+        for index, text in enumerate(
+            ["Dach Schmidt", "Dach Schmidt und Bedachung Weber", "Dach Schmidt"] + [""] * 7
+        )
+    ]
+    raw = _with_answers(raw_audit_full, answers)
+    raw = raw.model_copy(update={"competitor_places": competitors})
+    outcome, measured = run("k1", raw, THRESHOLDS["k1"])
+    assert outcome is CheckOutcome.PASSED
+    assert measured["competitors"] == [
+        {"name": "Dach Schmidt", "mentioned": 3, "answers": 10},
+        {"name": "Bedachung Weber", "mentioned": 1, "answers": 10},
+    ]
+    strongest = {"name": "Dach Schmidt", "mentioned": 3, "answers": 10}
+    assert measured["strongest_competitor"] == strongest
+
+
+def test_without_competitors_the_comparison_is_empty(raw_audit_full: RawAudit) -> None:
+    raw = _with_answers(raw_audit_full, [_answer(RECOMMENDATION, mentioned=True)])
+    raw = raw.model_copy(update={"competitor_places": []})
+    measured = run("k1", raw, THRESHOLDS["k1"])[1]
+    assert measured["competitors"] == []
+    assert measured["strongest_competitor"] is None
 
 
 def test_k2_problem_questions_only(raw_audit_full: RawAudit) -> None:
     answers = [_answer(RECOMMENDATION, mentioned=True), _answer(PROBLEM, mentioned=False)]
     outcome, measured = run("k2", _with_answers(raw_audit_full, answers), THRESHOLDS["k2"])
-    assert outcome is CheckOutcome.FAILED
+    assert outcome is CheckOutcome.PASSED
     assert measured["answers"] == 1
     only_recommendations = _with_answers(raw_audit_full, answers[:1])
     assert run("k2", only_recommendations, THRESHOLDS["k2"])[1] == {"reason": "no_problem_answers"}
-
-
-def test_k3_wrong_phone(raw_audit_full: RawAudit) -> None:
-    answers = [
-        _answer(RECOMMENDATION, True, excerpt="Muster, Telefon 0251 999999."),
-        _answer(RECOMMENDATION, True, excerpt="Muster, Telefon +49 251 123456, 48143 Münster."),
-        _answer(RECOMMENDATION, True, excerpt="Muster ist gut."),
-        _answer(RECOMMENDATION, False, excerpt="Schmidt, Telefon 0251 555555."),
-    ]
-    outcome, measured = run("k3", _with_answers(raw_audit_full, answers), {})
-    assert outcome is CheckOutcome.PARTIAL
-    assert measured["answers_checked"] == 2
-    assert measured["answers_with_wrong_facts"] == 1
-    unchecked = _with_answers(raw_audit_full, answers[2:])
-    assert run("k3", unchecked, {})[1] == {"reason": "no_checkable_answers"}
-
-
-def test_k4_missing_on_cited_hosts(raw_audit_full: RawAudit) -> None:
-    answers = [
-        _answer(RECOMMENDATION, True, sources=["https://www.yelp.de/x", "https://www.yelp.de/y"]),
-        _answer(RECOMMENDATION, True, sources=["https://www.gelbeseiten.de/z"]),
-    ]
-    outcome, measured = run("k4", _with_answers(raw_audit_full, answers), {})
-    assert outcome is CheckOutcome.PARTIAL
-    assert measured["top_cited_hosts"] == {"yelp.de": 2, "gelbeseiten.de": 1}
-    assert measured["missing_on"] == ["yelp.de"]
-
-
-def test_k5_blocked_crawlers(raw_audit_full: RawAudit, with_website: Edit) -> None:
-    robots = "User-agent: GPTBot\nDisallow: /\n\nUser-agent: *\nAllow: /\n"
-    outcome, measured = run("k5", with_website(raw_audit_full, robots_txt=robots), {})
-    assert outcome is CheckOutcome.PARTIAL
-    assert measured["blocked_crawlers"] == ["GPTBot"]
-    everything = with_website(raw_audit_full, robots_txt="User-agent: *\nDisallow: /\n")
-    assert run("k5", everything, {})[0] is CheckOutcome.FAILED
-    absent = with_website(raw_audit_full, robots_txt=None)
-    assert run("k5", absent, {}) == (
-        CheckOutcome.PASSED,
-        {"blocked_crawlers": [], "has_robots_txt": False},
-    )
 
 
 def _routed(provider: str, route: AnswerRoute, **fields: object) -> AssistantAnswer:
@@ -146,45 +204,22 @@ def _routed(provider: str, route: AnswerRoute, **fields: object) -> AssistantAns
 
 
 def test_answer_routes_name_the_paid_interface_when_any_answer_used_it() -> None:
-    """A paid answer among browser answers marks the assistant; free routes stay as they are."""
     answers = [
         _routed("chatgpt", "browser"),
         _routed("chatgpt", "api"),
-        _routed("gemini", "browser"),
-        _routed("perplexity", "api"),
+        _routed("google_ai", "browser"),
         _routed("claude", "claude_code"),
         _answer(RECOMMENDATION, mentioned=True, provider="openai"),
     ]
 
     assert answer_routes(answers) == {
         "chatgpt": "openai_api",
-        "gemini": "browser",
-        "perplexity": "perplexity_api",
+        "google_ai": "browser",
         "claude": "claude_code",
     }
 
 
-def test_k1_to_k4_record_the_routes(raw_audit_full: RawAudit) -> None:
-    """Every answer-based check carries the routes of the answers it used."""
-    assert raw_audit_full.place is not None
-    phone = raw_audit_full.place.phone
-    answers = [
-        _routed("chatgpt", "api", answer_excerpt=f"Tel. {phone}", cited_sources=["https://x.de"]),
-        _routed("gemini", "browser", question=PROBLEM, answer_excerpt=f"Tel. {phone}"),
-    ]
-    raw = _with_answers(raw_audit_full, answers)
-
-    assert run("k1", raw, THRESHOLDS["k1"])[1]["routes"] == {"chatgpt": "openai_api"}
-    assert run("k2", raw, THRESHOLDS["k2"])[1]["routes"] == {"gemini": "browser"}
-    assert run("k3", raw, THRESHOLDS["k3"])[1]["routes"] == {
-        "chatgpt": "openai_api",
-        "gemini": "browser",
-    }
-    assert run("k4", raw, THRESHOLDS["k4"])[1]["routes"] == {"chatgpt": "openai_api"}
-
-
 def test_answers_without_routes_record_none(raw_audit_full: RawAudit) -> None:
-    """Older audits without routes keep their measured values unchanged."""
     raw = _with_answers(raw_audit_full, [_answer(RECOMMENDATION, mentioned=True)])
 
     assert "routes" not in run("k1", raw, THRESHOLDS["k1"])[1]

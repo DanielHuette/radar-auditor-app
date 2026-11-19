@@ -6,8 +6,8 @@ import { useIsAdmin } from "../hooks/role";
 import { useSetting, type SaveStatus } from "../hooks/setting";
 import { useAsync } from "../hooks/useAsync";
 import {
+  LISTED_SOURCE_IDS,
   SOURCES_KEY,
-  SOURCE_IDS,
   SOURCE_INFO,
   costCapRequired,
   monthStart,
@@ -49,7 +49,6 @@ function formatLimit(value: number | undefined): string {
   return value === undefined ? "" : String(value).replace(".", ",");
 }
 
-/** Saved when the field loses focus, so typing "120" does not write 1, 12 and 120. */
 function useLimitText(value: number | undefined, parse: (input: string) => LimitInput, onSave: (value: number | undefined) => void) {
   const [text, setText] = useState(formatLimit(value));
   const [error, setError] = useState<string | null>(null);
@@ -133,7 +132,7 @@ function SourceLimits({ id, settings, readOnly, onChange }: Omit<SourceCardProps
           onChange(withSource(settings, id, { daily_cap }));
         }}
       />
-      {SOURCE_INFO[id].paid && <CostLimit id={id} settings={settings} readOnly={readOnly} onChange={onChange} />}
+      {costCapRequired(id) && <CostLimit id={id} settings={settings} readOnly={readOnly} onChange={onChange} />}
     </div>
   );
 }
@@ -177,15 +176,16 @@ function SourcesPanel({ readOnly }: { readOnly: boolean }) {
       <div>
         <h2 id="sources">Datenquellen</h2>
         <p class="muted small">
-          Was der Server abfragen darf. Ist ein Limit erreicht, gilt die betroffene Prüfung als nicht messbar, bis der Tag
-          oder Monat vorbei ist.
+          Was der Server abfragen darf. Für jede Messung gibt es eine feste Reihenfolge der Wege; der Server versucht
+          den ersten zuerst und nimmt den nächsten nur, wenn der vorige nichts liefert. Ist ein Limit erreicht, gilt die
+          betroffene Prüfung als nicht messbar, bis der Tag oder Monat vorbei ist.
         </p>
       </div>
       <Loaded state={setting.state} label="Datenquellen laden …">
         {(settings) => (
           <div class="stack stack--tight">
             <ul class="sources">
-              {SOURCE_IDS.map((id) => (
+              {LISTED_SOURCE_IDS.map((id) => (
                 <SourceCard key={id} id={id} settings={settings} usage={usageOf(id)} readOnly={readOnly} onChange={setting.save} />
               ))}
             </ul>
@@ -232,7 +232,7 @@ export function Settings() {
   const readOnly = !useIsAdmin();
   return (
     <>
-      <PageHead title="Einstellungen" sub="Gilt für jede neue Prüfung auf dem Server." />
+      <PageHead title="Einstellungen" sub="Gilt für jede neue Prüfung und jede neue Kundensuche auf dem Server." />
       <div class="grid-2">
         <SourcesPanel readOnly={readOnly} />
         <section class="panel stack settings-install" aria-labelledby="install">

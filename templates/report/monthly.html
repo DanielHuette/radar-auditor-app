@@ -49,7 +49,7 @@
     <tbody>
     {% for change in report.rankings %}
       <tr>
-        <td>{{ change.phrase }}</td>
+        <td>{{ change.phrase }}{% if change.nationwide %} (bundesweit){% endif %}</td>
         <td class="number">{{ position(change.organic_before) }}</td><td class="number">{{ position(change.organic_after) }}</td><td class="trend-{{ change.organic_trend }}">{{ arrows[change.organic_trend] }}</td>
         <td class="number">{{ position(change.local_before) }}</td><td class="number">{{ position(change.local_after) }}</td><td class="trend-{{ change.local_trend }}">{{ arrows[change.local_trend] }}</td>
       </tr>

@@ -1,27 +1,13 @@
-"""Run Claude Code headless: a project command for one hand-off folder, or one question.
-
-Context: Called by the worker's analysis step (/auswerten, writes findings.json and texte.json),
-optimisation step (/optimieren, writes aenderungen.json), the assistant collector (one question
-with web search, assistant_command) and the mail reading (one question without any tool,
-ask_without_tools). For a folder, Claude Code runs in the project directory with only the file
-tools; it may read anything there and in the folder, and write only the named output files of that
-folder. For a web question, only the web tools are available; a question without tools runs in an
-empty temporary directory, so no project instructions are loaded. Every other action is denied
-without a prompt (permission mode dontAsk). The heartbeat asks for one short answer without tools
-(ping_claude_code) to learn whether Claude Code is answering at all. Everything runs on the Claude
-subscription login of the host; the paid API is never used. Failures carry their kind and a German
-reason for the app.
-Input: Hand-off folder or question, Settings.
-Output: The output files written by Claude Code or the answer text, or ClaudeCodeError.
-"""
-
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from radarauditor.config import Settings
@@ -29,20 +15,53 @@ from radarauditor.errors import ClaudeCodeError, ClaudeCodeFailure
 
 logger = logging.getLogger(__name__)
 
+UsageSink = Callable[[int, int], None]
+USAGE_INPUT_FIELDS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+USAGE_OUTPUT_FIELDS = ("output_tokens",)
+_usage_sink: ContextVar[UsageSink | None] = ContextVar("claude_usage_sink", default=None)
+
+
+@contextmanager
+def counting_usage(sink: UsageSink | None) -> Iterator[None]:
+    token = _usage_sink.set(sink)
+    try:
+        yield
+    finally:
+        _usage_sink.reset(token)
+
+
+def _tokens(usage: object, fields: Sequence[str]) -> int:
+    if not isinstance(usage, dict):
+        return 0
+    return sum(value for field in fields if isinstance(value := usage.get(field), int))
+
+
+def _report_usage(result: Mapping[str, object]) -> None:
+    sink = _usage_sink.get()
+    if sink is None:
+        return
+    usage = result.get("usage")
+    sink(_tokens(usage, USAGE_INPUT_FIELDS), _tokens(usage, USAGE_OUTPUT_FIELDS))
+
+
 PROMPT_TEMPLATE = "/auswerten {folder}"
 TOOLS = "Read,Glob,Grep,Write"
 READ_TOOLS = ("Read", "Glob", "Grep")
-OUTPUT_FILES = ("findings.json", "texte.json")
+OUTPUT_FILES = ("findings.json", "texte.json", "urteile.json")
 WEB_TOOLS = ("WebSearch", "WebFetch")
+LEAN_START = (
+    "--setting-sources",
+    "",
+    "--strict-mcp-config",
+    "--disable-slash-commands",
+)
+PROJECT_ONLY = ("--setting-sources", "project", "--strict-mcp-config")
+NO_PROJECT_INSTRUCTIONS = {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1"}
 MESSAGE_LIMIT = 300
 WINDOWS_DRIVE = re.compile(r"^([A-Za-z]):/(.*)$")
-# Claude Code reports a missing or expired subscription login with one of these phrases.
 LOGIN_PROBLEM = re.compile(
     r"not logged in|/login|invalid api key|authentication|oauth token", re.IGNORECASE
 )
-# A used-up subscription, in the wordings Claude Code has printed: "Claude AI usage limit
-# reached|<time>", "You've hit your session limit · resets 3:50pm", "Usage credits are required for
-# this model" (anthropics/claude-code issues 2087 and 86272).
 USAGE_LIMIT = re.compile(
     r"usage limit|hit your (?:\w+ )?limit|usage credits are required", re.IGNORECASE
 )
@@ -59,22 +78,10 @@ FAILURE_REASONS = {
 
 
 def failure_reason(failure: ClaudeCodeFailure) -> str:
-    """Return the German sentence the app shows for a kind of failure."""
     return FAILURE_REASONS[failure]
 
 
 def absolute_rule_path(path: Path) -> str:
-    """Write an absolute path the way Claude Code permission rules expect it.
-
-    A rule path starting with a single slash is relative to the settings source; absolute paths
-    need two. Windows drives are written as /c/... like Claude Code normalises them.
-
-    Args:
-        path: Absolute path.
-
-    Returns:
-        Path text starting with "//".
-    """
     posix = path.as_posix()
     drive = WINDOWS_DRIVE.match(posix)
     if drive is not None:
@@ -90,18 +97,6 @@ def claude_command(
     prompt_template: str = PROMPT_TEMPLATE,
     output_files: Sequence[str] = OUTPUT_FILES,
 ) -> list[str]:
-    """Build the argument list of the headless run.
-
-    Args:
-        executable: Resolved path of the Claude Code executable.
-        folder: Absolute hand-off folder.
-        settings: Permission mode and optional model.
-        prompt_template: Prompt with a {folder} placeholder, by default /auswerten.
-        output_files: Names of the only files Claude Code may write in the folder.
-
-    Returns:
-        Arguments for subprocess, starting with the executable.
-    """
     writable = [f"Edit({absolute_rule_path(folder / name)})" for name in output_files]
     allowed = [*READ_TOOLS, *writable]
     command = [
@@ -113,6 +108,7 @@ def claude_command(
         "--permission-mode",
         settings.analysis_permission_mode,
         "--no-session-persistence",
+        *PROJECT_ONLY,
         "--tools",
         TOOLS,
     ]
@@ -128,18 +124,6 @@ def run_claude_code(
     prompt_template: str = PROMPT_TEMPLATE,
     output_files: Sequence[str] = OUTPUT_FILES,
 ) -> None:
-    """Run Claude Code headless on one folder and check that it reports success.
-
-    Args:
-        folder: Hand-off folder prepared like `jobs pull` does.
-        settings: Command, timeout, project directory, permission mode and model.
-        prompt_template: Prompt with a {folder} placeholder, by default /auswerten.
-        output_files: Names of the only files Claude Code may write in the folder.
-
-    Raises:
-        ClaudeCodeError: If the executable is missing, the run times out, exits with an error,
-            or reports an error such as a missing login.
-    """
     executable = resolve_executable(settings)
     command = claude_command(
         executable,
@@ -150,27 +134,13 @@ def run_claude_code(
     )
     timeout = settings.analysis_timeout_seconds
     logger.info("Running Claude Code on %s (timeout %d s)", folder.name, timeout)
-    result = run_headless(command, settings.analysis_project_dir, timeout)
+    result = run_headless(
+        command, settings.analysis_project_dir, timeout, environment=NO_PROJECT_INSTRUCTIONS
+    )
     logger.info("Claude Code finished: %s", _short(result))
 
 
 def toolless_command(executable: str, prompt: str, model: str) -> list[str]:
-    """Build the argument list of a question answered from its text alone.
-
-    No tool is offered and every action is denied without a prompt, so the answer can only be
-    text, whatever the prompt contains. No settings file of the host is read (no user settings,
-    plugins, hooks or allow rules), no MCP server is started and no skill or command is offered;
-    flags as listed by `claude --help` of Claude Code 2.1.310. --bare is not used, because it
-    ignores the subscription login.
-
-    Args:
-        executable: Resolved path of the Claude Code executable.
-        prompt: The whole question.
-        model: Model name or alias.
-
-    Returns:
-        Arguments for subprocess, starting with the executable.
-    """
     return [
         executable,
         "-p",
@@ -180,10 +150,7 @@ def toolless_command(executable: str, prompt: str, model: str) -> list[str]:
         "--permission-mode",
         "dontAsk",
         "--no-session-persistence",
-        "--setting-sources",
-        "",
-        "--strict-mcp-config",
-        "--disable-slash-commands",
+        *LEAN_START,
         "--tools",
         "",
         "--model",
@@ -191,44 +158,19 @@ def toolless_command(executable: str, prompt: str, model: str) -> list[str]:
     ]
 
 
-def ask_without_tools(prompt: str, settings: Settings, model: str, timeout: int) -> str:
-    """Ask Claude Code one question without any tool, outside the project directory.
-
-    Args:
-        prompt: The whole question.
-        settings: The Claude Code command.
-        model: Model name or alias.
-        timeout: Seconds before the run is stopped.
-
-    Returns:
-        The answer text.
-
-    Raises:
-        ClaudeCodeError: If Claude Code is missing, not logged in, too slow or answers an error.
-    """
+def ask_without_tools(
+    prompt: str, settings: Settings, model: str, timeout: int, material: str | None = None
+) -> str:
     command = toolless_command(resolve_executable(settings), prompt, model)
     with tempfile.TemporaryDirectory() as scratch:
-        return run_headless(command, Path(scratch), timeout)
+        return run_headless(command, Path(scratch), timeout, material=material)
 
 
 def ping_claude_code(settings: Settings) -> None:
-    """Ask Claude Code for one short answer to learn whether it is logged in and answering.
-
-    Args:
-        settings: The Claude Code command.
-
-    Raises:
-        ClaudeCodeError: If Claude Code is missing, not logged in, too slow or answers an error.
-    """
     ask_without_tools(PING_PROMPT, settings, PING_MODEL, PING_TIMEOUT_SECONDS)
 
 
 def resolve_executable(settings: Settings) -> str:
-    """Find the Claude Code executable named by ANALYSIS_CLAUDE_COMMAND.
-
-    Raises:
-        ClaudeCodeError: NOT_INSTALLED if it is neither on PATH nor an executable path.
-    """
     executable = shutil.which(settings.analysis_claude_command)
     if executable is None:
         raise ClaudeCodeError(
@@ -239,18 +181,6 @@ def resolve_executable(settings: Settings) -> str:
 
 
 def assistant_command(executable: str, question: str, model: str | None) -> list[str]:
-    """Build the argument list that asks Claude one question with web search, like claude.ai.
-
-    Only the web tools are available and allowed; every other action is denied without a prompt.
-
-    Args:
-        executable: Resolved path of the Claude Code executable.
-        question: Question in German.
-        model: Model name; None or empty uses the default model of the login.
-
-    Returns:
-        Arguments for subprocess, starting with the executable.
-    """
     command = [
         executable,
         "-p",
@@ -260,6 +190,7 @@ def assistant_command(executable: str, question: str, model: str | None) -> list
         "--permission-mode",
         "dontAsk",
         "--no-session-persistence",
+        *LEAN_START,
         "--tools",
         ",".join(WEB_TOOLS),
     ]
@@ -268,25 +199,19 @@ def assistant_command(executable: str, question: str, model: str | None) -> list
     return [*command, "--allowedTools", *WEB_TOOLS]
 
 
-def run_headless(command: Sequence[str], cwd: Path, timeout: int) -> str:
-    """Run a prepared headless Claude Code command and return its result text.
-
-    Args:
-        command: Arguments from claude_command, toolless_command or assistant_command.
-        cwd: Directory Claude Code runs in.
-        timeout: Seconds before the run is stopped.
-
-    Returns:
-        The "result" text of the JSON output.
-
-    Raises:
-        ClaudeCodeError: If the run cannot start, times out (TIMEOUT), exits with an error or
-            reports one.
-    """
+def run_headless(
+    command: Sequence[str],
+    cwd: Path,
+    timeout: int,
+    environment: Mapping[str, str] | None = None,
+    material: str | None = None,
+) -> str:
     try:
         completed = subprocess.run(
             command,
             cwd=cwd,
+            env={**os.environ, **(environment or {})},
+            input=material,
             capture_output=True,
             encoding="utf-8",
             errors="replace",
@@ -303,20 +228,6 @@ def run_headless(command: Sequence[str], cwd: Path, timeout: int) -> str:
 
 
 def check_result(returncode: int, stdout: str, stderr: str) -> str:
-    """Interpret the single JSON result Claude Code prints with --output-format json.
-
-    Args:
-        returncode: Exit code of the process.
-        stdout: Standard output, expected to be one JSON object.
-        stderr: Standard error, used in the message when stdout has no result.
-
-    Returns:
-        The "result" text, empty when the run reported none.
-
-    Raises:
-        ClaudeCodeError: If the exit code is not zero or the result is missing or an error;
-            NOT_LOGGED_IN when the message names a missing login.
-    """
     try:
         result = json.loads(stdout)
     except json.JSONDecodeError:
@@ -326,6 +237,7 @@ def check_result(returncode: int, stdout: str, stderr: str) -> str:
         raise ClaudeCodeError(
             f"exit code {returncode}, no JSON result: {detail}", _failure_of(detail)
         )
+    _report_usage(result)
     if returncode != 0 or result.get("is_error") is True or result.get("subtype") != "success":
         detail = _short(str(result.get("result") or result.get("subtype") or stderr))
         raise ClaudeCodeError(f"exit code {returncode}: {detail}", _failure_of(detail))

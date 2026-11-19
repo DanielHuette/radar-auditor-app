@@ -1,155 +1,77 @@
-// Die dreizehn gewichteten Bereiche und ihre 104 Prüfungen, Stand config/pruefkatalog.yaml.
-// Je Prüfung: Name deutsch, Name englisch, Kundenfrage, Folge (beide deutsch, Wortlaut des Katalogs), Kennung.
-// Die Namen stehen hier zweisprachig, weil die Projektseite ohne Build-Schritt läuft und
-// der Ring die Karten im Browser zeichnet. Bereich m (Wirkung mit Kundenzugang, Gewicht 0)
-// zählt nicht zur Punktzahl und bleibt deshalb außerhalb des Rings.
 export const bereiche = [
-  { id: "a", gewicht: 9, de: "Technik der Website", en: "Website technology",
+  { id: "google", gewicht: 56.179, de: "Google", en: "Google",
     pruefungen: [
-      ["Verschlüsselte Seite unter einer einzigen Adresse", "Encrypted site under a single address", "Ist deine Seite verschlüsselt und unter genau einer Adresse erreichbar?", "Ohne Schloss im Browser warnt Google Besucher; mehrere Adressen teilen deine Sichtbarkeit auf.", "a1"],
-      ["Seite lädt am Handy in unter 2,5 Sekunden", "Page loads on a phone in under 2.5 seconds", "Lädt deine Seite auf dem Handy in unter 2,5 Sekunden?", "Jede Sekunde mehr kostet Anrufe, weil Besucher abspringen; Google stuft langsame Seiten zurück.", "a2"],
-      ["Seite am Handy ohne Zoomen bedienbar", "Page usable on a phone without zooming", "Ist deine Seite auf dem Handy bedienbar, ohne zu zoomen?", "Die meisten Kunden suchen am Handy und geben auf, wenn sie zoomen müssen.", "a3"],
-      ["Google findet alle deine Seiten", "Google finds all your pages", "Findet Google alle deine Seiten?", "Seiten, die Google nicht kennt, bringen keine Kunden.", "a4"],
-      ["Keine toten Links", "No dead links", "Führen alle Links auf deiner Seite zum Ziel?", "Tote Links wirken ungepflegt, auf Besucher und auf Google.", "a5"],
-      ["Jede Seite gibt es für Google nur einmal", "Each page exists only once for Google", "Weiß Google, welche Fassung einer Seite die richtige ist?", "Ohne diese Angabe konkurrieren Kopien deiner Seite miteinander.", "a6"],
-      ["Bilder klein und beschrieben", "Images small and described", "Sind deine Bilder klein genug und beschrieben?", "Große Bilder bremsen die Seite; fehlende Beschreibungen kosten Sichtbarkeit in der Bildersuche.", "a7"],
-      ["Text auch ohne Zusatzprogramme lesbar", "Text readable without add-ons", "Kann Google deinen Text lesen, ohne die Seite auszuführen?", "Was nur per Skript erscheint, übersehen Suchmaschinen und KI-Assistenten oft.", "a8"],
-      ["Seite als deutsch gekennzeichnet", "Page marked as German", "Ist deine Seite als deutsch gekennzeichnet?", "Google ordnet die Seite sonst dem falschen Sprachraum zu.", "a9"],
-      ["Keine Sicherheitswarnungen im Browser", "No security warnings in the browser", "Ist deine Seite sauber abgesichert?", "Browser-Warnungen schrecken Kunden ab.", "a10"]
+      ["Die Seite lädt am Handy schnell und ruhig", "Page loads quickly and steadily on a phone", "Lädt die Seite am Handy schnell, ohne zu springen, und reagiert sie sofort auf Eingaben?", "Jede Sekunde mehr kostet Anrufe, weil Besucher abspringen; Google stuft langsame Seiten zurück.", "a2"],
+      ["Google kann jede Seite aufnehmen", "Google can include every page", "Darf Google jede Seite Ihrer Website abrufen und in die Suche aufnehmen?", "Eine Seite, die Google nicht abrufen darf, nicht fehlerfrei erhält oder mit „nicht aufnehmen“ oder dem Verweis auf eine andere Adresse versehen ist, erscheint nicht in der Suche und bringt keine Kunden.", "a4"],
+      ["Der Vorschautext ist nicht gesperrt", "The preview text is not blocked", "Darf Google zu den Seiten einen Vorschautext zeigen?", "Seiten mit gesperrtem Vorschautext werden in Googles Antworten mit künstlicher Intelligenz nicht als Quelle genannt.", "a12"],
+      ["Googles künstliche Intelligenz (Gemini) darf die Inhalte verwenden", "Google's AI (Gemini) may use the content", "Darf Gemini die Inhalte der Website verwenden?", "Bei einer Sperre taucht die Website in Gemini nicht als Quelle auf; die Google-Suche bleibt unberührt.", "a11"],
+      ["Google sieht dieselbe Seite wie Besucher", "Google sees the same page as visitors", "Zeigt die Website Google und Besuchern denselben Inhalt?", "Unterschiedliche Inhalte für Google und Besucher können die Seite aus der Suche werfen.", "a13"],
+      ["Die Bilder sind beschrieben", "Images are described", "Haben die Bilder der Website eine Bildbeschreibung?", "Ohne Bildbeschreibung versteht Google nicht, was ein Bild zeigt, und zeigt es seltener.", "a7"],
+      ["Jede Seite ist über einen lesbaren Link erreichbar", "Every page is reachable through a readable link", "Ist jede Seite über einen echten Link erreichbar?", "Seiten, auf die kein gewöhnlicher Link zeigt, findet Google nicht und zeigt sie nicht in der Suche.", "b5"],
+      ["Die Suchwörter der Kunden stehen an den auffälligen Stellen", "Customers' search words appear in the prominent places", "Stehen die Suchwörter der Kunden an den Stellen, die Google liest?", "Google findet nur, was auch dasteht; fehlen die Suchwörter, erscheint die Seite bei diesen Suchen nicht.", "c4"],
+      ["Verweise von anderen Websites im Vergleich zu den Wettbewerbern", "Links from other websites compared with the competitors", "Verweisen so viele andere Websites auf den Betrieb wie auf die Wettbewerber?", "Links sind Empfehlungen; Google zählt sie.", "i1"],
+      ["Das Profil ist bestätigt", "The profile is verified", "Hat der Betrieb sein Google-Profil in der Hand?", "Ohne Profil keine Karte; ohne Besitz kann jeder die Daten ändern.", "f1"],
+      ["Die Hauptkategorie ist gesetzt", "The main category is set", "Ist im Google-Profil eine Hauptkategorie gesetzt?", "Die Kategorie entscheidet, bei welchen Suchen der Betrieb auf der Karte erscheint.", "f2"],
+      ["Die Beschreibung ist vorhanden", "The description is present", "Hat das Google-Profil eine Beschreibung?", "Ohne Beschreibung bleibt offen, wofür der Betrieb steht.", "f4"],
+      ["Die Leistungen sind eingetragen", "The services are entered", "Sind die Leistungen im Google-Profil eingetragen?", "Fehlen die Leistungen, wird der Betrieb bei Suchen nach einzelnen Leistungen seltener gezeigt.", "f5"],
+      ["Die Öffnungszeiten sind vollständig", "Opening hours are complete", "Sind die Öffnungszeiten vollständig eingetragen, soweit erkennbar auch für besondere Tage?", "Falsche oder fehlende Zeiten kosten Anrufe und Besuche.", "f7"],
+      ["Fotos sind vorhanden", "Photos are present", "Hat das Google-Profil Fotos?", "Ohne Fotos wirkt der Eintrag leer und wird seltener angeklickt.", "f8"],
+      ["Die Merkmale sind eingetragen", "The attributes are entered", "Sind Merkmale im Google-Profil eingetragen?", "Ohne Merkmale fehlen Kunden Angaben, die sie vor dem Besuch suchen.", "f13"],
+      ["Zahl der Rezensionen im Vergleich zu den Betrieben auf der Karte", "Number of reviews compared with the businesses on the map", "Hat der Betrieb mehr oder weniger Bewertungen als die Wettbewerber?", "Kunden wählen den mit mehr Bewertungen, Google auch.", "g1"],
+      ["Durchschnittsbewertung im Vergleich zu den Betrieben auf der Karte", "Average rating compared with the businesses on the map", "Liegt die Durchschnittsbewertung mindestens auf dem Niveau der Betriebe auf der Karte?", "Schlechtere Sterne als bei den Wettbewerbern kosten Anfragen.", "g2"],
+      ["Platz bei den wichtigsten Suchen im eigenen Ort", "Position for the most important searches in the town", "Auf welchem Platz steht der Betrieb für die wichtigsten Suchen?", "Die obersten Plätze bekommen die meisten Klicks, ab Seite 2 fast niemand mehr.", "j1"],
+      ["Unter den drei Betrieben auf der Karte", "Among the three businesses on the map", "Ist der Betrieb einer der drei Betriebe auf der Karte?", "Die Karte steht über allen Ergebnissen; wer dort fehlt, wird am Handy kaum gesehen.", "j2"],
+      ["Sichtbarkeit rund um den Standort", "Visibility around the location", "Wo im Umkreis ist der Betrieb auf der Karte sichtbar und wo nicht?", "Zeigt, aus welchen Stadtteilen keine Kunden kommen können.", "j3"],
+      ["Platz 1 bei der Suche nach dem eigenen Namen", "Position 1 when searching for the business's own name", "Findet man den Betrieb, wenn man seinen Namen sucht?", "Wer nach dem Betrieb sucht, hat sich fast entschieden; da darf nichts dazwischen stehen.", "j4"],
+      ["Anzahl der Suchen, bei denen der Betrieb gefunden wird", "Number of searches for which the business is found", "Für wie viele Suchen wird der Betrieb überhaupt gefunden?", "Mehr Begriffe, mehr Türen.", "j5"],
+      ["Genannt in Googles Antwort mit künstlicher Intelligenz", "Named in Google's AI answer", "Nennt Googles Antwort mit künstlicher Intelligenz den Betrieb?", "Diese Antwort steht ganz oben und verdrängt die normalen Ergebnisse.", "j6"],
+      ["Eigene Bilder in der Google-Bildersuche", "Own images in Google image search", "Erscheinen die Bilder des Betriebs bei Google Bilder?", "Für Handwerk und Gastronomie ein eigener Kundenweg.", "j8"],
+      ["Suchbegriffe, bei denen der Wettbewerber gefunden wird und der eigene Betrieb nicht", "Search terms where the competitor is found and the business is not", "Für welche Begriffe wird der Wettbewerber gefunden und der eigene Betrieb nicht?", "Das ist die Liste der Aufträge, die heute woanders landen.", "c12"],
+      ["Entwicklung über die Zeit", "Development over time", "Steigt die Sichtbarkeit von Monat zu Monat?", "Zeigt, ob die laufende Betreuung wirkt.", "j9"],
+      ["Anrufe, Routen und Aufrufe aus dem Google-Profil", "Calls, routes and views from the Google profile", "Wie viele Menschen rufen den Betrieb über Google an?", "Die Zahl, an der sich jede Maßnahme messen lässt.", "m1"],
+      ["Suchwörter, bei denen wirklich geklickt wird", "Search words that actually get clicks", "Wofür wird der Betrieb wirklich geklickt?", "Ersetzt jede Schätzung durch Messung.", "m2"]
     ] },
-  { id: "b", gewicht: 10, de: "Aufbau der Seiten", en: "Page structure",
+  { id: "bing", gewicht: 29.214, de: "Bing und Copilot", en: "Bing and Copilot",
     pruefungen: [
-      ["Jede Seite nennt oben Leistung und Ort", "Each page names service and place at the top", "Sagt die Überschrift jeder Seite, was du wo anbietest?", "Google liest die Hauptüberschrift als Thema der Seite.", "b1"],
-      ["Titel bei Google nennt, wonach Kunden suchen", "Title on Google names what customers search for", "Steht in deinem Seitentitel, wonach Kunden suchen?", "Der Titel ist die blaue Zeile bei Google; er entscheidet, ob geklickt wird.", "b2"],
-      ["Eigener Vorschautext bei Google je Seite", "Own preview text on Google for each page", "Hat jede Seite einen eigenen Vorschautext für Google?", "Ohne Vorschautext schreibt Google selbst etwas, meist Unpassendes.", "b3"],
-      ["Überschriften sauber gegliedert", "Headings cleanly structured", "Sind deine Überschriften sauber gegliedert?", "Eine klare Gliederung hilft Google und KI-Assistenten, Inhalte zuzuordnen.", "b4"],
-      ["Jede Leistung in höchstens drei Klicks erreichbar", "Each service within three clicks", "Sind deine Leistungen von der Startseite aus schnell erreichbar?", "Versteckte Seiten werden seltener gefunden, von Kunden und von Google.", "b5"],
-      ["Verständliche Seitenadressen", "Readable page addresses", "Sagt die Internetadresse einer Seite, worum es geht?", "\"/dachsanierung-muenster\" wird öfter geklickt als \"/seite-17\".", "b6"],
-      ["Geteilte Links zeigen Bild und Titel", "Shared links show image and title", "Sieht ein geteilter Link zu deiner Seite gut aus?", "Ein Link ohne Bild und Titel wird in WhatsApp seltener angeklickt.", "b7"],
-      ["Kein doppelter Text auf mehreren Seiten", "No duplicate text across pages", "Hat jede Seite eigenen Text?", "Kopierte Seiten verdrängen sich gegenseitig bei Google.", "b8"],
-      ["Seite zeigt, wo man gerade ist", "Page shows where you are", "Zeigt deine Seite, wo man sich gerade befindet?", "Google zeigt diesen Pfad im Suchergebnis an; das bringt Klicks.", "b9"],
-      ["Hilfreiche Fehlerseite", "Helpful error page", "Landet ein Besucher auf einer toten Seite, findet er zurück?", "Sonst ist der Besucher weg.", "b10"]
+      ["Bing kann jede Seite aufnehmen", "Bing can include every page", "Darf Bing jede Seite der Website abrufen und aufnehmen?", "Seiten, die Bing nicht aufnimmt, erscheinen weder bei Bing noch in Copilot.", "a14"],
+      ["Keine Sperrvermerke für Copilot", "No blocking notes for Copilot", "Verbietet die Website Copilot, ihre Inhalte zu zitieren?", "Gesperrte Seiten werden in Antworten von Copilot nicht oder nur eingeschränkt genannt.", "b10"],
+      ["Das Seitenverzeichnis (Sitemap) ist vorhanden und sauber", "The sitemap is present and clean", "Gibt es ein vollständiges, sauberes Seitenverzeichnis?", "Ein fehlendes oder fehlerhaftes Verzeichnis lässt Bing Seiten spät oder gar nicht finden.", "b11"],
+      ["Der Meldedienst IndexNow ist eingerichtet", "The notification service IndexNow is set up", "Meldet die Website Änderungen automatisch an Bing?", "Ohne Meldung erfährt Bing von Änderungen erst beim nächsten Besuch.", "b12"],
+      ["Links sind lesbar und beschriftet", "Links are readable and labelled", "Sind die Links der Website lesbar und beschriftet?", "Links ohne Beschriftung sagen Bing nichts über die Zielseite.", "b13"],
+      ["Keine doppelten Adressen", "No duplicate addresses", "Ist jede Seite nur unter einer Adresse erreichbar?", "Doppelte Adressen teilen die Kraft einer Seite auf und verwirren Bing.", "b14"],
+      ["Der Inhalt ist ohne Skripte lesbar", "The content is readable without scripts", "Steht der wichtige Text direkt im Seitentext?", "Was erst durch Skripte erscheint, wird von Suchmaschinen leicht übersehen.", "b15"],
+      ["Seitentitel und Vorschautext sind je Seite vorhanden und nicht doppelt", "Page title and preview text are present on every page and not duplicated", "Hat jede Seite einen eigenen Titel und Vorschautext?", "Fehlende oder doppelte Texte machen Treffer unklar und bringen weniger Klicks.", "b3"],
+      ["Die Überschriften sind logisch gegliedert", "The headings are logically structured", "Sind die Überschriften jeder Seite logisch gegliedert?", "Eine unklare Gliederung erschwert es Bing, den Inhalt einzuordnen.", "b4"],
+      ["Bilder sind beschrieben und sprechend benannt", "Images are described and sensibly named", "Haben die Bilder eine Beschreibung und einen sprechenden Dateinamen?", "Ohne beides bleibt der Inhalt der Bilder für Bing unklar.", "b16"],
+      ["Jede Seite behandelt ein Thema", "Each page covers one topic", "Nennen Titel, Hauptüberschrift und Text dasselbe Thema?", "Seiten ohne klares Thema werden bei Suchen seltener gezeigt.", "b17"],
+      ["Wichtiges steht oben", "What matters comes first", "Stehen Leistung und Ort gleich am Seitenanfang?", "Was erst weit unten steht, gewichtet Bing geringer.", "b18"],
+      ["Die Inhalte sind aktuell", "The content is up to date", "Zeigen die Änderungsdaten der Seiten, dass die Inhalte gepflegt werden?", "Veraltete Inhalte werden seltener gezeigt.", "b19"],
+      ["Angaben im Seitencode stimmen mit dem sichtbaren Text überein", "Data in the page code matches the visible text", "Stimmen die maschinenlesbaren Angaben mit dem sichtbaren Text überein?", "Widersprüche machen die Angaben für Bing unzuverlässig.", "b20"],
+      ["Der Firmenname ist einheitlich geschrieben", "The business name is written consistently", "Ist der Firmenname überall gleich geschrieben?", "Verschiedene Schreibweisen erschweren es, den Betrieb eindeutig zu erkennen.", "b21"],
+      ["Bing sieht dieselbe Seite wie Besucher", "Bing sees the same page as visitors", "Zeigt die Website Bing und Besuchern denselben Inhalt?", "Unterschiedliche Inhalte können zum Ausschluss aus Bing führen.", "b22"],
+      ["Gefunden bei Bing", "Found on Bing", "Wird der Betrieb auch bei Bing gefunden?", "Bing speist Copilot und ChatGPT-Suche.", "j7"],
+      ["Eintrag bei Bing", "Listing on Bing", "Findet man den Betrieb bei Bing?", "Windows-Nutzer und der Assistent von Microsoft suchen hier.", "h2"]
     ] },
-  { id: "c", gewicht: 12, de: "Inhalte und Leistungsseiten", en: "Content and service pages",
+  { id: "apple", gewicht: 1.623, de: "Apple Karten", en: "Apple Maps",
     pruefungen: [
-      ["Eigene Seite je Leistung", "A page of its own for each service", "Hat jede deiner Leistungen eine eigene Seite?", "Google zeigt für \"Dachsanierung\" die Seite, die nur davon handelt, nicht die Sammelseite.", "c1"],
-      ["Seite für jede gesuchte Leistung in deinem Ort", "A page for every service searched for in your town", "Gibt es für jede gesuchte Leistung in deinem Ort eine Seite?", "Für jede fehlende Seite gehen Suchende zum Wettbewerber.", "c2"],
-      ["Leistungsseiten mit Ablauf, Dauer und Preisrahmen", "Service pages with process, duration and price range", "Beantwortet jede Leistungsseite Ablauf, Dauer und Preisrahmen?", "Dünne Seiten ranken nicht und überzeugen nicht.", "c3"],
-      ["Die Suchwörter der Kunden stehen im Text", "The customers' search words are in the text", "Stehen die Wörter, nach denen Kunden suchen, im Text?", "Google findet nur, was auch dasteht.", "c4"],
-      ["Häufige Kundenfragen beantwortet", "Frequent customer questions answered", "Beantwortet deine Seite die Fragen, die Google unter \"Nutzer fragen auch\" zeigt?", "Diese Fragen stellen Kunden auch KI-Assistenten; wer sie beantwortet, wird genannt.", "c5"],
-      ["Stadtteile und Nachbarorte im Text", "Districts and nearby towns in the text", "Nennt dein Text Stadtteile und Nachbarorte?", "Nur der Stadtname im Titel reicht nicht, um für das Umland gefunden zu werden.", "c6"],
-      ["Nichts Veraltetes auf der Seite", "Nothing outdated on the page", "Steht auf deiner Seite nichts Veraltetes?", "Alte Jahreszahlen und Preise wirken wie ein geschlossener Laden.", "c7"],
-      ["Über-uns mit Namen, Fotos und Qualifikation", "About page with names, photos and qualifications", "Zeigt deine Seite, wer dahinter steht?", "Google bewertet Erfahrung und Vertrauenswürdigkeit; Kunden auch.", "c8"],
-      ["Kontakt mit einem Tippen", "Contact with a single tap", "Kann ein Kunde dich mit einem Tipp anrufen?", "Jeder Umweg kostet Anfragen.", "c9"],
-      ["Ratgeber zu Themen aus deiner Region", "Guides on topics from your region", "Hat deine Seite Beiträge zu Themen aus deiner Region?", "Regionale Themen bringen Besucher, die sonst niemand bedient.", "c10"],
-      ["Keine fast leeren Seiten", "No almost empty pages", "Gibt es Seiten mit fast keinem Inhalt?", "Sie ziehen die Bewertung der ganzen Seite nach unten.", "c11"],
-      ["Suchbegriffe, bei denen der Wettbewerber gefunden wird und du nicht", "Search terms where the competitor is found and you are not", "Für welche Begriffe wird dein Wettbewerber gefunden und du nicht?", "Das ist die Liste der Aufträge, die heute woanders landen.", "c12"]
+      ["Eintrag in Apple Karten", "Listing in Apple Maps", "Findet man den Betrieb auf dem iPhone in Apple Karten?", "Viele iPhone-Nutzer suchen dort statt bei Google.", "h1"]
     ] },
-  { id: "d", gewicht: 6, de: "Firmendaten auf der Website", en: "Company details on the website",
+  { id: "openai", gewicht: 6.492, de: "ChatGPT", en: "ChatGPT",
     pruefungen: [
-      ["Name, Adresse, Telefon auf jeder Seite als Text", "Name, address, phone as text on every page", "Stehen deine Firmendaten auf jeder Seite als Text?", "Google gleicht sie mit deinem Profil ab; als Bild sind sie unsichtbar.", "d1"],
-      ["Adresse und Telefon überall gleich geschrieben", "Address and phone written the same everywhere", "Sind Adresse und Telefon überall gleich geschrieben?", "Abweichungen lassen Google zweifeln, ob es dieselbe Firma ist.", "d2"],
-      ["Öffnungszeiten auf Website und Google gleich", "Opening hours the same on website and Google", "Stimmen deine Öffnungszeiten auf Website und Google überein?", "Falsche Zeiten kosten Besuche und bringen schlechte Bewertungen.", "d3"],
-      ["Eigene Seite je Standort", "A page of its own for each location", "Hat jeder Standort eine eigene Seite?", "Sonst wird nur ein Standort gefunden.", "d4"],
-      ["Website verlinkt dein Google-Profil", "Website links your Google profile", "Verlinkt deine Seite auf dein Google-Profil?", "Das verbindet Website und Profil für Google.", "d5"],
-      ["Telefon und E-Mail antippbar", "Phone and email tappable", "Sind Telefonnummer und E-Mail antippbar?", "Am Handy wählt sonst niemand eine Nummer ab.", "d6"]
+      ["Die ChatGPT-Suche darf die Website lesen", "The ChatGPT search may read the website", "Erlaubt die robots.txt dem Abrufprogramm der ChatGPT-Suche (OAI-SearchBot) das Lesen der Website?", "Ein gesperrter OAI-SearchBot lässt den Betrieb in der ChatGPT-Suche aus.", "a15"],
+      ["Die Firewall lässt die ChatGPT-Suche durch", "The firewall lets the ChatGPT search through", "Kommt OAI-SearchBot an der Firewall der Website vorbei?", "Eine blockierende Firewall sperrt die ChatGPT-Suche aus, obwohl die robots.txt es erlaubt.", "a16"],
+      ["Genannt, wenn Kunden ChatGPT nach einem Betrieb fragen", "Named when customers ask ChatGPT about a business", "Nennt ChatGPT den Betrieb, wenn Kunden nach einer Empfehlung fragen?", "Immer mehr Kunden fragen zuerst eine künstliche Intelligenz statt Google.", "k1"],
+      ["Genannt, wenn Kunden ChatGPT ihr Problem beschreiben", "Named when customers describe their problem to ChatGPT", "Nennt ChatGPT den Betrieb, wenn Kunden ihr Problem beschreiben?", "Hier entstehen die Aufträge, bevor der Kunde einen Namen kennt.", "k2"]
     ] },
-  { id: "e", gewicht: 7, de: "Unsichtbare Angaben für Google und KI", en: "Hidden data for Google and AI",
+  { id: "anthropic", gewicht: 6.492, de: "Claude", en: "Claude",
     pruefungen: [
-      ["Firmendaten maschinenlesbar auf der Startseite", "Company data machine-readable on the home page", "Erklärt deine Seite Google und KI-Assistenten in deren Sprache, was du bist?", "Ohne diese unsichtbaren Angaben raten Maschinen; mit ihnen wissen sie Adresse, Zeiten, Leistungen.", "e1"],
-      ["Logo für Google hinterlegt", "Logo provided for Google", "Ist dein Logo für Google hinterlegt?", "Google zeigt es dann neben deinem Namen.", "e2"],
-      ["Leistungen und Einsatzgebiet maschinenlesbar", "Services and service area machine-readable", "Sind deine Leistungen maschinenlesbar hinterlegt?", "KI-Assistenten nennen Betriebe, deren Leistungen sie sicher kennen.", "e3"],
-      ["Häufige Fragen für Google markiert", "Frequent questions marked up for Google", "Sind deine häufigen Fragen für Google markiert?", "Google kann sie direkt im Suchergebnis zeigen.", "e4"],
-      ["Seitenpfad maschinenlesbar", "Page path machine-readable", "Ist der Seitenpfad maschinenlesbar?", "Ergibt den Pfad im Suchergebnis.", "e5"],
-      ["Sterne nur bei echten Bewertungen", "Stars only for real reviews", "Werden Sterne nur dort markiert, wo echte Bewertungen stehen?", "Falsch markierte Sterne bestraft Google.", "e6"],
-      ["Unsichtbare Angaben fehlerfrei", "Hidden data free of errors", "Sind die unsichtbaren Angaben fehlerfrei?", "Fehlerhafte Angaben ignoriert Google komplett.", "e7"],
-      ["Website verweist auf alle deine Profile", "Website points to all your profiles", "Verweist deine Seite auf alle deine Profile?", "So erkennen Maschinen, dass alle Einträge zu einer Firma gehören.", "e8"]
-    ] },
-  { id: "f", gewicht: 14, de: "Google-Unternehmensprofil", en: "Google Business Profile",
-    pruefungen: [
-      ["Profil gehört dir und ist bestätigt", "Profile is yours and verified", "Hast du dein Google-Profil in der Hand?", "Ohne Profil keine Karte; ohne Besitz kann jeder deine Daten ändern.", "f1"],
-      ["Hauptkategorie wie bei den stärksten Wettbewerbern", "Main category as with the strongest competitors", "Steht dein Profil in derselben Schublade wie deine Wettbewerber?", "Die Kategorie entscheidet, bei welchen Suchen du auf der Karte erscheinst.", "f2"],
-      ["Drei bis neun Nebenkategorien", "Three to nine secondary categories", "Deckt dein Profil alle deine Leistungen als Kategorien ab?", "Jede fehlende Kategorie ist eine Suche, bei der du nicht erscheinst.", "f3"],
-      ["Beschreibung nutzt den Platz, Leistung und Ort vorn", "Description uses the space, service and place first", "Nutzt deine Profilbeschreibung den Platz?", "Die ersten 250 Zeichen sieht jeder; sie müssen Leistung und Ort nennen.", "f4"],
-      ["Leistungen eingetragen", "Services listed", "Sind deine Leistungen im Profil eingetragen?", "Google zeigt Profile mit passenden Leistungen bevorzugt.", "f5"],
-      ["Produkte oder Angebote eingetragen", "Products or offers listed", "Zeigt dein Profil Produkte oder Angebote?", "Produkte bringen Anfragen direkt aus dem Profil.", "f6"],
-      ["Öffnungszeiten vollständig, auch an Feiertagen", "Opening hours complete, holidays included", "Sind deine Öffnungszeiten vollständig?", "\"Geschlossen\" an einem Werktag ohne Angabe kostet Kunden.", "f7"],
-      ["Mindestens zehn Fotos, Logo und Titelbild", "At least ten photos, logo and cover image", "Zeigt dein Profil aktuelle Fotos?", "Profile mit Fotos bekommen mehr Anrufe und Routenanfragen.", "f8"],
-      ["Neuestes Foto jünger als 90 Tage", "Newest photo under 90 days old", "Wie alt ist das neueste Foto in deinem Profil?", "Alte Fotos wirken wie ein verlassener Betrieb; Kunden rufen lieber dort an, wo sie aktuelle Arbeit sehen.", "f15"],
-      ["Beitrag in den letzten 30 Tagen", "A post within the last 30 days", "Postest du regelmäßig in deinem Profil?", "Google belohnt aktive Profile mit besserer Platzierung.", "f9"],
-      ["Kundenfragen im Profil beantwortet", "Customer questions answered in the profile", "Sind die typischen Kundenfragen in deinem Profil beantwortet?", "Sonst beantwortet sie irgendwer, oft falsch.", "f10"],
-      ["Einsatzorte eingetragen", "Service areas listed", "Sind deine Einsatzorte im Profil eingetragen?", "Nur dort erscheinst du bei Suchen aus dem Umland.", "f11"],
-      ["Website, Terminbuchung und Nachrichten verknüpft", "Website, booking and messages linked", "Kann ein Kunde aus deinem Profil heraus Kontakt aufnehmen?", "Jeder zusätzliche Weg bringt Anfragen.", "f12"],
-      ["Zahlungsarten und Besonderheiten eingetragen", "Payment methods and features listed", "Sind Zahlungsarten, Barrierefreiheit und Besonderheiten eingetragen?", "Google filtert danach.", "f13"],
-      ["Profil verstößt gegen keine Google-Regel", "Profile breaks no Google rule", "Verstößt dein Profil gegen Googles Regeln?", "Schlüsselwörter im Namen oder doppelte Profile können zur Sperre führen.", "f14"]
-    ] },
-  { id: "g", gewicht: 8, de: "Bewertungen", en: "Reviews",
-    pruefungen: [
-      ["Mehr Bewertungen als die Betriebe neben dir auf der Karte", "More reviews than the businesses next to you on the map", "Hast du mehr oder weniger Bewertungen als deine Wettbewerber?", "Kunden wählen den mit mehr Bewertungen, Google auch.", "g1"],
-      ["Durchschnitt über 4,3 Sterne", "Average above 4.3 stars", "Liegt dein Schnitt über 4,3 Sternen?", "Unter 4 Sternen filtern viele Kunden dich weg.", "g2"],
-      ["Mindestens zwei neue Bewertungen im Monat", "At least two new reviews a month", "Kommen laufend neue Bewertungen?", "Alte Bewertungen zählen weniger; Google will aktuelle.", "g3"],
-      ["Du antwortest auf Bewertungen", "You reply to reviews", "Antwortest du auf Bewertungen?", "Antworten zeigen Kunden und Google, dass jemand da ist.", "g4"],
-      ["Sachliche Antworten auf Kritik", "Factual replies to criticism", "Reagierst du auf Kritik?", "Eine gute Antwort auf eine schlechte Bewertung überzeugt mehr als zehn Sterne.", "g5"],
-      ["Kunden nennen in Bewertungen Leistung und Ort", "Customers name service and place in reviews", "Erwähnen Kunden in Bewertungen, was du für sie gemacht hast?", "Google liest Bewertungen als Beleg für deine Leistungen.", "g6"],
-      ["Bewertungen auch auf anderen Portalen", "Reviews on other portals too", "Gibt es dich auch auf anderen Bewertungsportalen?", "KI-Assistenten ziehen aus mehreren Quellen.", "g7"],
-      ["Bewertungen sehen echt aus", "Reviews look genuine", "Sehen deine Bewertungen echt aus?", "Auffällige Muster führen zu Löschung oder Sperre.", "g8"]
-    ] },
-  { id: "h", gewicht: 7, de: "Verzeichnisse und Einträge", en: "Directories and listings",
-    pruefungen: [
-      ["Eintrag in Apple Karten", "Listing in Apple Maps", "Findet man dich auf dem iPhone in Apple Karten?", "Viele iPhone-Nutzer suchen dort statt bei Google.", "h1"],
-      ["Eintrag bei Bing", "Listing on Bing", "Findet man dich bei Bing und in Copilot?", "Windows-Nutzer und Microsofts KI suchen hier.", "h2"],
-      ["Einträge in Gelbe Seiten, Das Örtliche und 11880", "Listings in Gelbe Seiten, Das Örtliche and 11880", "Stehst du in Gelbe Seiten, Das Örtliche, 11880 und Co.?", "Diese Einträge bestätigen Google, dass es dich gibt.", "h3"],
-      ["Einträge bei Kammer, Innung und Fachportalen", "Listings with chamber, guild and trade portals", "Stehst du bei Kammer, Innung und Fachportalen?", "Fachportale bringen eigene Anfragen und Vertrauen.", "h4"],
-      ["Facebook und Instagram mit denselben Daten", "Facebook and Instagram with the same data", "Stimmen deine Firmendaten in den sozialen Netzwerken?", "Abweichungen verwirren Kunden und Maschinen.", "h5"],
-      ["Keine alten Adressen oder Nummern im Netz", "No old addresses or numbers on the web", "Gibt es alte Adressen oder Nummern von dir im Netz?", "Kunden rufen die falsche Nummer an; Google vertraut keiner.", "h6"],
-      ["Eintrag bei Wikidata", "Entry on Wikidata", "Kennt Wikidata deinen Betrieb?", "KI-Assistenten und Googles Wissensfeld schöpfen daraus.", "h7"]
-    ] },
-  { id: "i", gewicht: 6, de: "Empfehlungen durch Links", en: "Recommendations through links",
-    pruefungen: [
-      ["So viele Empfehlungs-Links wie die Wettbewerber", "As many recommending links as the competitors", "Verlinken so viele Seiten auf dich wie auf deine Wettbewerber?", "Links sind Empfehlungen; Google zählt sie.", "i1"],
-      ["Links von Vereinen, Partnern und Lokalpresse", "Links from clubs, partners and local press", "Verlinken Vereine, Partner und Lokalpresse auf dich?", "Lokale Links zählen für lokale Suchen doppelt.", "i2"],
-      ["Keine Links von zwielichtigen Seiten", "No links from shady sites", "Verlinkt Schrott auf deine Seite?", "Schlechte Nachbarschaft drückt die Bewertung.", "i3"],
-      ["Nennungen deines Namens ohne Link", "Mentions of your name without a link", "Wird dein Name im Netz genannt, ohne dass verlinkt wird?", "Jede Nennung lässt sich oft mit einer Mail in einen Link verwandeln.", "i4"],
-      ["Verlauf deiner Sichtbarkeit", "Trend of your visibility", "Wie hat sich deine Sichtbarkeit entwickelt?", "Der Verlauf zeigt, ob etwas wirkt.", "i5"],
-      ["Links zu Herstellern, Verbänden und Partnern", "Links to manufacturers, associations and partners", "Verlinkst du auf Hersteller, Verbände, Partner?", "Zeigt Google dein Umfeld.", "i6"]
-    ] },
-  { id: "j", gewicht: 10, de: "Platzierung bei Google und Bing", en: "Ranking on Google and Bing",
-    pruefungen: [
-      ["Platz bei den wichtigsten Suchen in deinem Ort", "Position for the most important searches in your town", "Auf welchem Platz stehst du für deine wichtigsten Suchen?", "Die obersten Plätze bekommen die meisten Klicks, ab Seite 2 fast niemand mehr.", "j1"],
-      ["Unter den drei Betrieben auf der Karte", "Among the three businesses on the map", "Bist du einer der drei Betriebe auf der Karte?", "Die Karte steht über allen Ergebnissen; wer dort fehlt, wird am Handy kaum gesehen.", "j2"],
-      ["Sichtbarkeit rund um deinen Standort", "Visibility around your location", "Wo im Umkreis bist du auf der Karte sichtbar und wo nicht?", "Zeigt, aus welchen Stadtteilen keine Kunden kommen können.", "j3"],
-      ["Platz 1 bei der Suche nach deinem Namen", "Position 1 when searching for your name", "Findet man dich, wenn man deinen Namen sucht?", "Wer nach dir sucht, hat sich fast entschieden; da darf nichts dazwischen stehen.", "j4"],
-      ["Anzahl der Suchen, bei denen du gefunden wirst", "Number of searches you are found for", "Für wie viele Suchen wirst du überhaupt gefunden?", "Mehr Begriffe, mehr Türen.", "j5"],
-      ["Genannt in Googles KI-Antwort", "Named in Google's AI answer", "Nennt Googles KI-Antwort deinen Betrieb?", "Diese Antwort steht ganz oben und verdrängt die normalen Ergebnisse.", "j6"],
-      ["Gefunden bei Bing", "Found on Bing", "Wirst du auch bei Bing gefunden?", "Bing speist Copilot und ChatGPT-Suche.", "j7"],
-      ["Deine Bilder in der Google-Bildersuche", "Your images in Google image search", "Erscheinen deine Bilder bei Google Bilder?", "Für Handwerk und Gastronomie ein eigener Kundenweg.", "j8"],
-      ["Entwicklung über die Zeit", "Development over time", "Geht es aufwärts?", "Der Nachweis für das Abo.", "j9"],
-      ["Wettbewerber werben auf deinen Namen", "Competitors advertise on your name", "Schaltet ein Wettbewerber Werbung auf deinen Namen?", "Er fängt deine Kunden ab.", "j10"]
-    ] },
-  { id: "k", gewicht: 5, de: "Sichtbarkeit in KI-Assistenten", en: "Visibility in AI assistants",
-    pruefungen: [
-      ["Genannt, wenn Kunden eine KI nach einem Betrieb fragen", "Named when customers ask an AI for a business", "Nennt ChatGPT dich, wenn jemand nach einem Betrieb wie deinem fragt?", "Immer mehr Kunden fragen zuerst eine KI statt Google.", "k1"],
-      ["Genannt, wenn Kunden ihr Problem beschreiben", "Named when customers describe their problem", "Wirst du genannt, wenn jemand sein Problem beschreibt?", "Hier entstehen die Aufträge, bevor der Kunde einen Namen kennt.", "k2"],
-      ["KI-Assistenten sagen Richtiges über dich", "AI assistants say correct things about you", "Stimmt, was die KI über dich sagt?", "Falsche Öffnungszeiten aus der KI kosten Besuche.", "k3"],
-      ["Präsent dort, wo KI-Assistenten nachlesen", "Present where AI assistants look things up", "Stehst du dort, wo die KI nachliest?", "Meist Google-Profil, Verzeichnisse, Bewertungsportale, Lokalpresse.", "k4"],
-      ["KI-Assistenten dürfen deine Seite lesen", "AI assistants may read your site", "Dürfen KI-Assistenten deine Seite lesen?", "Wer sie aussperrt, kommt in keiner KI-Antwort vor.", "k5"]
-    ] },
-  { id: "l", gewicht: 4, de: "Recht und Vertrauen", en: "Law and trust",
-    pruefungen: [
-      ["Impressum vollständig und schnell erreichbar", "Legal notice complete and quick to reach", "Ist dein Impressum vollständig?", "Ein fehlendes Impressum ist der häufigste Grund für Abmahnungen.", "l1"],
-      ["Datenschutzerklärung passt zur Seite", "Privacy policy matches the site", "Passt deine Datenschutzerklärung zu dem, was deine Seite tut?", "Google Maps, Schriften und Formulare ohne Erwähnung sind abmahnfähig.", "l2"],
-      ["Fremde Dienste erst nach Zustimmung", "Third-party services only after consent", "Lädt deine Seite fremde Dienste erst nach Zustimmung?", "Google-Schriften vom Google-Server gelten in Deutschland als Verstoß.", "l3"],
-      ["Auch mit Einschränkungen nutzbar", "Usable with impairments too", "Können auch Menschen mit Einschränkungen deine Seite nutzen?", "Kontraste und Beschriftungen helfen allen und zählen bei Google.", "l4"]
-    ] },
-  { id: "n", gewicht: 2, de: "Werkzeuge auf der Website", en: "Tools on the website",
-    pruefungen: [
-      ["Chat oder Sofort-Kontakt auf der Website", "Chat or instant contact on the website", "Kann ein Besucher dir sofort schreiben, auch außerhalb der Öffnungszeiten?", "Wer abends eine Frage hat und niemanden erreicht, fragt beim Nächsten.", "n1"],
-      ["Besucherzählung eingebaut, mit Zustimmung", "Visitor counting built in, with consent", "Weißt du, wie viele Besucher deine Website hat?", "Ohne Zählung weiß niemand, wie viele Kunden die Seite bringt und was eine Verbesserung bewirkt.", "n2"],
-      ["Eigene Google-Anzeigen geschaltet", "Own Google ads running", "Bezahlst du gerade für Google-Anzeigen?", "Zeigt, ob du gerade für Werbung zahlst und ob sie auf eine passende Seite führt.", "n3"]
+      ["Claude darf die Website lesen", "Claude may read the website", "Erlaubt die robots.txt den Abrufern Claude-SearchBot und Claude-User das Lesen der Website?", "Gesperrte Abrufer lassen den Betrieb in Antworten von Claude aus.", "a17"],
+      ["Die Firewall lässt Claude durch", "The firewall lets Claude through", "Kommt Claude-SearchBot an der Firewall der Website vorbei?", "Eine blockierende Firewall sperrt Claude aus, obwohl die robots.txt es erlaubt.", "a18"],
+      ["Genannt, wenn Kunden Claude nach einem Betrieb fragen", "Named when customers ask Claude about a business", "Nennt Claude den Betrieb, wenn Kunden nach einer Empfehlung fragen?", "Wer in Claude nicht genannt wird, fehlt bei allen Kunden, die dort suchen.", "k6"],
+      ["Genannt, wenn Kunden Claude ihr Problem beschreiben", "Named when customers describe their problem to Claude", "Nennt Claude den Betrieb, wenn Kunden ihr Problem beschreiben?", "Hier entstehen Aufträge, bevor der Kunde überhaupt einen Namen kennt.", "k7"]
     ] }
 ];
 
-// Flache Liste aller Karten in Ringreihenfolge: Bereich, Kennung, Name je Sprache, Frage, Folge.
 export function karten(sprache) {
   const liste = [];
   bereiche.forEach((b, bi) => {
@@ -158,6 +80,10 @@ export function karten(sprache) {
     });
   });
   return liste;
+}
+
+export function gewichtText(gewicht, sprache) {
+  return gewicht.toLocaleString(sprache === "en" ? "en-GB" : "de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 }
 
 export const texte = {

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "preact/hooks";
 import type { Keyword, Ranking } from "../api/types";
 import { buildGrid, type Grid } from "../lib/grid";
-import { isCustomer } from "../lib/rankings";
+import { isCustomer, keywordLabel } from "../lib/rankings";
 import { ChipGroup, Empty } from "./ui";
 
 interface GridMapProps {
@@ -63,7 +63,7 @@ export function GridMap(props: GridMapProps) {
   if (selected === undefined || grid === null) {
     return <Empty>Kein Kartenraster gemessen. Das Raster braucht den Bezahldienst für Platzierungen.</Empty>;
   }
-  const phrases = new Map(measured.map((keyword) => [keyword.id, keyword.phrase]));
+  const phrases = new Map(measured.map((keyword) => [keyword.id, keywordLabel(keyword)]));
   return (
     <div class="stack">
       {measured.length > 1 && (

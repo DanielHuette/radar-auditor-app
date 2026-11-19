@@ -14,10 +14,10 @@ import pytest
 from conftest import CAPTCHA_PAGE, HEADLESS_USER_AGENT, BrowserFactory, FakeDocument
 
 from radarauditor.collectors import browser
-from radarauditor.collectors.browser import Geolocation, Pacing
+from radarauditor.collectors.browser import BrowserService, Geolocation, Pacing
 from radarauditor.errors import SearchBlockedError, TransientCollectionError
 
-SEARCH_URL = "https://www.google.de/search?q=Dachdecker+M%C3%BCnster&hl=de&gl=de&num=20"
+SEARCH_URL = "https://www.google.de/search?q=Dachdecker+M%C3%BCnster&hl=de&gl=de&num=30"
 RESULTS_HTML = '<html><body><div id="search"><a href="https://example.de/"><h3>E</h3></a></div>'
 CONSENT_HTML = """
 <html><body><h1>Bevor Sie zu Google weitergehen</h1>
@@ -214,10 +214,16 @@ def test_pacing_jitter_stays_in_range() -> None:
     assert max(draws) <= 5.0
 
 
+@pytest.mark.parametrize(
+    ("channel_argument", "channel"), [((), "chromium"), (("chrome",), "chrome")]
+)
 async def test_persistent_chromium_launches_a_german_profile(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    channel_argument: tuple[str, ...],
+    channel: str,
 ) -> None:
-    """Chromium opens the profile with German locale, Berlin time and no automation flag."""
+    """The browser opens the profile with German locale, Berlin time and no automation flag."""
     launched: dict[str, Any] = {}
 
     class Context:
@@ -242,17 +248,35 @@ async def test_persistent_chromium_launches_a_german_profile(
 
     monkeypatch.setattr(browser, "async_playwright", fake_playwright)
 
-    async with browser.persistent_chromium(tmp_path, True) as opened:
+    async with browser.persistent_chromium(tmp_path, True, *channel_argument) as opened:
         assert opened is context
 
     assert context.closed is True
     assert launched["user_data_dir"] == str(tmp_path)
-    assert launched["channel"] == "chromium"
+    assert launched["channel"] == channel
     assert launched["locale"] == "de-DE"
     assert launched["timezone_id"] == "Europe/Berlin"
     assert launched["ignore_default_args"] == ["--enable-automation"]
     assert "--disable-blink-features=AutomationControlled" in launched["args"]
     assert launched["extra_http_headers"]["Accept-Language"].startswith("de-DE")
+
+
+def test_browser_service_opens_the_browser_of_its_channel(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Without a context factory the service opens the channel it was given, Chromium by default."""
+    opened: list[tuple[Path, bool, str]] = []
+
+    def record(profile_dir: Path, headless: bool, channel: str = "chromium") -> object:
+        opened.append((profile_dir, headless, channel))
+        return object()
+
+    monkeypatch.setattr(browser, "persistent_chromium", record)
+
+    BrowserService(tmp_path)._context_factory(tmp_path, True)  # noqa: SLF001
+    BrowserService(tmp_path, channel="chrome")._context_factory(tmp_path, False)  # noqa: SLF001
+
+    assert opened == [(tmp_path, True, "chromium"), (tmp_path, False, "chrome")]
 
 
 def test_user_agent_override_carries_client_hints() -> None:
@@ -274,6 +298,13 @@ def test_find_consent_choice_prefers_reject() -> None:
     """Rejecting wins over accepting, in German and in English."""
     assert browser.find_consent_choice(CONSENT_HTML) == "Alle ablehnen"
     assert browser.find_consent_choice(ENGLISH_CONSENT_HTML) == "Reject all"
+
+
+def test_find_consent_choice_takes_only_the_necessary_cookies() -> None:
+    """A dialog offering "Nur notwendige" next to "Alle zulassen" is answered with the first."""
+    html = "<html><body><button>Alle zulassen</button><button>Nur notwendige</button></body></html>"
+
+    assert browser.find_consent_choice(html) == "Nur notwendige"
 
 
 def test_find_consent_choice_reads_submit_inputs() -> None:

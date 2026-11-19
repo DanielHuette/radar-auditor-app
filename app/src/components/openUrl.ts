@@ -1,4 +1,3 @@
-// The tab opens before the signed URL is fetched; Safari blocks window.open after an await.
 export async function openInNewTab(resolve: () => Promise<string | null>): Promise<boolean> {
   const tab = window.open("about:blank", "_blank");
   if (tab !== null) tab.opener = null;
@@ -15,4 +14,20 @@ export async function openInNewTab(resolve: () => Promise<string | null>): Promi
     tab?.close();
     throw error;
   }
+}
+
+export function saveFile(name: string, content: Uint8Array, type: string): void {
+  const url = URL.createObjectURL(new Blob([new Uint8Array(content)], { type }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function downloadFile(resolve: () => Promise<string | null>): Promise<boolean> {
+  const url = await resolve();
+  if (url === null) return false;
+  window.location.assign(url);
+  return true;
 }

@@ -265,7 +265,7 @@ async def test_search_all_handles_consent_and_parses_every_phrase(
     assert batch.reason is None
     assert fake.page.clicked == ["Alle ablehnen"]
     assert fake.page.visited[0].startswith("https://www.google.de/search?q=Dachdecker+M%C3%BCnster")
-    assert "hl=de&gl=de&num=20" in fake.page.visited[0]
+    assert "hl=de&gl=de&num=30" in fake.page.visited[0]
     assert batch.results[0].organic[0] == (1, "dachdecker-hollenbeck.de")
     assert len(fake.page.mouse.scrolled) == 2
     pacing = fake.service.pacing

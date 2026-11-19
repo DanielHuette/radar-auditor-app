@@ -1,15 +1,16 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import { paidRouteText } from "./routes";
 
 describe("paidRouteText", () => {
   it.each([
     [{ route: "dataforseo" }, "über DataForSEO"],
+    [{ route: "apify" }, "über Apify"],
     [{ route: "places" }, "über Google-Schnittstelle"],
     [{ route: "OpenAI " }, "über OpenAI-Schnittstelle"],
     [{ routes: ["browser", "dataforseo"] }, "über DataForSEO"],
     [{ routes: [{ route: "places_api" }, { route: "browser" }] }, "über Google-Schnittstelle"],
-    [{ routes: { chatgpt: "openai", gemini: "browser", perplexity: "perplexity_api" } }, "über OpenAI-Schnittstelle und Perplexity-Schnittstelle"],
-    [{ route: "dataforseo", routes: ["places", "gemini_api", "dataforseo"] }, "über DataForSEO, Google-Schnittstelle und Gemini-Schnittstelle"],
+    [{ routes: { chatgpt: "openai", google_ai: "browser" } }, "über OpenAI-Schnittstelle"],
+    [{ route: "dataforseo", routes: ["places", "openai_api", "dataforseo"] }, "über DataForSEO, Google-Schnittstelle und OpenAI-Schnittstelle"],
   ])("names the paid route of %j", (measured, text) => {
     expect(paidRouteText(measured)).toBe(text);
   });

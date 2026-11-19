@@ -1,37 +1,33 @@
-// Der Projekt-Ring: 104 Prüfkarten stehen senkrecht auf einem Kreis, Außenseite zum Betrachter,
-// nach dem Vorbild des Projektrings von unseen.co/projects/clou. Scrollen und Ziehen drehen ihn
-// um die Y-Achse; die Karte vorn wächst leicht, Karten hinten versinken im Nebel.
-//
-// Mathematik der Anordnung (alles im Vertex-Shader, eine einzige Instanz-Zeichnung):
-//   Winkel der Karte i:   θ_i = i · 2π / N + uRotation
-//   Platz auf dem Ring:   P_i = (R · sin θ_i, 0, R · cos θ_i)
-//   Blickrichtung:        Karte um θ_i um die Y-Achse gedreht → Normale zeigt radial nach außen
-//   Radius:               R = N · Platz je Karte / (2π); Karten sind breiter als ihr Platz und fächern sich
-//   Fokus:                f = ½ + ½ · cos θ_i  (1 = vorn, 0 = hinten); Skala = 1 + 0,18 · f⁸
-//   Nebel:                Deckkraft fällt linear mit der Tiefe im Kameraraum zwischen uNah und uFern
 import * as THREE from "../vendor/three.module.min.js";
-import { bereiche, karten, texte } from "./katalog.js";
+import { bereiche, gewichtText, karten, texte } from "./katalog.js";
 
 const TAU = Math.PI * 2;
-// Karten überlappen wie ein aufgefächertes Deck: Breite 2,4 bei einem Platz von 1,22 je Karte.
-const KARTE = { breite: 2.1, hoehe: 3.4, platz: 1.22 };
+const KARTE = { breite: 2.1, hoehe: 3.4, platz: 1.22, dicke: 0.19, fase: 0.05, faseSchritte: 3, verdrehung: 0.33 };
+const FLAECHE = { vorn: 0, fase: 1, wand: 2, hinten: 3 };
 const ATLAS = { spalten: 10, zeilen: 11, px: 240, py: 300 };
+const MAX_GEWICHT = Math.max(...bereiche.map((b) => b.gewicht));
 
-const vertex = /* glsl */ `
+const vertex = `
   uniform float uRotation;
   uniform float uRadius;
   uniform float uAnzahl;
-  uniform float uGeschwindigkeit;   // normierte Drehgeschwindigkeit, -1 … 1
+  uniform float uGeschwindigkeit;
   uniform float uZeit;
-  uniform float uHervor;            // Index der Karte unter dem Zeiger, -1 = keine
-  uniform float uGewaehlt;          // Index der angeklickten Karte, -1 = keine
+  uniform float uHervor;
+  uniform float uGewaehlt;
+  uniform float uVerdrehung;
+  uniform float uWahl;
   attribute float aIndex;
   attribute vec2 aKachel;
+  attribute float aFlaeche;
   varying vec2 vUv;
   varying vec2 vKachel;
   varying float vTiefe;
   varying float vFokus;
   varying float vHervor;
+  varying float vFlaeche;
+  varying vec3 vNormaleAnsicht;
+  varying vec3 vPosAnsicht;
 
   void main() {
     float winkel = aIndex / uAnzahl * 6.28318530718 + uRotation;
@@ -42,20 +38,22 @@ const vertex = /* glsl */ `
     vHervor = hervor;
     vec3 p = position * skala;
 
-    // Wellen-Verzerrung: beim schnellen Drehen biegt sich die Karte entlang ihrer Höhe
-    // und schert in Drehrichtung; bei Stillstand ist uGeschwindigkeit 0 und die Karte plan.
     float welle = sin(uv.y * 3.14159 + uZeit * 4.0 + aIndex * 0.35) * uGeschwindigkeit * 0.22;
     p.z += welle * (1.0 - fokus * 0.5);
     p.x += (uv.y - 0.5) * uGeschwindigkeit * 0.45;
-    // Hervorgehobene Karte tritt radial aus dem Fächer heraus, die gewählte ganz nach vorn
     p.z += 0.3 * hervor + 0.5 * gewaehlt;
 
-    float s = sin(winkel);
-    float c = cos(winkel);
+    float dreh = winkel + uVerdrehung * (1.0 - gewaehlt * uWahl);
+    float s = sin(dreh);
+    float c = cos(dreh);
     vec3 welt = vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c);
-    welt += vec3(uRadius * s, 0.0, uRadius * c);
+    welt += vec3(uRadius * sin(winkel), 0.0, uRadius * cos(winkel));
+    vec3 n = vec3(normal.x * c + normal.z * s, normal.y, -normal.x * s + normal.z * c);
 
     vec4 mv = modelViewMatrix * vec4(welt, 1.0);
+    vNormaleAnsicht = mat3(viewMatrix) * n;
+    vPosAnsicht = mv.xyz;
+    vFlaeche = aFlaeche;
     vTiefe = -mv.z;
     vFokus = fokus;
     vUv = uv;
@@ -64,7 +62,7 @@ const vertex = /* glsl */ `
   }
 `;
 
-const fragment = /* glsl */ `
+const fragment = `
   precision highp float;
   uniform sampler2D tAtlas;
   uniform vec2 uRaster;
@@ -73,36 +71,64 @@ const fragment = /* glsl */ `
   uniform float uFern;
   uniform float uGeschwindigkeit;
   uniform vec3 uNebelFarbe;
-  uniform vec2 uClip;               // visible rows of the ring stage in device pixels, from the bottom
+  uniform vec2 uClip;
+  uniform vec3 uKanteHell;
+  uniform vec3 uKanteDunkel;
+  uniform vec3 uGoldTief;
+  uniform vec3 uRueckOben;
+  uniform vec3 uRueckUnten;
   varying vec2 vUv;
   varying vec2 vKachel;
   varying float vTiefe;
   varying float vFokus;
   varying float vHervor;
+  varying float vFlaeche;
+  varying vec3 vNormaleAnsicht;
+  varying vec3 vPosAnsicht;
 
-  void main() {
-    // The canvas is fixed behind the whole page; outside its own stage the ring must not show
-    // through the next sections' headings and lists.
-    if (gl_FragCoord.y < uClip.x || gl_FragCoord.y > uClip.y) discard;
+  vec3 vorderseite() {
     vec2 zelle = 1.0 / uRaster;
     vec2 rand = 1.0 / uAtlasPx;
     vec2 lo = vKachel * zelle + rand;
     vec2 hi = (vKachel + 1.0) * zelle - rand;
     vec2 uv0 = (vKachel + vUv) * zelle;
-    // Farbspaltung in Drehrichtung, auf die eigene Kachel begrenzt
     float spalt = uGeschwindigkeit * 0.012;
     float r = texture2D(tAtlas, clamp(uv0 + vec2(spalt, 0.0), lo, hi)).r;
     float g = texture2D(tAtlas, clamp(uv0, lo, hi)).g;
     float b = texture2D(tAtlas, clamp(uv0 - vec2(spalt, 0.0), lo, hi)).b;
-    vec3 farbe = vec3(r, g, b);
+    return vec3(r, g, b);
+  }
 
-    float nah = smoothstep(uFern, uNah, vTiefe);   // 1 vorn, 0 hinten
+  vec3 koerper() {
+    vec3 n = normalize(vNormaleAnsicht);
+    vec3 blick = normalize(-vPosAnsicht);
+    vec3 licht = normalize(vec3(-0.45, 0.8, 0.5));
+    float streu = max(dot(n, licht), 0.0);
+    float glanz = pow(max(dot(n, normalize(licht + blick)), 0.0), 40.0);
+    float saum = pow(1.0 - max(dot(n, blick), 0.0), 3.0);
+    if (vFlaeche < 1.5) {
+      return uKanteHell * (0.3 + 0.7 * streu) + uKanteHell * glanz * 1.2 + uGoldTief * saum * 0.4;
+    }
+    if (vFlaeche < 2.5) {
+      return uKanteDunkel * (0.3 + 0.9 * streu) + uGoldTief * glanz * 0.5 + uGoldTief * saum * 0.25;
+    }
+    float rahmen = 1.0 - smoothstep(0.0, 0.012, min(min(vUv.x, 1.0 - vUv.x) * 1.6, min(vUv.y, 1.0 - vUv.y)));
+    vec3 flaeche = mix(uRueckUnten, uRueckOben, vUv.y) * (0.7 + 0.5 * streu);
+    return flaeche + uGoldTief * rahmen * 0.7 + uGoldTief * glanz * 0.3;
+  }
+
+  void main() {
+    if (gl_FragCoord.y < uClip.x || gl_FragCoord.y > uClip.y) discard;
+    vec3 vorn = vorderseite();
+    vec3 farbe = vFlaeche < 0.5 ? vorn : koerper();
+
+    float nah = smoothstep(uFern, uNah, vTiefe);
     float deckkraft = mix(0.45, 1.0, pow(nah, 1.2));
     farbe = mix(uNebelFarbe, farbe, mix(0.6, 1.0, nah));
-    farbe += vec3(0.08, 0.06, 0.02) * pow(vFokus, 12.0);   // warmes Glimmen auf der Karte vorn
-    // Karte unter dem Zeiger oder gewählt: heller und ein goldener Rand
+    farbe += vec3(0.08, 0.06, 0.02) * pow(vFokus, 12.0);
     float randAbstand = min(min(vUv.x, 1.0 - vUv.x) * 1.25, min(vUv.y, 1.0 - vUv.y));
-    farbe += vHervor * (vec3(0.06, 0.05, 0.02) + vec3(0.9, 0.7, 0.35) * (1.0 - smoothstep(0.0, 0.03, randAbstand)));
+    float kante = vFlaeche < 0.5 ? 1.0 - smoothstep(0.0, 0.03, randAbstand) : 0.6;
+    farbe += vHervor * (vec3(0.06, 0.05, 0.02) + vec3(0.9, 0.7, 0.35) * kante);
     deckkraft = max(deckkraft, vHervor * 0.9);
     gl_FragColor = vec4(farbe * deckkraft, deckkraft);
   }
@@ -116,7 +142,6 @@ function kartenAtlas(sprache) {
   const ctx = canvas.getContext("2d");
   const font = getComputedStyle(document.body).fontFamily;
 
-  // Zeilenumbruch nach Wörtern; die letzte erlaubte Zeile wird mit … gekürzt, wenn Text übrig bleibt.
   function zeile(text, x, y, maxBreite, zeilenHoehe, maxZeilen) {
     const woerter = text.split(" ");
     const zeilen = [];
@@ -149,9 +174,7 @@ function kartenAtlas(sprache) {
     verlauf.addColorStop(1, "#0c1326");
     ctx.fillStyle = verlauf;
     ctx.fillRect(x0, y0, ATLAS.px, ATLAS.py);
-    // Goldband am Kopf: seine Höhe folgt dem Gewicht des Bereichs (2 → schmal, 14 → breit),
-    // so unterscheiden sich die Sektoren des Rings schon aus der Ferne.
-    const band = Math.round(ATLAS.py * (0.12 + (b.gewicht / 14) * 0.3));
+    const band = Math.round(ATLAS.py * (0.12 + (b.gewicht / MAX_GEWICHT) * 0.3));
     const gold = ctx.createLinearGradient(x0, y0, x0, y0 + band);
     gold.addColorStop(0, "rgba(240, 212, 146, 0.95)");
     gold.addColorStop(1, "rgba(169, 128, 58, 0.75)");
@@ -172,7 +195,7 @@ function kartenAtlas(sprache) {
     ctx.textAlign = "right";
     ctx.fillStyle = "#a9a79f";
     ctx.font = `500 15px ${font}`;
-    ctx.fillText(`${texte[sprache].gewicht} ${b.gewicht}`, x0 + ATLAS.px - 16, y0 + band + 28);
+    ctx.fillText(`${texte[sprache].gewicht} ${gewichtText(b.gewicht, sprache)}`, x0 + ATLAS.px - 16, y0 + band + 28);
     ctx.textAlign = "left";
 
     ctx.fillStyle = "#f3f1ea";
@@ -194,6 +217,91 @@ function kartenAtlas(sprache) {
   return { textur, liste };
 }
 
+function kartenKoerper() {
+  const { breite: w, hoehe: h, dicke: t, fase: f, faseSchritte: schritte } = KARTE;
+  const pos = [];
+  const nor = [];
+  const uvs = [];
+  const flaeche = [];
+  const index = [];
+
+  function punkt(x, y, z, nx, ny, nz, art) {
+    pos.push(x, y, z);
+    nor.push(nx, ny, nz);
+    uvs.push(x / w + 0.5, y / h + 0.5);
+    flaeche.push(art);
+    return pos.length / 3 - 1;
+  }
+
+  function vektor(feld, i) {
+    return new THREE.Vector3(feld[i * 3], feld[i * 3 + 1], feld[i * 3 + 2]);
+  }
+
+  function dreieck(a, b, c) {
+    const geometrisch = vektor(pos, b).sub(vektor(pos, a)).cross(vektor(pos, c).sub(vektor(pos, a)));
+    const gewollt = vektor(nor, a).add(vektor(nor, b)).add(vektor(nor, c));
+    if (geometrisch.dot(gewollt) >= 0) index.push(a, b, c);
+    else index.push(a, c, b);
+  }
+
+  function viereck(a, b, c, d) {
+    dreieck(a, b, c);
+    dreieck(b, d, c);
+  }
+
+  for (const seite of [1, -1]) {
+    const art = seite > 0 ? FLAECHE.vorn : FLAECHE.hinten;
+    const ecken = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sy]) =>
+      punkt(sx * (w / 2 - f), sy * (h / 2 - f), (seite * t) / 2, 0, 0, seite, art)
+    );
+    viereck(...ecken);
+  }
+
+  const bogen = Array.from({ length: schritte + 1 }, (_, i) => {
+    const a = (i / schritte) * (Math.PI / 2);
+    return { d: f * (1 - Math.sin(a)), z: t / 2 - f * (1 - Math.cos(a)), nAussen: Math.sin(a), nz: Math.cos(a) };
+  });
+  const streifen = [
+    { punkte: bogen, art: FLAECHE.fase },
+    { punkte: [{ d: 0, z: t / 2 - f, nAussen: 1, nz: 0 }, { d: 0, z: -(t / 2 - f), nAussen: 1, nz: 0 }], art: FLAECHE.wand },
+    { punkte: bogen.map((q) => ({ ...q, z: -q.z, nz: -q.nz })), art: FLAECHE.fase }
+  ];
+  const kanten = [
+    { aussen: [0, 1], laengs: [1, 0], halb: w / 2, abstand: h / 2 },
+    { aussen: [0, -1], laengs: [1, 0], halb: w / 2, abstand: h / 2 },
+    { aussen: [1, 0], laengs: [0, 1], halb: h / 2, abstand: w / 2 },
+    { aussen: [-1, 0], laengs: [0, 1], halb: h / 2, abstand: w / 2 }
+  ];
+  for (const kante of kanten) {
+    for (const streif of streifen) {
+      const reihen = streif.punkte.map((q) =>
+        [-1, 1].map((vorzeichen) => {
+          const laengs = vorzeichen * (kante.halb - q.d);
+          const nach = kante.abstand - q.d;
+          return punkt(
+            kante.aussen[0] * nach + kante.laengs[0] * laengs,
+            kante.aussen[1] * nach + kante.laengs[1] * laengs,
+            q.z,
+            kante.aussen[0] * q.nAussen,
+            kante.aussen[1] * q.nAussen,
+            q.nz,
+            streif.art
+          );
+        })
+      );
+      for (let i = 0; i < reihen.length - 1; i++) viereck(reihen[i][0], reihen[i][1], reihen[i + 1][0], reihen[i + 1][1]);
+    }
+  }
+
+  const koerper = new THREE.BufferGeometry();
+  koerper.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  koerper.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  koerper.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  koerper.setAttribute("aFlaeche", new THREE.Float32BufferAttribute(flaeche, 1));
+  koerper.setIndex(index);
+  return koerper;
+}
+
 export function ring(wurzel, sprache, scroll) {
   const stage = wurzel.querySelector(".ring__stage");
   const labelsEl = wurzel.querySelector(".ring__labels");
@@ -206,17 +314,18 @@ export function ring(wurzel, sprache, scroll) {
   const szene = new THREE.Scene();
   const kamera = new THREE.PerspectiveCamera(32, 1, 0.1, 400);
 
-  const basis = new THREE.PlaneGeometry(KARTE.breite, KARTE.hoehe);
+  const basis = kartenKoerper();
   const geometrie = new THREE.InstancedBufferGeometry();
   geometrie.index = basis.index;
   geometrie.attributes.position = basis.attributes.position;
+  geometrie.attributes.normal = basis.attributes.normal;
   geometrie.attributes.uv = basis.attributes.uv;
+  geometrie.attributes.aFlaeche = basis.attributes.aFlaeche;
   const index = new Float32Array(N);
   const kachel = new Float32Array(N * 2);
   for (let i = 0; i < N; i++) {
     index[i] = i;
     kachel[i * 2] = i % ATLAS.spalten;
-    // Die Leinwand zählt Zeilen von oben, die Textur von unten: deshalb gespiegelt.
     kachel[i * 2 + 1] = ATLAS.zeilen - 1 - Math.floor(i / ATLAS.spalten);
   }
   geometrie.setAttribute("aIndex", new THREE.InstancedBufferAttribute(index, 1));
@@ -238,30 +347,34 @@ export function ring(wurzel, sprache, scroll) {
       uNebelFarbe: { value: new THREE.Color("#0b1222") },
       uHervor: { value: -1 },
       uGewaehlt: { value: -1 },
-      uClip: { value: new THREE.Vector2(0, 0) }
+      uVerdrehung: { value: KARTE.verdrehung },
+      uWahl: { value: 0 },
+      uClip: { value: new THREE.Vector2(0, 0) },
+      uKanteHell: { value: new THREE.Color("#f0d492") },
+      uKanteDunkel: { value: new THREE.Color("#1b2745").lerp(new THREE.Color("#a9803a"), 0.4) },
+      uGoldTief: { value: new THREE.Color("#a9803a") },
+      uRueckOben: { value: new THREE.Color("#1b2745") },
+      uRueckUnten: { value: new THREE.Color("#0c1326") }
     },
     vertexShader: vertex,
     fragmentShader: fragment,
     transparent: true,
-    side: THREE.DoubleSide,
     depthWrite: true
   });
   const netz = new THREE.Mesh(geometrie, material);
   netz.frustumCulled = false;
   szene.add(netz);
 
-  // Beschriftungen je Bereich, außen um den Ring, im Dokument statt in WebGL (scharf, auswählbar).
   const labels = bereiche.map((b, bi) => {
     const el = document.createElement("span");
     el.className = "ring__label";
-    el.innerHTML = `${sprache === "en" ? b.en : b.de}<sup>${b.gewicht}</sup>`;
+    el.innerHTML = `${sprache === "en" ? b.en : b.de}<sup>${gewichtText(b.gewicht, sprache)}</sup>`;
     labelsEl.appendChild(el);
     const start = liste.findIndex((k) => k.bereich === bi);
     const mitte = start + (b.pruefungen.length - 1) / 2;
     return { el, winkel: (mitte / N) * TAU, ziel: new THREE.Vector3() };
   });
 
-  // Drehung = Scrollanteil + Zieh-Anteil + Eigendrehung im Stillstand + Ausrichtung auf eine gewählte Karte.
   let scrollDrehung = 0;
   let ziehDrehung = 0;
   let ziehTempo = 0;
@@ -270,14 +383,12 @@ export function ring(wurzel, sprache, scroll) {
   let tempoGlatt = 0;
   let vorn = -1;
 
-  // Zeiger: Ziehen dreht, ein kurzer Klick ohne Bewegung wählt die nächste Karte.
   let zeigerAktiv = false;
   let zeigerX = 0;
   let zeigerStart = { x: 0, y: 0 };
   let zeigerWeg = 0;
   let hervor = -1;
 
-  // Gewählte Karte: der Ring dreht sie nach vorn, die Kamera fährt heran, die Tafel zeigt die Prüfung.
   const wahl = { index: -1, drehZiel: 0, dreh: 0, zoom: 0, zoomZiel: 0, scrollBeiWahl: 0 };
   const tafel = document.createElement("aside");
   tafel.className = "ring__tafel";
@@ -296,8 +407,6 @@ export function ring(wurzel, sprache, scroll) {
   const hilfsVektor = new THREE.Vector3();
   const hilfsMatrix = new THREE.Matrix4();
 
-  // Karte zum Zeiger: alle Kartenmitten auf den Schirm projizieren und die nächste nehmen, solange
-  // der Zeiger innerhalb einer großzügigen Trefferzone liegt (halbe Kartenhöhe plus 28 Pixel).
   function treffer(clientX, clientY, drehung) {
     const s = stage.getBoundingClientRect();
     const px = clientX - s.left;
@@ -309,7 +418,7 @@ export function ring(wurzel, sprache, scroll) {
     for (let i = 0; i < N; i++) {
       const w = (i / N) * TAU + drehung;
       const nah = 0.5 + 0.5 * Math.cos(w);
-      if (nah < 0.18) continue;                       // Rückseite: nicht wählbar
+      if (nah < 0.18) continue;
       hilfsVektor.set(Math.sin(w) * R, 0, Math.cos(w) * R).applyMatrix4(hilfsMatrix);
       const tiefe = -hilfsVektor.z;
       if (tiefe <= 0) continue;
@@ -320,7 +429,6 @@ export function ring(wurzel, sprache, scroll) {
       const dx = Math.abs(px - x);
       const dy = Math.abs(py - y);
       if (dy > halbHoehePx + 28 || dx > halbHoehePx * 0.5 + 28) continue;
-      // Näher am Zeiger und weiter vorn gewinnt
       const wertung = Math.hypot(dx * 1.6, dy) / (0.35 + nah);
       if (wertung < besteWertung) { besteWertung = wertung; bester = i; }
     }
@@ -335,14 +443,12 @@ export function ring(wurzel, sprache, scroll) {
     const k = liste[i];
     const b = bereiche[k.bereich];
     wahl.index = i;
-    // Zielwinkel: Karte i vorn ⇒ i/N·2π + drehung ≡ 0; kürzester Weg dorthin.
     wahl.drehZiel = wahl.dreh + normiereWinkel(-(i / N) * TAU - drehung);
     wahl.zoomZiel = 1;
     wahl.scrollBeiWahl = scrollDrehung + ziehDrehung;
     material.uniforms.uGewaehlt.value = i;
-    tafelKopf.textContent = `${k.kennung.toUpperCase()} · ${sprache === "en" ? b.en : b.de} · ${texte[sprache].gewicht} ${b.gewicht}`;
+    tafelKopf.textContent = `${k.kennung.toUpperCase()} · ${sprache === "en" ? b.en : b.de} · ${texte[sprache].gewicht} ${gewichtText(b.gewicht, sprache)}`;
     tafelName.textContent = k.name;
-    // Kundenfrage und Folge liegen im Prüfkatalog nur auf Deutsch vor.
     tafelFrage.textContent = sprache === "en" ? "" : k.frage;
     tafelWirkung.textContent = sprache === "en" ? "" : k.wirkung;
     tafel.hidden = false;
@@ -406,23 +512,19 @@ export function ring(wurzel, sprache, scroll) {
   let groesse = { breite: 1, hoehe: 1 };
   const basisPos = new THREE.Vector3();
   const basisBlick = new THREE.Vector3();
-  const kartenVorn = new THREE.Vector3();   // Mitte der Karte, die vorn steht
+  const kartenVorn = new THREE.Vector3();
   const blick = new THREE.Vector3();
   function anpassen(g) {
     groesse = g;
     kamera.aspect = g.breite / g.hoehe;
-    // Kamera schräg von oben (Vorbild: Elevation rund 37°), Abstand so, dass auch die nahe
-    // Ringhälfte in die Breite passt: sie liegt um R·cos(Elevation) näher als der Mittelpunkt.
     const schmal = g.breite <= 720;
-    // Schmale Schirme sehen den Ring flacher und näher: die vorderen Karten werden lesbar, der Ring ragt seitlich hinaus.
     const sinE = schmal ? 0.42 : 0.6;
     const cosE = Math.sqrt(1 - sinE * sinE);
     const halbTan = Math.tan((kamera.fov * Math.PI) / 360);
     const halbBreite = R + KARTE.breite * 0.8;
-    const fuellung = schmal ? 1.35 : 0.74;   // Anteil der Fensterbreite, den der Ring einnimmt
+    const fuellung = schmal ? 1.35 : 0.74;
     const abstand = R * cosE + halbBreite / (halbTan * kamera.aspect * fuellung);
     basisPos.set(0, abstand * sinE, abstand * cosE);
-    // Blick etwas vor die Mitte, damit die perspektivisch größere nahe Hälfte nicht am Rand klebt
     basisBlick.set(0, 0, R * 0.14);
     kamera.position.copy(basisPos);
     kamera.lookAt(basisBlick);
@@ -447,7 +549,6 @@ export function ring(wurzel, sprache, scroll) {
       ziehTempo *= 0.94;
       if (Math.abs(ziehTempo) < 0.00005) ziehTempo = 0;
     }
-    // Gewählte Karte: Eigendrehung ruht; scrollt oder zieht man merklich weiter, löst sich die Wahl.
     if (wahl.index >= 0) {
       if (Math.abs(scrollDrehung + ziehDrehung - wahl.scrollBeiWahl) > 0.03) abwaehlen();
     } else {
@@ -457,11 +558,9 @@ export function ring(wurzel, sprache, scroll) {
     wahl.zoom += (wahl.zoomZiel - wahl.zoom) * Math.min(1, z.dt * 4);
     if (wahl.zoom < 0.002 && wahl.zoomZiel === 0 && !tafel.hidden) tafel.hidden = true;
 
-    // Kamera: bei Wahl fährt sie 70 % des Wegs auf die vordere Karte zu und blickt auf sie.
     kartenVorn.set(0, KARTE.hoehe * 0.05, R);
     const ease = wahl.zoom * wahl.zoom * (3 - 2 * wahl.zoom);
     kamera.position.copy(basisPos).lerp(kartenVorn, ease * 0.7);
-    // Blickpunkt rechts neben die Karte, damit sie links der Mitte steht und die Tafel rechts Platz hat
     const seitlich = groesse.breite > 720 ? 1.6 : 0;
     blick.copy(basisBlick).lerp(kartenVorn, ease).x += seitlich * ease;
     kamera.lookAt(blick);
@@ -473,24 +572,21 @@ export function ring(wurzel, sprache, scroll) {
     tempoGlatt += (tempo - tempoGlatt) * Math.min(1, z.dt * 8);
     const normiert = Math.max(-1, Math.min(1, tempoGlatt / 4.5));
 
+    material.uniforms.uWahl.value = wahl.zoom;
     material.uniforms.uRotation.value = drehung;
     material.uniforms.uGeschwindigkeit.value = normiert;
     material.uniforms.uZeit.value = z.zeit;
 
-    // Welche Karte steht vorn? θ_i ≡ 0 (mod 2π)  ⇒  i = −uRotation · N / 2π
     const i = ((Math.round((-drehung / TAU) * N) % N) + N) % N;
     if (i !== vorn) {
       vorn = i;
       const b = bereiche[liste[i].bereich];
       bereichEl.textContent = sprache === "en" ? b.en : b.de;
-      metaEl.textContent = `${texte[sprache].gewicht} ${b.gewicht} · ${b.pruefungen.length} ${texte[sprache].pruefungen}`;
+      metaEl.textContent = `${texte[sprache].gewicht} ${gewichtText(b.gewicht, sprache)} · ${b.pruefungen.length} ${texte[sprache].pruefungen}`;
       wurzel.style.setProperty("--ring-fokus", String(liste[i].bereich));
     }
 
-    // Beschriftungen auf den Bildschirm projizieren: Weltpunkt außen am Ring → Kamera → Pixel,
-    // dann vom Fenster in die Koordinaten der (klebenden) Bühne umgerechnet.
     const s = stage.getBoundingClientRect();
-    // Solange die Bühne noch nicht oben klebt, wandert das Bild mit ihr: Blickfenster um s.top verschieben.
     kamera.setViewOffset(groesse.breite, groesse.hoehe, 0, -s.top, groesse.breite, groesse.hoehe);
     const dpr = groesse.dpr || 1;
     material.uniforms.uClip.value.set(
@@ -503,7 +599,6 @@ export function ring(wurzel, sprache, scroll) {
       const x = (l.ziel.x * 0.5 + 0.5) * groesse.breite - s.left;
       const y = (-l.ziel.y * 0.5 + 0.5) * groesse.hoehe - s.top;
       const nah = 0.5 + 0.5 * Math.cos(w);
-      // Links vom Ring endet der Text am Ankerpunkt, rechts beginnt er dort (wie beim Vorbild).
       const links = Math.sin(w) < 0;
       const schmal = groesse.breite <= 720;
       const breite = l.el.offsetWidth;
