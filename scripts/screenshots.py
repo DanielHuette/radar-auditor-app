@@ -308,7 +308,8 @@ def findings() -> list[Row]:
             1,
             "Viele Bilder sind nicht beschrieben.",
             "9 von 14 Bildern haben keinen Alternativtext.",
-            "Google versteht nicht, was die Bilder zeigen, und zeigt sie in der Bildersuche seltener.",
+            "Google versteht nicht, was die Bilder zeigen, "
+            "und zeigt sie in der Bildersuche seltener.",
             "Jedem Bild einen kurzen beschreibenden Text geben.",
             None,
         ),
